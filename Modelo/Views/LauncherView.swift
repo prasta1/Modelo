@@ -260,9 +260,8 @@ private struct PersonaTile: View {
                     Image(systemName: persona.icon)
                         .font(.system(size: 13))
                         .foregroundStyle(isSelected ? Theme.amber : Theme.textLo)
-                    Text(persona.name.uppercased())
-                        .font(Theme.label(10))
-                        .tracking(0.8)
+                    Text(persona.name)
+                        .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(isSelected ? Theme.amber : Theme.textHi)
                 }
                 Text(persona.tagline)
