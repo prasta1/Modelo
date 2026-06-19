@@ -1,17 +1,18 @@
 import SwiftUI
 import SwiftData
+import Charts
 
-/// Full-page monitoring console — one card per LM Studio server.
-/// All servers appear: offline cards are dimmed but present.
+/// Server Status dashboard (handoff §6): a responsive grid of compact live
+/// server cards over `Theme.windowBG`. Each card shows reachability, the loaded-
+/// model count, and real usage metrics (requests / tok-s / TTFT) from the
+/// per-server `UsageRecord` rollup, plus an amber throughput sparkline.
 ///
-/// Native Refined look (handoff §6): cards over `Theme.windowBG`, design
-/// typography, and amber telemetry. The content stays the detailed per-server
-/// console (live loaded models + real Tok/s & TTFT rollups), re-skinned rather
-/// than reduced to the mock's static 3-up summary cards.
+/// `LATENCY` from the mock isn't surfaced — it isn't tracked yet — so its tile is
+/// given over to the real average TTFT instead.
 struct StatusView: View {
-    /// Called with (server, modelID) when the user pins a loaded model. nil hides the pin action.
+    /// Called with (server, modelID) when the user pins a loaded model. Retained
+    /// for API parity with the launcher/picker; the compact card has no pin UI.
     var onPin: ((Server, String) -> Void)? = nil
-    /// Called with (server, modelID) when the user unpins a loaded model. nil hides the unpin action.
     var onUnpin: ((Server, String) -> Void)? = nil
 
     @Environment(ServerRegistry.self) private var registry
@@ -21,18 +22,18 @@ struct StatusView: View {
     private var lmServers: [Server] { servers.filter { $0.kind == .lmStudio } }
     private var liveCount: Int { lmServers.filter { registry.isOnline($0) }.count }
 
+    private let columns = [GridItem(.adaptive(minimum: 230), spacing: 12)]
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 header
-                LazyVStack(spacing: 14) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                     ForEach(lmServers) { server in
-                        ServerConsoleCard(
+                        CompactServerCard(
                             server: server,
                             status: registry.status(for: server),
-                            snapshot: monitor.snapshot(for: server),
-                            onPin: onPin.map { cb in { modelID in cb(server, modelID) } },
-                            onUnpin: onUnpin.map { cb in { modelID in cb(server, modelID) } }
+                            snapshot: monitor.snapshot(for: server)
                         )
                     }
                 }
@@ -56,25 +57,62 @@ struct StatusView: View {
     }
 }
 
-// MARK: - Server card
+// MARK: - Compact server card
 
-private struct ServerConsoleCard: View {
+private struct CompactServerCard: View {
     let server: Server
     let status: ServerStatus
     let snapshot: ModelSnapshot?
-    var onPin: ((String) -> Void)? = nil
-    var onUnpin: ((String) -> Void)? = nil
+    @Query private var records: [UsageRecord]
+
+    init(server: Server, status: ServerStatus, snapshot: ModelSnapshot?) {
+        self.server = server
+        self.status = status
+        self.snapshot = snapshot
+        let label = server.label
+        _records = Query(
+            filter: #Predicate<UsageRecord> { $0.serverLabel == label },
+            sort: \UsageRecord.timestamp, order: .reverse
+        )
+    }
 
     var body: some View {
+        let rollup = InferenceRollup.compute(from: Array(records.prefix(20)).reversed())
+        let modelCount = snapshot?.models.count
         VStack(alignment: .leading, spacing: 0) {
-            cardHeader
+            HStack(spacing: 9) {
+                StatusLED(status: status, size: 7)
+                Text(server.label)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                statusLabel
+            }
             Text(server.host)
                 .font(.mono(10))
                 .foregroundStyle(Theme.textDim)
                 .lineLimit(1)
-                .padding(.top, 6)
+                .padding(.top, 8)
+
             Divider().overlay(Theme.line).padding(.vertical, 14)
-            ServerCardBody(server: server, snapshot: snapshot, onPin: onPin, onUnpin: onUnpin)
+
+            Grid(horizontalSpacing: 10, verticalSpacing: 13) {
+                GridRow {
+                    MetricTile(label: "MODELS",   value: modelCount.map { "\($0)" } ?? "—")
+                    MetricTile(label: "REQUESTS", value: rollup.requestCount > 0 ? "\(rollup.requestCount)" : "—")
+                }
+                GridRow {
+                    MetricTile(label: "TOK/S", value: rollup.avgTokPerSec.map { String(format: "%.0f", $0) } ?? "—")
+                    MetricTile(label: "TTFT",  value: rollup.avgTTFTms.map { "\(Int($0)) ms" } ?? "—")
+                }
+            }
+
+            if !rollup.tokPerSecHistory.isEmpty {
+                Sparkline(values: rollup.tokPerSecHistory)
+                    .frame(height: 28)
+                    .padding(.top, 16)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
@@ -82,18 +120,6 @@ private struct ServerConsoleCard: View {
                     in: RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.line))
         .opacity(status == .offline ? 0.6 : 1)
-    }
-
-    private var cardHeader: some View {
-        HStack(spacing: 9) {
-            StatusLED(status: status, size: 7)
-            Text(server.label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.textHi)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            statusLabel
-        }
     }
 
     @ViewBuilder
@@ -115,73 +141,42 @@ private struct ServerConsoleCard: View {
     }
 }
 
-// MARK: - Card body with filtered @Query
+// MARK: - Metric tile + sparkline
 
-private struct ServerCardBody: View {
-    let server: Server
-    let snapshot: ModelSnapshot?
-    var onPin: ((String) -> Void)? = nil
-    var onUnpin: ((String) -> Void)? = nil
-    @Query private var records: [UsageRecord]
-
-    init(server: Server, snapshot: ModelSnapshot?, onPin: ((String) -> Void)? = nil, onUnpin: ((String) -> Void)? = nil) {
-        self.server = server
-        self.snapshot = snapshot
-        self.onPin = onPin
-        self.onUnpin = onUnpin
-        let label = server.label
-        _records = Query(
-            filter: #Predicate<UsageRecord> { $0.serverLabel == label },
-            sort: \UsageRecord.timestamp, order: .reverse
-        )
-    }
-
+/// A single labelled metric in the Status card's 2×2 grid (MODELS / REQUESTS /
+/// TOK/S / TTFT).
+private struct MetricTile: View {
+    let label: String
+    let value: String
     var body: some View {
-        let rollup = InferenceRollup.compute(from: Array(records.prefix(20)).reversed())
-        VStack(alignment: .leading, spacing: 12) {
-            let loadedModels = snapshot?.models ?? []
-            if loadedModels.isEmpty {
-                NoModelRow()
-            } else {
-                ForEach(loadedModels, id: \.id) { model in
-                    LoadedModelRow(
-                        model: model,
-                        onPin: onPin.map { cb in { cb(model.id) } },
-                        onUnpin: onUnpin.map { cb in { cb(model.id) } }
-                    )
-                }
-            }
-
-            if rollup.requestCount > 0 {
-                Divider().overlay(Theme.line)
-
-                Eyebrow("All Models · Last \(rollup.requestCount) requests")
-
-                // Each metric pairs its LAST/AVG/PEAK summary with a full-width
-                // sparkline beneath it. Stacking vertically (rather than two
-                // charts side-by-side) gives each chart the whole panel width, so
-                // the recent requests spread out instead of cramming into half a row.
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        MetricStat(
-                            label: "Tok/s",
-                            last: rollup.lastTokPerSec.map { String(format: "%.0f", $0) },
-                            avg:  rollup.avgTokPerSec.map  { String(format: "%.0f", $0) },
-                            peak: rollup.peakTokPerSec.map { String(format: "%.0f", $0) }
-                        )
-                        ThroughputChart(values: rollup.tokPerSecHistory)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        MetricStat(
-                            label: "TTFT (ms)",
-                            last: rollup.lastTTFTms.map { "\($0)" },
-                            avg:  rollup.avgTTFTms.map  { String(format: "%.0f", $0) },
-                            peak: rollup.peakTTFTms.map { "\($0)" }
-                        )
-                        TTFTChart(values: rollup.ttftHistory)
-                    }
-                }
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.mono(9)).tracking(0.8)
+                .foregroundStyle(Theme.textFaint)
+            Text(value)
+                .font(.mono(13.5))
+                .foregroundStyle(Theme.textHi)
+                .monospacedDigit()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Tiny amber bar sparkline (handoff §6 — Swift Charts, axes hidden).
+struct Sparkline: View {
+    let values: [Double]
+    var body: some View {
+        Chart(Array(values.enumerated()), id: \.offset) { i, v in
+            BarMark(
+                x: .value("i", i),
+                y: .value("v", v),
+                width: .ratio(0.7)
+            )
+            .foregroundStyle(Theme.amber.opacity(0.42))
+            .cornerRadius(1)
+        }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartLegend(.hidden)
     }
 }
