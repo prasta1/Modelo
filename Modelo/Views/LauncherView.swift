@@ -25,8 +25,8 @@ struct LauncherView: View {
         return discovered.filter { item in
             if let serverID, item.server.id != serverID { return false }
             let m = item.model
-            // Free filter only applies to OpenRouter — local models are always shown.
-            if activeFilters.contains("free") && item.server.kind == .openRouter && !m.isFree { return false }
+            // Free filter only applies to cloud endpoints — local models are always shown.
+            if activeFilters.contains("free") && item.server.kind == .cloudAPI && !m.isFree { return false }
             if activeFilters.contains("vision") && !m.supportsVision   { return false }
             if activeFilters.contains("tools")  && !m.supportsToolUse  { return false }
             if activeFilters.contains("reason") && !m.supportsThinking { return false }
@@ -152,7 +152,7 @@ struct LauncherView: View {
 
     private var capabilityFilterRow: some View {
         HStack(spacing: 6) {
-            if selectedServer?.kind == .openRouter {
+            if selectedServer?.kind == .cloudAPI {
                 CapabilityFilterChip(label: "Free",   key: "free",
                                      tint: Theme.green,
                                      active: activeFilters.contains("free"))   { toggle("free") }

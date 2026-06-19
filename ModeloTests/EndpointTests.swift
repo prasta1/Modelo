@@ -9,10 +9,10 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(s.baseURL, "http://studio:1234")
     }
 
-    func test_baseURL_openRouter_ignoresHostPort() {
-        let s = Server(label: "OpenRouter", host: "", port: 0, kind: .openRouter)
-        XCTAssertEqual(s.kind, .openRouter)
-        XCTAssertEqual(s.baseURL, "https://openrouter.ai/api/v1")
+    func test_baseURL_cloudAPI_usesHostFieldAsURL() {
+        let s = Server(label: "Together", host: "https://api.together.xyz/v1", port: 0, kind: .cloudAPI)
+        XCTAssertEqual(s.kind, .cloudAPI)
+        XCTAssertEqual(s.baseURL, "https://api.together.xyz/v1")
     }
 
     // MARK: - Host normalization (regression: doubled-up scheme made the probe fail)
@@ -72,13 +72,13 @@ final class EndpointTests: XCTestCase {
     }
 
     @MainActor
-    func test_endpoint_fromOpenRouterServer_readsKeyFromKeychain() {
-        let s = Server(label: "OpenRouter", host: "", port: 0, kind: .openRouter)
+    func test_endpoint_fromCloudAPIServer_readsKeyFromKeychain() {
+        let s = Server(label: "Groq", host: "https://api.groq.com/openai/v1", port: 0, kind: .cloudAPI)
         let kc = KeychainStore(service: "com.peregrine.modelo.tests.\(UUID().uuidString)")
-        kc.set("sk-or-123", account: "openrouter:\(s.id)")
+        kc.set("gsk-123", account: "openrouter:\(s.id)")
         let ep = Endpoint(server: s, keychain: kc)
-        XCTAssertEqual(ep.baseURL, "https://openrouter.ai/api/v1")
-        XCTAssertEqual(ep.kind, .openRouter)
-        XCTAssertEqual(ep.apiKey, "sk-or-123")
+        XCTAssertEqual(ep.baseURL, "https://api.groq.com/openai/v1")
+        XCTAssertEqual(ep.kind, .cloudAPI)
+        XCTAssertEqual(ep.apiKey, "gsk-123")
     }
 }

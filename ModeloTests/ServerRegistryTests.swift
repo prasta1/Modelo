@@ -26,15 +26,14 @@ final class ServerRegistryTests: XCTestCase {
         XCTAssertEqual(convo.displayTitle, "CNC helper")
     }
 
-    func test_seedIfNeeded_insertsLMStudioAndOpenRouterWhenEmpty() throws {
+    func test_seedIfNeeded_insertsLocalServerWhenEmpty() throws {
         let context = try makeContext()
         let registry = ServerRegistry()
         registry.seedIfNeeded(in: context)
         let servers = try context.fetch(FetchDescriptor<Server>())
-        XCTAssertEqual(servers.count, 2)
-        XCTAssertEqual(servers.filter { $0.kind == .lmStudio }.count, 1)
-        XCTAssertEqual(servers.filter { $0.kind == .openRouter }.count, 1)
-        XCTAssertEqual(Set(servers.map(\.label)), ["Mac Studio", "OpenRouter"])
+        XCTAssertEqual(servers.count, 1)
+        XCTAssertEqual(servers.first?.kind, .lmStudio)
+        XCTAssertEqual(servers.first?.label, "Local Server")
     }
 
     func test_seedIfNeeded_isIdempotent() throws {
@@ -42,7 +41,7 @@ final class ServerRegistryTests: XCTestCase {
         let registry = ServerRegistry()
         registry.seedIfNeeded(in: context)
         registry.seedIfNeeded(in: context)
-        XCTAssertEqual(try context.fetch(FetchDescriptor<Server>()).count, 2)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Server>()).count, 1)
     }
 
     func test_status_defaultsToUnknownThenReflectsSet() {

@@ -12,8 +12,8 @@ final class LMStudioClientTests: XCTestCase {
         Endpoint(baseURL: base, kind: .lmStudio, apiKey: nil)
     }
 
-    private func openRouter(key: String? = "sk-or-test") -> Endpoint {
-        Endpoint(baseURL: "https://openrouter.ai/api/v1", kind: .openRouter, apiKey: key)
+    private func cloudAPI(base: String = "https://api.together.xyz/v1", key: String? = "sk-test") -> Endpoint {
+        Endpoint(baseURL: base, kind: .cloudAPI, apiKey: key)
     }
 
     func test_fetchModels_parsesRichEndpoint() async throws {
@@ -62,17 +62,16 @@ final class LMStudioClientTests: XCTestCase {
         XCTAssertFalse(ok)
     }
 
-    func test_fetchModels_openRouter_decodesCatalogAndSendsAuth() async throws {
-        let body = #"{"data":[{"id":"a/b","context_length":4096,"pricing":{"prompt":"0","completion":"0"},"architecture":{"input_modalities":["text"]},"supported_parameters":["tools"]}]}"#
+    func test_fetchModels_cloudAPI_decodesStandardFormatAndSendsAuth() async throws {
+        let body = #"{"data":[{"id":"meta-llama/Llama-3-8b","object":"model","type":"llm"}]}"#
         StubURLProtocol.handler = { req in
-            XCTAssertTrue(req.url!.absoluteString.hasSuffix("/api/v1/models"))
-            XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer sk-or-test")
-            XCTAssertEqual(req.value(forHTTPHeaderField: "X-Title"), "ModeloDos")
+            XCTAssertTrue(req.url!.absoluteString.hasSuffix("/v1/models"))
+            XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+            XCTAssertNil(req.value(forHTTPHeaderField: "X-Title"))
             return (.stub(200), Data(body.utf8))
         }
-        let models = try await makeClient().fetchModels(endpoint: openRouter())
-        XCTAssertEqual(models.map(\.id), ["a/b"])
-        XCTAssertTrue(models.first?.supportsToolUse == true)
+        let models = try await makeClient().fetchModels(endpoint: cloudAPI())
+        XCTAssertEqual(models.map(\.id), ["meta-llama/Llama-3-8b"])
     }
 
     func test_fetchModels_lmStudio_sendsNoAuthHeader() async throws {

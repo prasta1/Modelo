@@ -24,11 +24,11 @@ final class ReachabilityMonitor {
     }
 
     /// Pure policy: how long to wait before the next probe.
-    /// OpenRouter is cloud (no sleep), so it uses a fixed cadence; LM Studio backs off when offline.
+    /// Cloud APIs use a fixed cadence (no sleep state); LM Studio backs off when offline.
     func pollInterval(for status: ServerStatus, kind: ServerKind) -> Duration {
         switch kind {
-        case .openRouter: return .seconds(30)
-        case .lmStudio:   return status == .online ? .seconds(10) : .seconds(30)
+        case .cloudAPI: return .seconds(30)
+        case .lmStudio: return status == .online ? .seconds(10) : .seconds(30)
         }
     }
 

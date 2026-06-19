@@ -279,17 +279,14 @@ struct ContentView: View {
     }
 
     /// Picks the default endpoint when nothing valid is currently selected.
-    /// Always prefers the server labeled "Mac Studio"; falls back to sortOrder
-    /// (first online, then first overall) if no such server exists.
+    /// Prefers the first online server by sortOrder; falls back to the first overall.
     private func selectDefaultEndpoint() {
         if let id = endpointFilter,
            let server = servers.first(where: { $0.id == id }),
            registry.isOnline(server) {
             return
         }
-        let macStudio = servers.first { $0.label.localizedCaseInsensitiveContains("mac studio") }
-        endpointFilter = macStudio?.id
-            ?? (servers.first { registry.isOnline($0) } ?? servers.first)?.id
+        endpointFilter = (servers.first { registry.isOnline($0) } ?? servers.first)?.id
     }
 
     private func refreshModels() async {

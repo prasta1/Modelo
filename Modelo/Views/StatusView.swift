@@ -7,9 +7,9 @@ import Charts
 /// model count, and real usage metrics (requests / tok-s / TTFT) from the
 /// per-server `UsageRecord` rollup, plus an amber throughput sparkline.
 ///
-/// Both LM Studio machines and the OpenRouter cloud endpoint appear. `LATENCY` is
+/// LM Studio machines and cloud API endpoints both appear. `LATENCY` is
 /// the last reachability-probe round-trip from `ServerRegistry`; `MODELS` is blank
-/// for OpenRouter, which isn't polled for a loaded-model snapshot.
+/// for cloud endpoints, which aren't polled for a loaded-model snapshot.
 struct StatusView: View {
     /// Called with (server, modelID) when the user pins a loaded model. Retained
     /// for API parity with the launcher/picker; the compact card has no pin UI.
@@ -92,7 +92,9 @@ private struct CompactServerCard: View {
                 Spacer(minLength: 0)
                 statusLabel
             }
-            Text(server.kind == .openRouter ? "openrouter.ai" : server.host)
+            Text(server.kind == .cloudAPI
+                    ? (URL(string: server.host)?.host ?? server.host)
+                    : server.host)
                 .font(.mono(10))
                 .foregroundStyle(Theme.textDim)
                 .lineLimit(1)

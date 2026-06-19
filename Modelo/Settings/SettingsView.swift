@@ -2,8 +2,8 @@ import SwiftUI
 import SwiftData
 import AppKit
 
-/// Server management: edit LM Studio host/port, and paste the OpenRouter and
-/// Firecrawl API keys (stored in Keychain, not SwiftData).
+/// Server management: edit LM Studio host/port, manage cloud API endpoints,
+/// and paste the Firecrawl API key (stored in Keychain, not SwiftData).
 ///
 /// Built as a bespoke instrument-panel layout rather than a `.grouped` `Form`:
 /// on macOS a `Form` renders each `TextField`'s title as a visible inline label,
@@ -18,7 +18,7 @@ struct SettingsView: View {
     private let keychain = KeychainStore()
 
     private var lmStudioServers: [Server] { servers.filter { $0.kind == .lmStudio } }
-    private var openRouterServers: [Server] { servers.filter { $0.kind == .openRouter } }
+    private var cloudServers: [Server] { servers.filter { $0.kind == .cloudAPI } }
 
     var body: some View {
         TabView {
@@ -35,23 +35,24 @@ struct SettingsView: View {
                 }
                 .padding(24)
             }
+            .clipped()
             .tabItem { Label("Servers", systemImage: "network") }
 
-            // MARK: OpenRouter
+            // MARK: Cloud APIs
             ScrollView {
                 VStack(spacing: 12) {
-                    ForEach(openRouterServers) { server in
-                        KeyCard(caption: "API key",
-                                placeholder: "sk-or-…",
-                                hint: "Stored in your Keychain. Models load once a valid key is set.",
-                                account: Endpoint.keychainAccount(for: server),
-                                keychain: keychain)
+                    ForEach(cloudServers) { server in
+                        CloudServerSettingsRow(server: server, keychain: keychain) {
+                            context.delete(server)
+                            try? context.save()
+                        }
                     }
+                    addButton("Add Cloud API", action: addCloudServer)
                 }
                 .padding(24)
             }
-            .onAppear { ensureOpenRouterServer() }
-            .tabItem { Label("OpenRouter", systemImage: "globe") }
+            .clipped()
+            .tabItem { Label("Cloud APIs", systemImage: "globe") }
 
             // MARK: Personas
             ScrollView {
@@ -66,6 +67,7 @@ struct SettingsView: View {
                 }
                 .padding(24)
             }
+            .clipped()
             .tabItem { Label("Personas", systemImage: "theatermasks") }
 
             // MARK: Tools
@@ -79,6 +81,7 @@ struct SettingsView: View {
                 }
                 .padding(24)
             }
+            .clipped()
             .tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
 
             // MARK: MCP Servers
@@ -108,6 +111,7 @@ struct SettingsView: View {
                 }
                 .padding(24)
             }
+            .clipped()
             .tabItem { Label("MCP Servers", systemImage: "terminal") }
         }
         .frame(minWidth: 580, idealWidth: 700, maxWidth: .infinity,
@@ -115,6 +119,9 @@ struct SettingsView: View {
         .background(Theme.windowBG)
         .tint(Theme.amber)
         .preferredColorScheme(.dark)
+        // The main window sets .toolbarBackground(.hidden) globally; override it here
+        // so the tab strip has an opaque background and scroll content doesn't bleed through.
+        .toolbarBackground(Theme.windowBG, for: .windowToolbar)
     }
 
     private func addButton(_ label: String, action: @escaping () -> Void) -> some View {
@@ -144,12 +151,10 @@ struct SettingsView: View {
         ))
     }
 
-    /// Creates the OpenRouter server record if it was somehow deleted.
-    /// Under normal operation it is seeded on first launch; this is a safety net.
-    private func ensureOpenRouterServer() {
-        guard openRouterServers.isEmpty else { return }
-        let order = (servers.map(\.sortOrder).max() ?? 0) + 1
-        context.insert(Server(label: "OpenRouter", host: "", port: 0, sortOrder: order, kind: .openRouter))
+    private func addCloudServer() {
+        let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
+        let server = Server(label: "Cloud API", host: "", port: 0, sortOrder: nextOrder, kind: .cloudAPI)
+        context.insert(server)
         try? context.save()
     }
 
@@ -175,22 +180,29 @@ private struct PersonaSettingsRow: View {
     @Bindable var persona: Persona
     let onDelete: () -> Void
     @FocusState private var focus: Field?
+    @State private var isExpanded = false
 
     private enum Field { case name, icon, tagline, prompt }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header: icon preview + name field + delete
+            // Header: always visible — tap to expand/collapse
             HStack(spacing: 10) {
                 Image(systemName: validIcon)
                     .font(.system(size: 16))
                     .foregroundStyle(Theme.amber)
                     .frame(width: 24)
-                TextField("Name", text: $persona.name)
-                    .textFieldStyle(.plain)
+                Text(persona.name.isEmpty ? "Unnamed" : persona.name)
                     .font(Theme.mono(13, weight: .semibold))
                     .foregroundStyle(Theme.textHi)
-                    .focused($focus, equals: .name)
+                if !persona.tagline.isEmpty {
+                    Text("·")
+                        .foregroundStyle(Theme.textFaint)
+                    Text(persona.tagline)
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.textLo)
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 8)
                 Button(action: onDelete) {
                     Image(systemName: "trash")
@@ -199,43 +211,65 @@ private struct PersonaSettingsRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Delete persona")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.textFaint)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.easeOut(duration: 0.18), value: isExpanded)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { isExpanded.toggle() } }
 
-            HStack(spacing: 12) {
-                FieldGroup(caption: "Icon (SF Symbol)") {
-                    TextField("e.g. brain", text: $persona.icon)
-                        .textFieldStyle(.plain)
-                        .focused($focus, equals: .icon)
-                        .fieldChrome(focused: focus == .icon)
-                        .frame(width: 140)
-                }
-                FieldGroup(caption: "Tagline") {
-                    TextField("Brief descriptor", text: $persona.tagline)
-                        .textFieldStyle(.plain)
-                        .focused($focus, equals: .tagline)
-                        .fieldChrome(focused: focus == .tagline)
-                }
-            }
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 12) {
+                        FieldGroup(caption: "Name") {
+                            TextField("Name", text: $persona.name)
+                                .textFieldStyle(.plain)
+                                .focused($focus, equals: .name)
+                                .fieldChrome(focused: focus == .name)
+                                .frame(width: 140)
+                        }
+                        .fixedSize()
+                        FieldGroup(caption: "Icon (SF Symbol)") {
+                            TextField("e.g. brain", text: $persona.icon)
+                                .textFieldStyle(.plain)
+                                .focused($focus, equals: .icon)
+                                .fieldChrome(focused: focus == .icon)
+                                .frame(width: 140)
+                        }
+                        .fixedSize()
+                    }
 
-            FieldGroup(caption: "System Prompt") {
-                TextEditor(text: $persona.systemPrompt)
-                    .font(Theme.metric(12))
-                    .foregroundStyle(Theme.textHi)
-                    .scrollContentBackground(.hidden)
-                    .focused($focus, equals: .prompt)
-                    .frame(minHeight: 80, maxHeight: 160)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
-                    .background(Theme.windowBG,
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(focus == .prompt
-                                          ? Theme.amber.opacity(0.85)
-                                          : Color.white.opacity(0.10),
-                                          lineWidth: 1)
-                    )
-                    .animation(.snappy(duration: 0.2), value: focus == .prompt)
+                    FieldGroup(caption: "Tagline") {
+                        TextField("Brief descriptor", text: $persona.tagline)
+                            .textFieldStyle(.plain)
+                            .focused($focus, equals: .tagline)
+                            .fieldChrome(focused: focus == .tagline)
+                    }
+
+                    FieldGroup(caption: "System Prompt") {
+                        TextEditor(text: $persona.systemPrompt)
+                            .font(Theme.metric(12))
+                            .foregroundStyle(Theme.textHi)
+                            .scrollContentBackground(.hidden)
+                            .focused($focus, equals: .prompt)
+                            .frame(minHeight: 80, maxHeight: 160)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 8)
+                            .background(Theme.windowBG,
+                                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(focus == .prompt
+                                                  ? Theme.amber.opacity(0.85)
+                                                  : Color.white.opacity(0.10),
+                                                  lineWidth: 1)
+                            )
+                            .animation(.snappy(duration: 0.2), value: focus == .prompt)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(16)
@@ -292,7 +326,7 @@ private struct ServerSettingsRow: View {
                     .foregroundStyle(Theme.textHi)
                     .focused($focus, equals: .label)
                 Spacer(minLength: 8)
-                Chip(text: server.kind == .lmStudio ? "lm studio" : "openrouter")
+                Chip(text: server.kind == .lmStudio ? "lm studio" : "cloud api")
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
@@ -331,6 +365,86 @@ private struct ServerSettingsRow: View {
             if old == .host, new != .host {
                 server.host = Server.normalizedHost(server.host)
             }
+        }
+    }
+}
+
+// MARK: - Cloud server row
+
+/// One cloud API endpoint: a user-supplied base URL + a bearer token from Keychain.
+/// The `host` field on the `Server` model stores the full base URL for cloud kind.
+private struct CloudServerSettingsRow: View {
+    @Bindable var server: Server
+    let keychain: KeychainStore
+    let onDelete: () -> Void
+
+    @State private var apiKey = ""
+    @State private var isKeyRevealed = false
+    @FocusState private var focus: Field?
+
+    private enum Field { case label, url, key }
+    private var keychainAccount: String { Endpoint.keychainAccount(for: server) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                TextField("Server name", text: $server.label)
+                    .textFieldStyle(.plain)
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                    .focused($focus, equals: .label)
+                Spacer(minLength: 8)
+                Chip(text: "cloud api")
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.alert.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .help("Remove this endpoint")
+            }
+
+            FieldGroup(caption: "Base URL") {
+                TextField("https://api.together.xyz/v1", text: $server.host)
+                    .textFieldStyle(.plain)
+                    .focused($focus, equals: .url)
+                    .fieldChrome(focused: focus == .url)
+            }
+
+            FieldGroup(caption: "API Key") {
+                HStack(spacing: 0) {
+                    Group {
+                        if isKeyRevealed {
+                            TextField("sk-…", text: $apiKey)
+                        } else {
+                            SecureField("sk-…", text: $apiKey)
+                        }
+                    }
+                    .textFieldStyle(.plain)
+                    .focused($focus, equals: .key)
+
+                    Button { isKeyRevealed.toggle() } label: {
+                        Image(systemName: isKeyRevealed ? "eye.slash" : "eye")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.textLo)
+                            .padding(.trailing, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isKeyRevealed ? "Hide key" : "Reveal key")
+                }
+                .fieldChrome(focused: focus == .key)
+            }
+
+            Text("Bearer token — stored in your Keychain. Models load once a valid key is set.")
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .panel(Theme.popoverBG)
+        .onAppear { apiKey = keychain.get(account: keychainAccount) ?? "" }
+        .onChange(of: apiKey) { _, newValue in
+            keychain.set(newValue.isEmpty ? nil : newValue, account: keychainAccount)
         }
     }
 }

@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Searchable browser for OpenRouter's large catalog. Filters default to Free-only
+/// Searchable browser for a cloud endpoint's model catalog. Filters default to Free-only
 /// (the cost guardrail); Tools/Vision narrow further. Selecting a row binds the
 /// conversation to that model and dismisses.
 struct ModelBrowserView: View {
-    /// OpenRouter models discovered for the active endpoint.
+    /// Cloud models discovered for the active endpoint.
     let models: [DiscoveredModel]
     @Binding var selection: DiscoveredModel?
     @Environment(\.dismiss) private var dismiss
@@ -28,7 +28,7 @@ struct ModelBrowserView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("OpenRouter models").font(.headline)
+                Text("Cloud models").font(.headline)
                 Spacer()
                 Button("Done") { dismiss() }
             }

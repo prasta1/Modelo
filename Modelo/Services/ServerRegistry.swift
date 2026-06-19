@@ -28,14 +28,12 @@ final class ServerRegistry {
         latencies[server.id] = ms
     }
 
-    /// Seeds one generic local server + OpenRouter on first launch. Idempotent.
-    /// Users configure their own host/label in Settings.
+    /// Seeds one generic local server on first launch. Idempotent.
+    /// Cloud API endpoints are added by the user in Settings → Cloud APIs.
     func seedIfNeeded(in context: ModelContext) {
         let existing = (try? context.fetch(FetchDescriptor<Server>())) ?? []
         guard existing.isEmpty else { return }
-        context.insert(Server(label: "Mac Studio", host: "studio", port: 1234, sortOrder: 0))
-        // Cloud endpoint: seeded but inert until an API key is set in Settings (Keychain).
-        context.insert(Server(label: "OpenRouter", host: "", port: 0, sortOrder: 1, kind: .openRouter))
+        context.insert(Server(label: "Local Server", host: "localhost", port: 1234, sortOrder: 0))
         do { try context.save() }
         catch { print("ServerRegistry.seedIfNeeded save failed: \(error)") }
     }

@@ -2,14 +2,15 @@ import Foundation
 import SwiftData
 
 /// A registered chat endpoint. LM Studio machines are seeded on first launch;
-/// an OpenRouter cloud endpoint is also seeded (inert until a key is set).
+/// additional cloud API endpoints can be added in Settings.
 @Model
 final class Server {
     var id: UUID = UUID()
     var label: String = ""
-    /// LM Studio: Tailscale MagicDNS host, e.g. "studio". Ignored for OpenRouter.
+    /// LM Studio: hostname or IP (e.g. "localhost"). Cloud API: the full base URL
+    /// (e.g. "https://api.together.xyz/v1"). Repurposed per kind to avoid a migration.
     var host: String = ""
-    /// LM Studio server port (default 1234). Ignored for OpenRouter.
+    /// LM Studio server port (default 1234). Unused for cloud API endpoints.
     var port: Int = 1234
     /// Sort position in the sidebar.
     var sortOrder: Int = 0
@@ -24,11 +25,12 @@ final class Server {
     }
 
     /// Base URL used by the networking layer.
-    /// - LM Studio: `http://host:port`. - OpenRouter: the fixed cloud base.
+    /// - LM Studio: `http://host:port`.
+    /// - Cloud API: the value stored in `host` (the user's full base URL, e.g. `https://api.together.xyz/v1`).
     var baseURL: String {
         switch kind {
-        case .lmStudio:  "http://\(Server.normalizedHost(host)):\(port)"
-        case .openRouter: "https://openrouter.ai/api/v1"
+        case .lmStudio: "http://\(Server.normalizedHost(host)):\(port)"
+        case .cloudAPI:  host
         }
     }
 

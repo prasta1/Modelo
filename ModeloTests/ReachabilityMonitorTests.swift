@@ -10,10 +10,10 @@ final class ReachabilityMonitorTests: XCTestCase {
         XCTAssertEqual(monitor.pollInterval(for: .unknown, kind: .lmStudio), .seconds(30))
     }
 
-    func test_pollInterval_openRouter_isFixed30s_regardlessOfStatus() {
+    func test_pollInterval_cloudAPI_isFixed30s_regardlessOfStatus() {
         let monitor = ReachabilityMonitor(registry: ServerRegistry(), probe: { _ in true })
-        XCTAssertEqual(monitor.pollInterval(for: .online, kind: .openRouter), .seconds(30))
-        XCTAssertEqual(monitor.pollInterval(for: .offline, kind: .openRouter), .seconds(30))
+        XCTAssertEqual(monitor.pollInterval(for: .online, kind: .cloudAPI), .seconds(30))
+        XCTAssertEqual(monitor.pollInterval(for: .offline, kind: .cloudAPI), .seconds(30))
     }
 
     func test_checkOnce_setsOnlineWhenProbeSucceeds() async {

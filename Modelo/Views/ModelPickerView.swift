@@ -156,8 +156,8 @@ private struct ModelPickerList: View {
 
     private func groupHeader(_ server: Server, count: Int) -> some View {
         HStack(spacing: 10) {
-            Text(server.kind == .openRouter ? "\(server.label.uppercased()) · CLOUD"
-                                            : server.label.uppercased())
+            Text(server.kind == .cloudAPI ? "\(server.label.uppercased()) · CLOUD"
+                                         : server.label.uppercased())
                 .font(.mono(9.5)).tracking(1.2)
                 .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
@@ -204,7 +204,7 @@ private struct ModelPickerList: View {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Theme.textFaint)
-                            Text("Search to add an OpenRouter model · \(cloudModelCount) available")
+                            Text("Search to add a cloud model · \(cloudModelCount) available")
                                 .font(.mono(10))
                                 .foregroundStyle(Theme.textFaint)
                             Spacer(minLength: 0)
@@ -246,12 +246,12 @@ private struct ModelPickerList: View {
         .background(Color.white.opacity(0.012))
     }
 
-    /// Local servers list in full; OpenRouter's large catalog stays behind search
-    /// so hundreds of cloud models don't dump into the popover unfiltered.
+    /// Local servers list in full; cloud catalogs stay behind search
+    /// so hundreds of remote models don't dump into the popover unfiltered.
     private var displayGroups: [(server: Server, models: [DiscoveredModel])] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            return groups.filter { $0.server.kind != .openRouter }
+            return groups.filter { $0.server.kind != .cloudAPI }
         }
         return groups.compactMap { group in
             let matched = group.models.filter {
@@ -263,7 +263,7 @@ private struct ModelPickerList: View {
     }
 
     private var cloudModelCount: Int {
-        groups.filter { $0.server.kind == .openRouter }.reduce(0) { $0 + $1.models.count }
+        groups.filter { $0.server.kind == .cloudAPI }.reduce(0) { $0 + $1.models.count }
     }
 
     private var cloudHintVisible: Bool {
@@ -344,7 +344,7 @@ private struct ModelRow: View {
         } else if model.isLoaded {
             Circle().fill(Theme.green).frame(width: 7, height: 7)
                 .overlay(Circle().stroke(Theme.greenGlow, lineWidth: 3))
-        } else if item.server.kind == .openRouter {
+        } else if item.server.kind == .cloudAPI {
             Image(systemName: "cloud")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.textMute)

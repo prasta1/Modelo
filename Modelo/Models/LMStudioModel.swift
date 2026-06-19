@@ -199,26 +199,24 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     }
 
     /// Tool-use support. Authoritative when a provider reports it (`toolUseSupported`,
-    /// e.g. OpenRouter); otherwise a heuristic over the model id for LM Studio models.
+    /// e.g. OpenRouter). For LM Studio models, we default to `true` for most modern
+    /// models because LM Studio's OpenAI-compatible API enables tool use across the
+    /// board; we only return `false` for embeddings and base/pretrained variants.
     var supportsToolUse: Bool {
         if let toolUseSupported { return toolUseSupported }
+
         let lower = id.lowercased()
-        let needles = [
-            "hermes",           // Nous Hermes — function calling focus
-            "functionary",
-            "nexusraven",
-            "gorilla",
-            "xlam",             // Salesforce xLAM
-            "hammer",
-            "firefunction",
-            "command-r",        // Cohere
-            "toolbench",
-            "fc-",              // function-calling variants
-            "-fc",
-            "qwen-coder",       // QwenCoder supports tool use
-            "qwencoder",
+
+        // Embedding models never support chat tools.
+        if isEmbeddingModel { return false }
+
+        // Base/pretrained variants are the clearest signal of no tool support.
+        let baseIndicators = [
+            "base", "pretrained", "raw-base", "foundation",
         ]
-        return needles.contains { lower.contains($0) }
+        if baseIndicators.contains(where: { lower.contains($0) }) { return false }
+
+        return true
     }
 
     /// Heuristic vision detection — used when `type` is absent (/v1/models fallback).
