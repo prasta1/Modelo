@@ -251,13 +251,13 @@ private struct ToolCard: View {
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
             Text(detail)
-                .font(.mono(11))
+                .font(Theme.code(11))
                 .foregroundStyle(Theme.textDim)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Text(title)
-                .font(.mono(10))
+                .font(Theme.code(10))
                 .foregroundStyle(Theme.textDim)
         }
         .padding(8)

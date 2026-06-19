@@ -47,6 +47,12 @@ enum Theme {
         .system(size: size, weight: weight)
     }
 
+    /// Monospaced — the deliberate exception for genuinely code/console text
+    /// (tool-call arguments, shell commands). The rest of the UI is SF Pro.
+    static func code(_ size: CGFloat = 12, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+
     /// Shared HH:mm formatter for message timestamps (built once, reused).
     static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
