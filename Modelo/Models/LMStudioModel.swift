@@ -56,7 +56,9 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     // MARK: Derived
 
     var isEmbeddingModel: Bool {
-        if let type, type.hasPrefix("embed") { return true }
+        // When the v0 API provides a type, trust it exclusively — name heuristics
+        // produce false positives (e.g. qwen3-embedding-4b-dwq has type "llm").
+        if let type { return type.hasPrefix("embed") }
         if let obj = object, obj == "embedding" { return true }
         return id.lowercased().contains("embed")
     }
