@@ -78,7 +78,7 @@ struct ModelPickerView: View {
             if let m = selection?.model {
                 Circle().fill(Theme.green).frame(width: 6, height: 6)
                 Text(m.familyName)
-                    .font(.mono(12.5))
+                    .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(Theme.textHi)
             } else {
                 Text("SELECT MODEL")

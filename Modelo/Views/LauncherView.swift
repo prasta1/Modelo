@@ -480,7 +480,7 @@ private struct ModelTile: View {
                 // Name + loaded dot (hover swaps the dot for pin/eject controls)
                 HStack(spacing: 6) {
                     Text(model.familyName)
-                        .font(Theme.mono(15, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(hovering ? Theme.amber : Theme.textHi)
                         .lineLimit(1)
                     Spacer(minLength: 4)
