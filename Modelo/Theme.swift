@@ -33,17 +33,18 @@ enum Theme {
     }
 
     // MARK: Type
-    // The UI "chrome" — labels, metrics, titles — is entirely monospaced so every
-    // number reads like an instrument readout. Only message prose uses the system
-    // font, for long-form readability.
+    // Per design preference the whole UI uses SF Pro (the system font) for one
+    // consistent typeface. These helpers are kept — call sites still read
+    // `label`/`metric`/`mono` — but now return SF Pro. Tabular alignment, where it
+    // matters (metrics, counts), is handled with `.monospacedDigit()` at the call site.
     static func label(_ size: CGFloat = 11) -> Font {
-        .system(size: size, weight: .semibold, design: .monospaced)
+        .system(size: size, weight: .semibold)
     }
     static func metric(_ size: CGFloat = 12) -> Font {
-        .system(size: size, weight: .medium, design: .monospaced)
+        .system(size: size, weight: .medium)
     }
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size, weight: weight)
     }
 
     /// Shared HH:mm formatter for message timestamps (built once, reused).
@@ -336,10 +337,10 @@ extension Theme {
 }
 
 extension Font {
-    /// SF Mono helper matching the redesign's call sites (`.mono(11)`); complements
-    /// the existing `Theme.mono(_:weight:)`.
+    /// Matches the redesign's `.mono(11)` call sites. Returns SF Pro (the system
+    /// font) so the whole UI shares one typeface; the name is kept for the call sites.
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size, weight: weight)
     }
 }
 
