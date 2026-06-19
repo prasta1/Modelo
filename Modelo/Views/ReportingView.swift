@@ -1,168 +1,316 @@
 import SwiftUI
+import SwiftData
+import Charts
 
-/// Reports screen (handoff §6): stat tiles, throughput + TTFT charts, and a
-/// per-model usage table with share bars.
+/// Full-page usage and performance report — requests, tokens, speed, and TTFT
+/// aggregated over a selectable time window and broken down by model and server.
 struct ReportingView: View {
-    @Environment(AppStore.self) private var store
+    @Query(sort: \UsageRecord.timestamp, order: .reverse) private var all: [UsageRecord]
+    @State private var timeRange: ReportCalculator.TimeRange = .week
 
-    private let tileColumns = Array(repeating: GridItem(.flexible(), spacing: 11), count: 5)
+    private var records: [UsageRecord]             { timeRange.filter(all) }
+    private var summary: ReportCalculator.Summary  { ReportCalculator.summary(from: records) }
+    private var days:    [ReportCalculator.DayBucket]  { ReportCalculator.byDay(from: records) }
+    private var models:  [ReportCalculator.ModelStat]  { ReportCalculator.byModel(from: records) }
+    private var servers: [ReportCalculator.ServerStat] { ReportCalculator.byServer(from: records) }
 
     var body: some View {
-        @Bindable var store = store
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 24) {
                 header
-
-                LazyVGrid(columns: tileColumns, spacing: 11) {
-                    ForEach(store.stats) { statTile($0) }
+                if all.isEmpty {
+                    emptyState
+                } else if records.isEmpty {
+                    noDataForRange
+                } else {
+                    summaryRow
+                    if days.count > 1 {
+                        chartSection("Requests / Day")  { RequestsChart(buckets: days) }
+                        chartSection("Tokens / Day")    { TokensChart(buckets: days) }
+                        chartSection("Avg tok/s / Day") { TokPerSecChart(buckets: days) }
+                    }
+                    if !models.isEmpty  { modelSection }
+                    if !servers.isEmpty { serverSection }
                 }
-
-                chartsRow
-                usageTable
             }
-            .padding(.horizontal, 30).padding(.vertical, 26)
+            .padding(24)
         }
-        .background(Theme.windowBG)
+        .background(InstrumentBackground())
     }
 
-    // MARK: Header
+    // MARK: - Header
 
     private var header: some View {
-        @Bindable var store = store
-        return HStack {
-            Text("Reports").font(.system(size: 18, weight: .semibold)).foregroundStyle(Theme.textHi)
+        HStack {
+            Eyebrow("Reports", color: Theme.Palette.inkDim, size: 12)
             Spacer()
-            SegmentedPills(options: ["Today", "7 days", "30 days"],
-                           selection: $store.reportRange, boxed: true)
-            Label("Export", systemImage: "square.and.arrow.down")
-                .font(.system(size: 12)).foregroundStyle(Theme.textLo)
-                .padding(.horizontal, 13).frame(height: 30)
-                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control)
-                    .stroke(Color.white.opacity(0.08)))
+            Picker("", selection: $timeRange) {
+                ForEach(ReportCalculator.TimeRange.allCases) { r in
+                    Text(r.rawValue).tag(r)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 240)
+            .colorScheme(.dark)
         }
     }
 
-    // MARK: Stat tiles
+    // MARK: - Summary cards
 
-    private func statTile(_ s: StatTile) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(s.label).font(.mono(9.5)).tracking(0.8).foregroundStyle(Theme.textFaint)
-            Text(s.value)
-                .font(.system(size: 23, weight: .semibold))
-                .foregroundStyle(Theme.textHi)
-                .padding(.top, 9)
-            Text(s.sub).font(.mono(10)).foregroundStyle(Theme.textDim).padding(.top, 6)
+    private var summaryRow: some View {
+        HStack(spacing: 12) {
+            summaryCard("Requests",   value: "\(summary.totalRequests)")
+            summaryCard("Tokens",     value: tokenString(summary.totalTokens))
+            summaryCard("Avg tok/s",  value: summary.avgTokPerSec.map  { String(format: "%.0f", $0) } ?? "—")
+            summaryCard("Peak tok/s", value: summary.peakTokPerSec.map { String(format: "%.0f", $0) } ?? "—")
+            summaryCard("Avg TTFT",   value: summary.avgTTFTms.map     { String(format: "%.0f ms", $0) } ?? "—")
         }
+    }
+
+    private func summaryCard(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Eyebrow(label)
+            Text(value)
+                .font(Theme.metric(20))
+                .foregroundStyle(Theme.Palette.ink)
+                .monospacedDigit()
+        }
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16).padding(.vertical, 15)
-        .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.line))
+        .panel(Theme.Palette.panel, radius: 10)
     }
 
-    // MARK: Charts
+    // MARK: - Chart wrapper
 
-    private var chartsRow: some View {
-        HStack(alignment: .top, spacing: 12) {
-            card {
-                chartHeader(title: "Throughput",
-                            subtitle: "tokens / second · last 24h",
-                            trailing: "44 avg")
-                ThroughputChart(samples: store.throughput).frame(height: 118)
-            }
-            .frame(maxWidth: .infinity)
-            .layoutPriority(1.5)
-
-            card {
-                chartHeader(title: "Time to first token", subtitle: nil, trailing: "280ms")
-                TTFTChart(samples: store.ttft).frame(height: 118)
-            }
-            .frame(maxWidth: .infinity)
+    private func chartSection<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Eyebrow(title)
+            content()
+                .padding(12)
+                .panel(Theme.Palette.panel, radius: 10)
         }
     }
 
-    private func chartHeader(title: String, subtitle: String?, trailing: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.textHi)
-            if let subtitle { Text(subtitle).font(.mono(11)).foregroundStyle(Theme.textDim) }
-            Spacer()
-            Text(trailing).font(.mono(13)).foregroundStyle(Theme.amber)
+    // MARK: - Model table
+
+    private var modelSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Eyebrow("By Model")
+            VStack(spacing: 0) {
+                tableHeader(["Model", "Requests", "Tokens", "Avg tok/s"])
+                ForEach(models) { stat in
+                    tableRow([
+                        stat.shortName,
+                        "\(stat.requests)",
+                        tokenString(stat.totalTokens),
+                        stat.avgTokPerSec.map { String(format: "%.0f", $0) } ?? "—",
+                    ], first: models.first?.id == stat.id)
+                }
+            }
+            .panel(Theme.Palette.panel, radius: 10)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .padding(.bottom, 16)
     }
 
-    // MARK: Usage table
+    // MARK: - Server table
 
-    private var usageTable: some View {
-        let weights: [CGFloat] = [2, 1, 1, 1, 1.4]
-        return VStack(spacing: 0) {
-            GeometryReader { geo in
-                let widths = columnWidths(total: geo.size.width, weights: weights)
-                VStack(spacing: 0) {
-                    HStack(spacing: 12) {
-                        usageCell("MODEL", widths[0], .leading)
-                        usageCell("REQUESTS", widths[1], .trailing)
-                        usageCell("TOKENS", widths[2], .trailing)
-                        usageCell("TOK/S", widths[3], .trailing)
-                        usageCell("SHARE", widths[4], .leading)
-                    }
-                    .font(.mono(9.5)).tracking(0.8).foregroundStyle(Theme.textFaint)
-                    .padding(.horizontal, 18).padding(.vertical, 12)
-                    .overlay(alignment: .bottom) { Divider().overlay(Theme.line) }
+    private var serverSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Eyebrow("By Server")
+            VStack(spacing: 0) {
+                tableHeader(["Server", "Requests", "Tokens"])
+                ForEach(servers) { stat in
+                    tableRow([
+                        stat.serverLabel,
+                        "\(stat.requests)",
+                        tokenString(stat.totalTokens),
+                    ], first: servers.first?.id == stat.id)
+                }
+            }
+            .panel(Theme.Palette.panel, radius: 10)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
 
-                    ForEach(store.usage) { row in
-                        usageRow(row, widths: widths)
+    // MARK: - Table helpers
+
+    private func tableHeader(_ cols: [String]) -> some View {
+        HStack {
+            ForEach(cols, id: \.self) { col in
+                Text(col.uppercased())
+                    .font(Theme.label(9))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .frame(maxWidth: .infinity, alignment: col == cols.first ? .leading : .trailing)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Theme.Palette.panelHigh)
+    }
+
+    private func tableRow(_ cols: [String], first: Bool) -> some View {
+        HStack {
+            ForEach(Array(cols.enumerated()), id: \.offset) { i, col in
+                Text(col)
+                    .font(i == 0 ? Theme.mono(12) : Theme.metric(12))
+                    .foregroundStyle(i == 0 ? Theme.Palette.ink : Theme.Palette.inkDim)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: i == 0 ? .leading : .trailing)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .overlay(alignment: .top) {
+            if !first {
+                Rectangle().fill(Theme.Palette.stroke).frame(height: 1)
+            }
+        }
+    }
+
+    // MARK: - Empty states
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(Theme.Palette.inkFaint)
+            Text("No usage data yet.")
+                .font(Theme.metric(12))
+                .foregroundStyle(Theme.Palette.inkFaint)
+            Text("Send a message to start generating reports.")
+                .font(Theme.metric(11))
+                .foregroundStyle(Theme.Palette.inkFaint.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(48)
+    }
+
+    private var noDataForRange: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(Theme.Palette.inkFaint)
+            Text("No activity in the selected period.")
+                .font(Theme.metric(12))
+                .foregroundStyle(Theme.Palette.inkFaint)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(48)
+    }
+
+    // MARK: - Formatting
+
+    private func tokenString(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 1_000     { return String(format: "%.1fK", Double(n) / 1_000) }
+        return "\(n)"
+    }
+}
+
+// MARK: - Chart views
+
+private struct RequestsChart: View {
+    let buckets: [ReportCalculator.DayBucket]
+
+    var body: some View {
+        Chart(buckets) { b in
+            BarMark(x: .value("Day", b.date, unit: .day),
+                    y: .value("Requests", b.requests))
+                .foregroundStyle(Theme.Palette.signal.opacity(0.85))
+                .cornerRadius(3)
+        }
+        .chartXAxis {
+            AxisMarks { _ in
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { v in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let n = v.as(Int.self) { Text("\(n)").font(Theme.metric(8)) }
+                }
+            }
+        }
+        .frame(height: 80)
+    }
+}
+
+private struct TokensChart: View {
+    let buckets: [ReportCalculator.DayBucket]
+
+    var body: some View {
+        Chart(buckets) { b in
+            BarMark(x: .value("Day", b.date, unit: .day),
+                    y: .value("Prompt", b.promptTokens))
+                .foregroundStyle(Theme.Palette.inkDim.opacity(0.55))
+                .cornerRadius(2)
+            BarMark(x: .value("Day", b.date, unit: .day),
+                    y: .value("Completion", b.completionTokens))
+                .foregroundStyle(Theme.Palette.signal.opacity(0.75))
+                .cornerRadius(2)
+        }
+        .chartForegroundStyleScale([
+            "Prompt":     Theme.Palette.inkDim.opacity(0.55),
+            "Completion": Theme.Palette.signal.opacity(0.75),
+        ])
+        .chartXAxis {
+            AxisMarks { _ in
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { v in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let n = v.as(Double.self) {
+                        Text(n >= 1000 ? String(format: "%.0fK", n / 1000) : String(format: "%.0f", n))
+                            .font(Theme.metric(8))
                     }
                 }
             }
-            .frame(height: CGFloat(store.usage.count) * 45 + 41)
         }
-        .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.line))
+        .frame(height: 80)
     }
+}
 
-    private func usageRow(_ row: UsageRow, widths: [CGFloat]) -> some View {
-        HStack(spacing: 12) {
-            Text(row.model).font(.mono(12.5)).foregroundStyle(Theme.textHi)
-                .lineLimit(1).frame(width: widths[0], alignment: .leading)
-            Text(row.requests).font(.mono(12)).foregroundStyle(Theme.textLo)
-                .frame(width: widths[1], alignment: .trailing)
-            Text(row.tokens).font(.mono(12)).foregroundStyle(Theme.textLo)
-                .frame(width: widths[2], alignment: .trailing)
-            Text(row.rate).font(.mono(12)).foregroundStyle(Theme.textLo)
-                .frame(width: widths[3], alignment: .trailing)
-            HStack(spacing: 9) {
-                Capsule().fill(Color.white.opacity(0.07)).frame(height: 5)
-                    .overlay(alignment: .leading) {
-                        GeometryReader { g in
-                            Capsule().fill(Theme.amber).frame(width: g.size.width * row.share)
-                        }
-                    }
-                Text(row.sharePercent).font(.mono(10.5)).foregroundStyle(Theme.textDim)
-                    .frame(width: 30, alignment: .trailing)
+private struct TokPerSecChart: View {
+    let buckets: [ReportCalculator.DayBucket]
+
+    var body: some View {
+        Chart(buckets) { b in
+            LineMark(x: .value("Day", b.date, unit: .day),
+                     y: .value("tok/s", b.avgTokPerSec))
+                .foregroundStyle(Theme.Palette.signal)
+                .interpolationMethod(.catmullRom)
+            AreaMark(x: .value("Day", b.date, unit: .day),
+                     y: .value("tok/s", b.avgTokPerSec))
+                .foregroundStyle(
+                    LinearGradient(colors: [Theme.Palette.signal.opacity(0.2), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .interpolationMethod(.catmullRom)
+            PointMark(x: .value("Day", b.date, unit: .day),
+                      y: .value("tok/s", b.avgTokPerSec))
+                .foregroundStyle(Theme.Palette.signal)
+                .symbolSize(25)
+        }
+        .chartXAxis {
+            AxisMarks { _ in
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
             }
-            .frame(width: widths[4])
         }
-        .padding(.horizontal, 18).frame(height: 45)
-        .overlay(alignment: .bottom) { Divider().overlay(Color.white.opacity(0.04)) }
-    }
-
-    private func usageCell(_ text: String, _ width: CGFloat, _ align: Alignment) -> some View {
-        Text(text).frame(width: width, alignment: align)
-    }
-
-    private func columnWidths(total: CGFloat, weights: [CGFloat]) -> [CGFloat] {
-        let gaps = CGFloat(weights.count - 1) * 12
-        let available = max(0, total - 36 - gaps)
-        let sum = weights.reduce(0, +)
-        return weights.map { available * $0 / sum }
-    }
-
-    // MARK: Card chrome
-
-    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) { content() }
-            .padding(.horizontal, 18).padding(.vertical, 16)
-            .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
-            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.line))
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { v in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let n = v.as(Double.self) {
+                        Text(String(format: "%.0f", n)).font(Theme.metric(8))
+                    }
+                }
+            }
+        }
+        .frame(height: 80)
     }
 }
