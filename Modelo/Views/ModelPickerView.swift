@@ -7,9 +7,9 @@ struct DiscoveredModel: Identifiable, Hashable {
     var id: String { "\(server.id)|\(model.id)" }
 }
 
-/// Model switcher. The trigger is a compact spec plate; tapping it raises a custom
-/// dark popover that groups models by machine, shows each unit's specs and
-/// capabilities, and marks the loaded one — so picking feels like patching into a rack.
+/// Model switcher (handoff §8). The trigger is a compact model chip; tapping it
+/// raises a dark popover that groups models by server, shows each unit's specs,
+/// and marks the loaded / selected one.
 struct ModelPickerView: View {
     let discovered: [DiscoveredModel]
     @Binding var selection: DiscoveredModel?
@@ -63,47 +63,43 @@ struct ModelPickerView: View {
             .preferredColorScheme(.dark)
         }
         // The trigger sits behind the open popover, so `onHover` can't fire to clear
-        // a lingering hover. Reset it on dismiss so the plate doesn't stay "lifted".
+        // a lingering hover. Reset it on dismiss so the chip doesn't stay "lifted".
         .onChange(of: showingPopover) { _, open in
             if !open { hovering = false }
         }
     }
 
-    // MARK: Trigger plate
+    // MARK: Trigger — Native Refined model chip
 
-    /// Compact header control: cube icon, selected family (or "SELECT MODEL"),
-    /// the selected model's capability chips, and a chevron affordance.
+    /// Compact header chip: a green presence dot, the selected family (or
+    /// "SELECT MODEL"), and a chevron affordance.
     private var trigger: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "cube.transparent")
-                .font(.system(size: 12))
-                .foregroundStyle(selection == nil ? Theme.Palette.inkFaint : Theme.Palette.signal)
+        HStack(spacing: 9) {
             if let m = selection?.model {
+                Circle().fill(Theme.green).frame(width: 6, height: 6)
                 Text(m.familyName)
-                    .font(Theme.mono(13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                CapabilityChips(model: m)
+                    .font(.mono(12.5))
+                    .foregroundStyle(Theme.textHi)
             } else {
                 Text("SELECT MODEL")
-                    .font(Theme.label(12))
-                    .tracking(1)
-                    .foregroundStyle(Theme.Palette.inkDim)
+                    .font(.mono(11)).tracking(1)
+                    .foregroundStyle(Theme.textMute)
             }
             Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Theme.textMute)
         }
         .padding(.horizontal, 11)
-        .padding(.vertical, 7)
-        .panel(hovering ? Theme.Palette.panelHigh : Theme.Palette.panel,
-               radius: 8,
-               stroke: selection == nil ? Theme.Palette.stroke : Theme.Palette.strokeStrong)
+        .padding(.vertical, 6)
+        .background(hovering ? Theme.fillHi : Theme.fill,
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control)
+            .stroke(Color.white.opacity(0.09)))
     }
 }
 
-/// The popover body: server-grouped, scrollable list of rich model rows on the
-/// dark panel surface. Kept private to the picker so the dropdown and trigger stay
-/// in lockstep.
+/// The popover body (handoff §8): server-grouped, scrollable list of model rows
+/// on the dark popover surface, with a search field and a settings footer.
 private struct ModelPickerList: View {
     let groups: [(server: Server, models: [DiscoveredModel])]
     let isEmpty: Bool
@@ -114,88 +110,91 @@ private struct ModelPickerList: View {
     @State private var ejectingID: String?
     @State private var searchText = ""
 
+    private var totalCount: Int { groups.reduce(0) { $0 + $1.models.count } }
+
     var body: some View {
         VStack(spacing: 0) {
             searchField
-            Rectangle().fill(Theme.Palette.stroke).frame(height: 1)
+            Divider().overlay(Theme.line)
             content
+            Divider().overlay(Theme.line)
+            footer
         }
-        .frame(width: 340)
-        .background(Theme.Palette.panel)
+        .frame(width: 418)
+        .frame(maxHeight: 520)
+        .background(Theme.popoverBG)
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
-                .foregroundStyle(Theme.Palette.inkFaint)
-            TextField("Search models", text: $searchText)
+                .foregroundStyle(Theme.textDim)
+            TextField("Search models…", text: $searchText)
                 .textFieldStyle(.plain)
-                .font(Theme.mono(12))
-                .foregroundStyle(Theme.Palette.ink)
-            if !searchText.isEmpty {
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textHi)
+            if searchText.isEmpty {
+                Text("\(totalCount)")
+                    .font(.mono(10)).foregroundStyle(Theme.textFaint)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Theme.fillHi, in: RoundedRectangle(cornerRadius: 5))
+            } else {
                 Button { searchText = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
-                        .foregroundStyle(Theme.Palette.inkFaint)
+                        .foregroundStyle(Theme.textDim)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12).frame(height: 34)
+        .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.line))
+        .padding(13)
+    }
+
+    private func groupHeader(_ server: Server, count: Int) -> some View {
+        HStack(spacing: 10) {
+            Text(server.kind == .openRouter ? "\(server.label.uppercased()) · CLOUD"
+                                            : server.label.uppercased())
+                .font(.mono(9.5)).tracking(1.2)
+                .foregroundStyle(Theme.textDim)
+            Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+            Text("\(count)")
+                .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
+        }
+        .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
     }
 
     @ViewBuilder private var content: some View {
         if isEmpty {
-            // Styled empty state, matching the chrome rather than a raw default string.
-            HStack(spacing: 8) {
-                Image(systemName: "cube.transparent")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.inkFaint)
-                Eyebrow("No models on any online server", color: Theme.Palette.inkDim)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
+            emptyState(icon: "cube.transparent", text: "No models on any online server")
         } else if displayGroups.isEmpty && !cloudHintVisible {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.inkFaint)
-                Eyebrow("No models match", color: Theme.Palette.inkDim)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
+            emptyState(icon: "magnifyingglass", text: "No models match")
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(displayGroups, id: \.server.id) { group in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Eyebrow(group.server.label)
-                                .padding(.horizontal, 12)
-                            ForEach(group.models) { item in
-                                ModelRow(item: item,
-                                         isSelected: item.id == selection?.id,
-                                         isLoading: loadingID == item.id,
-                                         isEjecting: ejectingID == item.id,
-                                         onEject: onEject == nil ? nil : {
-                                            ejectingID = item.id
-                                            onEject!(item)
-                                            // Auto-clear after a timeout in case the refresh
-                                            // doesn't land before the popover closes.
-                                            Task { @MainActor in
-                                                try? await Task.sleep(for: .seconds(5))
-                                                if ejectingID == item.id { ejectingID = nil }
-                                            }
-                                         }) {
-                                    loadingID = item.id
-                                    onSelect(item)
-                                    // Clear loading state after a moment so it doesn't stick
-                                    // if the callback is fast; the real state updates via refreshModels()
-                                    Task { @MainActor in
-                                        try? await Task.sleep(for: .seconds(0.5))
-                                        if loadingID == item.id { loadingID = nil }
-                                    }
+                        groupHeader(group.server, count: group.models.count)
+                        ForEach(group.models) { item in
+                            ModelRow(item: item,
+                                     isSelected: item.id == selection?.id,
+                                     isLoading: loadingID == item.id,
+                                     isEjecting: ejectingID == item.id,
+                                     onEject: onEject == nil ? nil : {
+                                        ejectingID = item.id
+                                        onEject!(item)
+                                        Task { @MainActor in
+                                            try? await Task.sleep(for: .seconds(5))
+                                            if ejectingID == item.id { ejectingID = nil }
+                                        }
+                                     }) {
+                                loadingID = item.id
+                                onSelect(item)
+                                Task { @MainActor in
+                                    try? await Task.sleep(for: .seconds(0.5))
+                                    if loadingID == item.id { loadingID = nil }
                                 }
                             }
                         }
@@ -204,20 +203,47 @@ private struct ModelPickerList: View {
                         HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 11))
-                                .foregroundStyle(Theme.Palette.inkFaint)
+                                .foregroundStyle(Theme.textFaint)
                             Text("Search to add an OpenRouter model · \(cloudModelCount) available")
-                                .font(Theme.metric(10))
-                                .foregroundStyle(Theme.Palette.inkFaint)
+                                .font(.mono(10))
+                                .foregroundStyle(Theme.textFaint)
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 21)
+                        .padding(.horizontal, 16).padding(.top, 12)
                     }
                 }
-                .padding(.vertical, 12)
+                .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 8)
             }
-            // Cap height so long inventories scroll instead of growing off-screen.
-            .frame(maxHeight: 420)
         }
+    }
+
+    private func emptyState(icon: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.textFaint)
+            Eyebrow(text, color: Theme.textDim)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var footer: some View {
+        SettingsLink {
+            HStack(spacing: 10) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.textMute)
+                Text("Manage models")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.textLo)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(Color.white.opacity(0.012))
     }
 
     /// Local servers list in full; OpenRouter's large catalog stays behind search
@@ -245,8 +271,8 @@ private struct ModelPickerList: View {
     }
 }
 
-/// A single rich model row in the picker dropdown: family name, spec strip,
-/// capability chips, a loaded badge, and selected / hover highlighting.
+/// A single model row (handoff §8): a state indicator, family name + spec strip,
+/// a context label, and a Load / eject affordance. Selected rows tint amber.
 private struct ModelRow: View {
     let item: DiscoveredModel
     let isSelected: Bool
@@ -260,68 +286,87 @@ private struct ModelRow: View {
     private var busy: Bool { isLoading || isEjecting }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            // Amber selection rail — a quiet "you are here" marker.
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(isSelected ? Theme.Palette.signal : Color.clear)
-                .frame(width: 3)
-                .frame(maxHeight: .infinity)
+        HStack(spacing: 11) {
+            indicator.frame(width: 16)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(model.familyName)
-                        .font(Theme.mono(13, weight: .semibold))
-                        .foregroundStyle(isSelected ? Theme.Palette.signal : Theme.Palette.ink)
-                        .lineLimit(1)
-                        // Truncate the name, never the trailing badge/checkmark.
-                        .layoutPriority(1)
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .scaleEffect(0.7)
-                    } else if isEjecting {
-                        Chip(text: "ejecting…", tint: Theme.Palette.inkDim)
-                        ProgressView()
-                            .controlSize(.mini)
-                            .scaleEffect(0.7)
-                    } else if model.isLoaded {
-                        // Distinct amber "LOADED" tag — far clearer than a filled dot.
-                        Chip(text: "loaded", tint: Theme.Palette.signal)
-                        if let onEject {
-                            Button(action: onEject) {
-                                Image(systemName: "eject.fill")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(Theme.Palette.inkDim)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Unload model")
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    if isSelected {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Theme.Palette.signal)
-                    }
-                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.familyName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(nameColor)
+                    .lineLimit(1)
+                    .layoutPriority(1)
                 SpecStrip(model: model)
-                CapabilityChips(model: model)
+            }
+
+            Spacer(minLength: 0)
+
+            if busy {
+                ProgressView().controlSize(.mini).scaleEffect(0.7)
+            } else {
+                if let ctx = model.maxContextLength {
+                    Text(contextLabel(ctx))
+                        .font(.mono(10.5))
+                        .foregroundStyle(Theme.textFaint)
+                }
+                if model.isLoaded {
+                    if let onEject {
+                        Button(action: onEject) {
+                            Image(systemName: "eject.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Theme.textMute)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Unload model")
+                    }
+                } else if !isSelected {
+                    Button(action: onSelect) {
+                        Text("Load")
+                            .font(.mono(10)).foregroundStyle(Theme.amber)
+                            .padding(.horizontal, 9).padding(.vertical, 4)
+                            .background(Theme.amberFill, in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .padding(.horizontal, 10).padding(.vertical, 9)
+        .background(rowFill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
         .contentShape(Rectangle())
         .onTapGesture { if !busy { onSelect() } }
-        .padding(.horizontal, 9)
         .onHover { hovering = $0 }
     }
 
-    /// Selected rows sit on `panelHigh`; hover lifts to the same so the cursor's
-    /// position always reads, with a tint when the row is the active pick.
+    @ViewBuilder private var indicator: some View {
+        if isSelected {
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Theme.amber)
+        } else if model.isLoaded {
+            Circle().fill(Theme.green).frame(width: 7, height: 7)
+                .overlay(Circle().stroke(Theme.greenGlow, lineWidth: 3))
+        } else if item.server.kind == .openRouter {
+            Image(systemName: "cloud")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.textMute)
+        } else {
+            Circle().stroke(Color.white.opacity(0.22), lineWidth: 1.5)
+                .frame(width: 7, height: 7)
+        }
+    }
+
+    private var nameColor: Color {
+        if isSelected { return Theme.amberName }
+        if model.isLoaded { return Theme.textHi }
+        return Theme.textSoft
+    }
+
+    /// Selected rows tint amber; hover lifts to a faint fill.
     private var rowFill: Color {
-        if isSelected { return Theme.Palette.panelHigh }
-        return hovering ? Theme.Palette.panelHigh : Color.clear
+        if isSelected { return Theme.amberFillLo }
+        return hovering ? Theme.fillHi : Color.clear
+    }
+
+    private func contextLabel(_ n: Int) -> String {
+        n >= 1000 ? "\(n / 1000)K" : "\(n)"
     }
 }
