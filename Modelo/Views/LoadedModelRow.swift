@@ -1,77 +1,75 @@
 import SwiftUI
 
-/// One model row in the picker popover (handoff §8). `ModelState` drives the
-/// leading indicator and whether a "Load" button appears.
+/// The currently-loaded model — name, capability chips, spec strip, and optional unpin action.
 struct LoadedModelRow: View {
-    @Environment(AppStore.self) private var store
-    let model: ModelInfo
-    var onSelect: () -> Void
+    let model: LMStudioModel
+    /// Called when the user taps the pin button. Only shown when the model is loaded, not pinned, and this is non-nil.
+    var onPin: (() -> Void)? = nil
+    /// Called when the user taps the unpin button. Only shown when the model is pinned and this is non-nil.
+    var onUnpin: (() -> Void)? = nil
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 11) {
-            indicator.frame(width: 16)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(model.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(nameColor)
-                    .lineLimit(1)
-                Text(model.meta)
-                    .font(.mono(10)).foregroundStyle(Theme.textDim)
-            }
-
-            Spacer(minLength: 0)
-
-            Text(model.contextLabel)
-                .font(.mono(10.5)).foregroundStyle(Theme.textFaint)
-
-            if model.state == .idle {
-                Button { load() } label: {
-                    Text("Load")
-                        .font(.mono(10)).foregroundStyle(Theme.amber)
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(Theme.amberFill, in: RoundedRectangle(cornerRadius: 6))
+        HStack(alignment: .center, spacing: 0) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(model.familyName)
+                        .font(Theme.mono(13, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                    if model.keepInRam == true {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.signal)
+                            .help("Pinned — model will not be auto-evicted")
+                    }
+                    CapabilityChips(model: model)
                 }
-                .buttonStyle(.plain)
+                SpecStrip(model: model)
+            }
+            Spacer(minLength: 0)
+            if hovering {
+                if model.keepInRam == true, let onUnpin {
+                    Button(action: onUnpin) {
+                        Image(systemName: "pin.slash")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Theme.Palette.inkDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Unpin model (allow eviction)")
+                    .transition(.opacity)
+                } else if model.keepInRam != true, let onPin {
+                    Button(action: onPin) {
+                        Image(systemName: "pin")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Theme.Palette.inkDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Pin model (prevent auto-eviction)")
+                    .transition(.opacity)
+                }
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 9)
-        .background(model.state == .selected ? Theme.amberFillLo : .clear,
-                    in: RoundedRectangle(cornerRadius: Theme.Radius.field))
-        .contentShape(Rectangle())
-        .onTapGesture { onSelect() }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel(Theme.Palette.panelHigh, radius: 8)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.1), value: hovering)
     }
+}
 
-    @ViewBuilder private var indicator: some View {
-        switch model.state {
-        case .selected:
-            Image(systemName: "checkmark")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.amber)
-        case .loaded:
-            Circle().fill(Theme.green).frame(width: 7, height: 7)
-                .overlay(Circle().stroke(Theme.greenGlow, lineWidth: 3))
-        case .idle:
-            Circle().stroke(Color.white.opacity(0.22), lineWidth: 1.5)
-                .frame(width: 7, height: 7)
-        case .cloud:
-            Image(systemName: "cloud")
+/// Shown when no model is loaded or the server hasn't been polled yet.
+struct NoModelRow: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "moon.zzz")
                 .font(.system(size: 11))
-                .foregroundStyle(Theme.textMute)
+                .foregroundStyle(Theme.Palette.inkFaint)
+            Text("No model loaded")
+                .font(Theme.metric(11))
+                .foregroundStyle(Theme.Palette.inkFaint)
         }
-    }
-
-    private var nameColor: Color {
-        switch model.state {
-        case .selected: return Theme.amberName
-        case .idle:     return Theme.textSoft
-        default:        return Theme.textHi
-        }
-    }
-
-    private func load() {
-        guard let i = store.models.firstIndex(where: { $0.id == model.id }) else { return }
-        // Real load is async (handoff §8): show progress, then flip to .loaded.
-        store.models[i].state = .loaded
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel(Theme.Palette.panelHigh, radius: 8)
     }
 }

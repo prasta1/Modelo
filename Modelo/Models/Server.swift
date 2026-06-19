@@ -1,34 +1,65 @@
 import Foundation
+import SwiftData
 
-enum ServerKind: Hashable {
-    case lmStudio
-    case cloud
-}
+/// A registered chat endpoint. LM Studio machines are seeded on first launch;
+/// an OpenRouter cloud endpoint is also seeded (inert until a key is set).
+@Model
+final class Server {
+    var id: UUID = UUID()
+    var label: String = ""
+    /// LM Studio: Tailscale MagicDNS host, e.g. "studio". Ignored for OpenRouter.
+    var host: String = ""
+    /// LM Studio server port (default 1234). Ignored for OpenRouter.
+    var port: Int = 1234
+    /// Sort position in the sidebar.
+    var sortOrder: Int = 0
+    /// Backend kind (raw-string-backed for a simple SwiftData schema).
+    var kindRaw: String = ServerKind.lmStudio.rawValue
+    /// DEPRECATED: never used; secrets now live in Keychain (`KeychainStore`). Kept to avoid a migration.
+    var apiKey: String?
 
-/// An inference endpoint shown in the sidebar and grouped in the model picker.
-/// Selection (the active server) is shared app state; live metrics stream in
-/// separately (see `ServerStat`).
-struct Server: Identifiable, Hashable {
-    let id = UUID()
-    var name: String            // "Mac Studio M3 Ultra"
-    var host: String            // "studio.taile85139.ts.net:1234"
-    var kind: ServerKind        // .lmStudio / .cloud
-    var isLive: Bool = true
+    var kind: ServerKind {
+        get { ServerKind(rawValue: kindRaw) ?? .lmStudio }
+        set { kindRaw = newValue.rawValue }
+    }
 
-    /// Right-aligned label in the picker section header ("4 loaded" / "connected").
-    var pickerMeta: String
-}
+    /// Base URL used by the networking layer.
+    /// - LM Studio: `http://host:port`. - OpenRouter: the fixed cloud base.
+    var baseURL: String {
+        switch kind {
+        case .lmStudio:  "http://\(Server.normalizedHost(host)):\(port)"
+        case .openRouter: "https://openrouter.ai/api/v1"
+        }
+    }
 
-/// Live monitoring frame for the Status dashboard. In the real app these values
-/// arrive from `ServerMonitor` as an `AsyncStream`; the seeds here are sample
-/// frames (handoff §6).
-struct ServerStat: Identifiable, Hashable {
-    let id = UUID()
-    var name: String
-    var host: String
-    var latency: String         // "12 ms"
-    var models: String          // "4 loaded"
-    var requests: String        // "38 / min"
-    var throughput: String      // "42 tok/s"
-    var spark: [Double]         // sparkline samples (0–100)
+    /// Cleans a user-entered LM Studio host so it can be safely interpolated into
+    /// `http://<host>:<port>`.
+    ///
+    /// Without this, a host that already carries a scheme (e.g. `http://localhost`)
+    /// produced a doubled-up `http://http://localhost:1234` — an invalid string that
+    /// makes `URL(string:)` return nil, so the reachability probe silently failed and
+    /// the server read as permanently offline. We strip the scheme, surrounding
+    /// whitespace, and any trailing slash so the bare host remains.
+    /// - Parameter raw: The host string as typed by the user.
+    /// - Returns: A bare host with no scheme, whitespace, or trailing slash.
+    static func normalizedHost(_ raw: String) -> String {
+        var host = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip a leading http:// or https:// (case-insensitive).
+        if let schemeRange = host.range(of: "^https?://",
+                                        options: [.regularExpression, .caseInsensitive]) {
+            host.removeSubrange(schemeRange)
+        }
+        // Drop any trailing slash(es) left behind (e.g. "localhost/").
+        while host.hasSuffix("/") { host.removeLast() }
+        return host
+    }
+
+    init(label: String, host: String, port: Int = 1234, sortOrder: Int = 0,
+         kind: ServerKind = .lmStudio) {
+        self.label = label
+        self.host = host
+        self.port = port
+        self.sortOrder = sortOrder
+        self.kindRaw = kind.rawValue
+    }
 }

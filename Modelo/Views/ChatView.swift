@@ -1,89 +1,459 @@
 import SwiftUI
+import SwiftData
+import UniformTypeIdentifiers
+import AppKit
 
-/// Chat screen (handoff §5): context bar → messages → composer.
+/// Center detail: a model spec-plate header, the scrolling message stream, the
+/// context gauge, and a composer deck. Streaming is driven by a `ChatSession`
+/// owned here.
 struct ChatView: View {
-    @Environment(AppStore.self) private var store
+    @Bindable var conversation: Conversation
+    let discovered: [DiscoveredModel]
+    @Binding var pickedModel: DiscoveredModel?
+    /// Callback fired when the user picks a model. Implement to load/unload models.
+    let onModelSelect: ((DiscoveredModel) async -> Bool)?
+    /// Callback fired when the user ejects a loaded model.
+    let onModelEject: ((DiscoveredModel) async -> Void)?
+    @Environment(ServerRegistry.self) private var registry
+    @Environment(MCPServerManager.self) private var mcpManager
+    @Environment(\.modelContext) private var context
+
+    @State private var session: ChatSession?
+    @State private var sendTask: Task<Void, Never>?
+    @State private var draft = ""
+    @State private var pendingAttachments: [MessageAttachment] = []
+    @State private var isDragTarget = false
+    @FocusState private var composerFocused: Bool
+    // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
+    @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+
+
+    /// The server bound to this conversation (matches conversation.serverID).
+    private var boundServer: Server? {
+        discovered.first { $0.server.id == conversation.serverID }?.server
+            ?? pickedModel?.server
+    }
+
+    private var contextWindow: Int {
+        pickedModel?.model.maxContextLength ?? 0
+    }
+
+    private var sortedMessages: [Message] {
+        conversation.messages.sorted { $0.createdAt < $1.createdAt }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            ContextBar()
+            header
+            messageStream
+            footer
+        }
+        .background(Theme.windowBG)
+        .onAppear { ensureSession() }
+        .onDisappear { cancelInFlight() }
+    }
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 26) {
-                    ForEach(store.messages) { MessageRow(message: $0) }
+    // MARK: Header — model spec plate + live status
+
+    private var header: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                ModelPickerView(discovered: discovered, selection: $pickedModel, onModelSelect: onModelSelect, onModelEject: onModelEject)
+                if pickedModel?.model.supportsToolUse == true {
+                    Toggle("Tools", isOn: $conversation.toolsEnabled)
+                        .toggleStyle(ChipToggleStyle())
                 }
-                .frame(maxWidth: 720)
+                Spacer(minLength: 8)
+                if let server = pickedModel?.server {
+                    statusPill(for: server)
+                }
+                FontSizeControl(size: $messageFontSize)
+            }
+            if let model = pickedModel?.model {
+                HStack {
+                    SpecStrip(model: model)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .background(Theme.windowBG)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.line).frame(height: 1)
+        }
+    }
+
+    private func statusPill(for server: Server) -> some View {
+        let status = registry.status(for: server)
+        let live = status == .online
+        return HStack(spacing: 6) {
+            StatusLED(status: status, size: 6)
+            Text(live ? "LIVE" : status == .offline ? "OFFLINE" : "PROBING")
+                .font(.mono(9)).tracking(1)
+                .foregroundStyle(live ? Theme.green : Theme.textMute)
+            Text(server.label)
+                .font(.mono(10))
+                .foregroundStyle(Theme.textFaint)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.line))
+    }
+
+    // MARK: Message stream
+
+    private var messageStream: some View {
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if sortedMessages.isEmpty {
+                        emptyConversationHint
+                            .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(sortedMessages) { msg in
+                                MessageRow(message: msg, modelName: conversation.modelID, onReuse: reuseDraft).id(msg.id)
+                            }
+                            Color.clear.frame(height: 1).id(bottomAnchor)
+                        }
+                        .padding(20)
+                        // Bottom-align short conversations so the latest turn sits just
+                        // above the composer rather than stranding it under a void.
+                        .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .bottomLeading)
+                    }
+                }
+                // Scroll to bottom when a new message is appended.
+                .onChange(of: conversation.messages.count) { scrollToBottom(proxy) }
+                // Timer-based scroll during streaming: fires at ~20fps instead of once
+                // per token, avoiding layout-pass spam from per-character onChange.
+                .task(id: session?.isStreaming) {
+                    guard session?.isStreaming == true else { return }
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(50))
+                        scrollToBottom(proxy)
+                    }
+                    scrollToBottom(proxy)
+                }
+            }
+        }
+    }
+
+    /// Fills the message area before the first turn so a fresh chat reads as
+    /// intentional empty space, not a dead gap above the composer.
+    private var emptyConversationHint: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "text.bubble")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(Theme.textFaint)
+            Text(pickedModel == nil
+                 ? "Pick a model above, then say something."
+                 : "Send a message to \(pickedModel!.model.familyName) to begin.")
+                .font(.mono(12))
+                .foregroundStyle(Theme.textFaint)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+    }
+
+    private let bottomAnchor = "BOTTOM"
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
+        } else {
+            proxy.scrollTo(bottomAnchor, anchor: .bottom)
+        }
+    }
+
+    // MARK: Footer — error, context gauge, composer
+
+    private var footer: some View {
+        VStack(spacing: 0) {
+            if let error = session?.errorText {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.alert)
+                    Text(error)
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.Palette.alert)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 28)
+                .background(Theme.Palette.alert.opacity(0.10))
+            }
+
+            // Hidden when the window is unknown (server only exposed /v1/models), so
+            // we don't show a meaningless "0 / 0" bar.
+            if contextWindow > 0 {
+                ContextBar(used: conversation.contextTokensUsed ?? 0, window: contextWindow)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
             }
 
             composer
         }
         .background(Theme.windowBG)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Theme.line).frame(height: 1)
+        }
     }
 
-    // MARK: Composer (handoff §5.3)
+    private var isStreaming: Bool { session?.isStreaming == true }
+    private var canSend: Bool {
+        (!draft.trimmingCharacters(in: .whitespaces).isEmpty || !pendingAttachments.isEmpty) && !isStreaming
+    }
+    /// Amber gradient when the send/stop button is active, otherwise a flat fill.
+    private var sendButtonBackground: AnyShapeStyle {
+        (canSend || isStreaming) ? AnyShapeStyle(Theme.sendGradient) : AnyShapeStyle(Theme.fillHi)
+    }
+
+    // MARK: Composer
 
     private var composer: some View {
-        @Bindable var store = store
-        return VStack {
-            VStack(alignment: .leading, spacing: 16) {
-                TextField("Message Modelo…", text: $store.composerDraft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.textHi)
-                    .lineLimit(1...6)
-
-                HStack(spacing: 12) {
-                    Image(systemName: "paperclip")
-                    Image(systemName: "photo")
-
-                    HStack(spacing: 7) {
-                        Circle().fill(Theme.green).frame(width: 5, height: 5)
-                        Text(store.selectedModel?.name ?? "—")
-                            .font(.mono(11)).foregroundStyle(Theme.textLo)
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Color.white.opacity(0.04),
-                                in: RoundedRectangle(cornerRadius: 7))
-
-                    Spacer(minLength: 0)
-
-                    Text("⌘↵ to send").font(.mono(10)).foregroundStyle(Theme.textFaint)
-                    sendButton
-                }
-                .font(.system(size: 16))
-                .foregroundStyle(Theme.textMute)
+        VStack(spacing: 0) {
+            if !pendingAttachments.isEmpty {
+                attachmentStrip
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble))
-            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.bubble)
-                .stroke(Color.white.opacity(0.09)))
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
+            HStack(alignment: .bottom, spacing: 10) {
+                if pickedModel?.model.supportsVision == true {
+                    attachButton
+                }
+                TextField("Message…", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: messageFontSize))
+                    .foregroundStyle(Theme.textHi)
+                    .lineLimit(1...8)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .panel(Theme.fill,
+                           radius: Theme.Radius.field,
+                           stroke: composerFocused ? Theme.amber : Theme.line)
+                    .focused($composerFocused)
+                    .onSubmit(send)
+
+                Button(action: isStreaming ? stop : send) {
+                    Group {
+                        if isStreaming {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Theme.windowBG)
+                        } else {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(Theme.windowBG)
+                        }
+                    }
+                    .frame(width: 36, height: 36)
+                    .background(sendButtonBackground, in: Circle())
+                    .shadow(color: canSend || isStreaming ? Theme.amber.opacity(0.5) : .clear, radius: 6)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend && !isStreaming)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 14).padding(.bottom, 22)
+        .onDrop(of: [UTType.image], isTargeted: $isDragTarget) { providers in
+            handleDrop(providers)
+        }
+        .overlay(alignment: .center) {
+            if isDragTarget {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Theme.amber.opacity(0.5), lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
-    private var sendButton: some View {
-        Button(action: send) {
-            Image(systemName: "arrow.up")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x1A1206))
-                .frame(width: 30, height: 30)
-                .background(Theme.sendGradient, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+    // MARK: Attachment strip — thumbnails with remove buttons
+
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(pendingAttachments) { att in
+                    ZStack(alignment: .topTrailing) {
+                        if let img = NSImage(data: att.data) {
+                            Image(nsImage: img)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 56, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.stroke, lineWidth: 0.5))
+                        }
+                        Button {
+                            pendingAttachments.removeAll { $0.id == att.id }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(Color.white, Color.black.opacity(0.55))
+                        }
+                        .buttonStyle(.plain)
+                        .offset(x: 5, y: -5)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+        }
+    }
+
+    private var attachButton: some View {
+        Button(action: pickImages) {
+            Image(systemName: "photo.badge.plus")
+                .font(.system(size: 16))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 36, height: 36)
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(.return, modifiers: .command)   // ⌘↵ send; ⇧↵ newline is default
+        .help("Attach images (vision model)")
+    }
+
+    // MARK: Image picking and drop handling
+
+    private func pickImages() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.jpeg, .png, .gif, .webP, .heif, .heic]
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            pendingAttachments.append(MessageAttachment(
+                data: data,
+                mimeType: mimeType(for: url),
+                fileName: url.lastPathComponent
+            ))
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        for provider in providers {
+            if provider.canLoadObject(ofClass: NSImage.self) {
+                _ = provider.loadObject(ofClass: NSImage.self) { obj, _ in
+                    guard let nsImage = obj as? NSImage,
+                          let tiff = nsImage.tiffRepresentation,
+                          let bmp = NSBitmapImageRep(data: tiff),
+                          let png = bmp.representation(using: .png, properties: [:]) else { return }
+                    let att = MessageAttachment(data: png, mimeType: "image/png", fileName: "image.png")
+                    Task { @MainActor in pendingAttachments.append(att) }
+                }
+            }
+        }
+        return true
+    }
+
+    private func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png":         return "image/png"
+        case "gif":         return "image/gif"
+        case "webp":        return "image/webp"
+        case "heif", "heic": return "image/heif"
+        default:            return "image/jpeg"
+        }
+    }
+
+    // MARK: Session plumbing (unchanged behavior)
+
+    private func ensureSession() {
+        guard session == nil else { return }
+        let keychain = KeychainStore()
+        var tools: [any Tool] = []
+        if let key = keychain.get(account: FirecrawlClient.keychainAccount), !key.isEmpty {
+            let fc = FirecrawlClient(apiKey: key)
+            tools = [FirecrawlScrapeTool(client: fc), FirecrawlSearchTool(client: fc)]
+        }
+        // Include tools from any connected MCP servers.
+        tools += mcpManager.availableTools
+        session = ChatSession(client: LMStudioClient.shared, context: context,
+                              recorder: UsageRecorder(context: context),
+                              keychain: keychain,
+                              registry: ToolRegistry(tools))
+        composerFocused = true
+    }
+
+    /// Cancels any in-flight streaming + titling when this view goes away (the
+    /// user switched conversations), so abandoned work doesn't run to completion.
+    private func cancelInFlight() {
+        sendTask?.cancel()
+        session?.cancelPendingWork()
+    }
+
+    /// Stops the current streaming turn on demand (the composer's stop button).
+    private func stop() {
+        sendTask?.cancel()
+    }
+
+    /// Drops a past message back into the composer (focused) so the user can
+    /// resend it as-is or tweak it first. Wired to MessageRow's reuse action.
+    private func reuseDraft(_ text: String) {
+        draft = text
+        composerFocused = true
     }
 
     private func send() {
-        let text = store.composerDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        store.messages.append(ChatMessage(role: .user, text: text))
-        store.composerDraft = ""
-        // Real send wires into ChatSession / the streaming provider.
+        guard let session else { return }
+        // No model/server resolved yet (e.g. a conversation bound to an offline
+        // server with nothing picked). Surface it instead of silently no-op'ing.
+        guard let server = boundServer else {
+            session.errorText = "Pick a model before sending."
+            return
+        }
+        let text = draft
+        let attachments = pendingAttachments
+        draft = ""
+        pendingAttachments = []
+        // Keep the conversation bound to the chosen model/server.
+        if let picked = pickedModel {
+            conversation.modelID = picked.model.id
+            conversation.serverID = picked.server.id
+        }
+        sendTask = Task {
+            await session.send(text, attachments: attachments, in: conversation, server: server,
+                               serverOnline: registry.isOnline(server),
+                               modelSupportsTools: pickedModel?.model.supportsToolUse ?? false)
+            sendTask = nil
+        }
+    }
+}
+
+/// A−/A+ stepper for the chat text size. Clamped to a sane range; the same value
+/// is also driven by the ⌘+ / ⌘- / ⌘0 menu commands.
+struct FontSizeControl: View {
+    @Binding var size: Double
+
+    static let range: ClosedRange<Double> = 12...26
+
+    var body: some View {
+        HStack(spacing: 0) {
+            button("textformat.size.smaller") {
+                size = max(Self.range.lowerBound, size - 1)
+            }
+            Rectangle().fill(Theme.Palette.stroke).frame(width: 1, height: 16)
+            button("textformat.size.larger") {
+                size = min(Self.range.upperBound, size + 1)
+            }
+        }
+        .panel(Theme.Palette.panel, radius: 7)
+        .help("Chat text size (⌘+ / ⌘−)")
+    }
+
+    private func button(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 30, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

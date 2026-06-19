@@ -1,27 +1,31 @@
 import SwiftUI
 import Charts
 
-/// Throughput bar chart for Reports (handoff §6). Amber top-weighted bars,
-/// axes hidden — real data replaces the seeded samples.
+/// Compact line chart of recent tok/s values, oldest → newest left to right.
 struct ThroughputChart: View {
-    let samples: [ChartSample]
+    let values: [Double]
 
     var body: some View {
-        Chart(samples) { s in
-            BarMark(
-                x: .value("t", s.index),
-                y: .value("tok/s", s.value),
-                width: .ratio(0.66)
-            )
-            .foregroundStyle(
-                .linearGradient(
-                    colors: [Theme.amber.opacity(0.85), Theme.amber.opacity(0.32)],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
-            .cornerRadius(2)
+        Chart {
+            ForEach(Array(values.enumerated()), id: \.offset) { i, v in
+                LineMark(x: .value("Request", i), y: .value("tok/s", v))
+                    .foregroundStyle(Theme.amber)
+                    .interpolationMethod(.catmullRom)
+                AreaMark(x: .value("Request", i), y: .value("tok/s", v))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Theme.amber.opacity(0.25), .clear],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.catmullRom)
+            }
         }
         .chartXAxis(.hidden)
+        // No Y axis: the LAST/AVG/PEAK stat block sits directly above each chart
+        // and carries the scale. The old `.inset` axis drew its labels inside the
+        // plot, overlapping the data — this also frees the full width for the line.
         .chartYAxis(.hidden)
+        .frame(height: 80)
     }
 }

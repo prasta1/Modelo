@@ -1,0 +1,70 @@
+name: Modelo2
+options:
+  bundleIdPrefix: com.peregrine
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    # Sign with a stable Apple Development identity instead of the default
+    # ad-hoc "Sign to Run Locally". Ad-hoc signing gives the app a new code
+    # signature (cdhash) on every build, so macOS treats each rebuild as a
+    # different app and re-prompts for the Keychain-stored API keys every run —
+    # "Always Allow" never sticks. A real signing identity keeps the signature,
+    # and therefore the Keychain's trust, stable across rebuilds.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Apple Development: Patrick Ruster (WXQ53X7LZ7)"
+    PROVISIONING_PROFILE_SPECIFIER: ""
+targets:
+  Modelo:
+    type: application
+    platform: macOS
+    sources:
+      - Modelo
+    # Explicit Info.plist (not GENERATE_INFOPLIST_FILE) so we can declare an ATS
+    # exception: LM Studio serves plain HTTP over Tailscale, which App Transport
+    # Security blocks by default — without this, every request silently fails and
+    # servers always read as offline.
+    info:
+      path: Modelo/Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.peregrine.modelodos
+        PRODUCT_NAME: ModeloDos
+        # Ship as ModeloDos.app, but keep the Swift module named "Modelo" so the
+        # test target's `@testable import Modelo` keeps resolving.
+        PRODUCT_MODULE_NAME: Modelo
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "5.0"
+  ModeloTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - ModeloTests
+    dependencies:
+      - target: Modelo
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        # The host target is named "Modelo" but ships as ModeloDos.app
+        # (PRODUCT_NAME), so XcodeGen's auto-derived TEST_HOST points at the wrong
+        # bundle. Pin it to the real product name.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ModeloDos.app/Contents/MacOS/ModeloDos"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  Modelo2:
+    build:
+      targets:
+        Modelo: all
+    test:
+      targets:
+        - ModeloTests
