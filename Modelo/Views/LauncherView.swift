@@ -264,9 +264,9 @@ private struct PersonaTile: View {
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(isSelected ? Theme.amber : Theme.textHi)
                 }
-                Text(persona.tagline)
+                Text(persona.tagline.isEmpty ? "Tap to edit…" : persona.tagline)
                     .font(Theme.metric(9))
-                    .foregroundStyle(Theme.textFaint)
+                    .foregroundStyle(persona.tagline.isEmpty ? Theme.textFaint.opacity(0.4) : Theme.textFaint)
                     .lineLimit(1)
             }
             .padding(.horizontal, 14)
