@@ -6,6 +6,7 @@ enum SidebarRoute: Hashable {
     case launcher
     case status
     case reports
+    case settings
     case conversation(PersistentIdentifier)
 }
 
@@ -119,6 +120,8 @@ struct ContentView: View {
             )
         case .reports:
             ReportingView()
+        case .settings:
+            SettingsView(isInline: true)
         case .conversation:
             if let convo = selectedConversation {
                 ChatView(conversation: convo, discovered: discovered, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
@@ -209,6 +212,7 @@ struct ContentView: View {
         case .launcher:              storedRoute = "launcher"
         case .status:                storedRoute = "status"
         case .reports:               storedRoute = "reports"
+        case .settings:              storedRoute = "settings"
         case .conversation(let id):
             if let data = try? JSONEncoder().encode(id) {
                 storedRoute = "conv:" + data.base64EncodedString()
@@ -220,9 +224,10 @@ struct ContentView: View {
     private func restoreRoute() {
         guard route == nil, !storedRoute.isEmpty else { return }
         switch storedRoute {
-        case "launcher": route = .launcher
-        case "status":   route = .status
-        case "reports":  route = .reports
+        case "launcher":  route = .launcher
+        case "status":    route = .status
+        case "reports":   route = .reports
+        case "settings":  route = .settings
         default:
             guard storedRoute.hasPrefix("conv:") else { return }
             let b64 = String(storedRoute.dropFirst(5))

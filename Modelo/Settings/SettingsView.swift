@@ -11,6 +11,9 @@ import AppKit
 /// layout. Hand-laying the rows gives full control of the chrome and matches the
 /// app's monospaced "telemetry" look.
 struct SettingsView: View {
+    /// When `true` the view fills the detail pane instead of a fixed-size window.
+    var isInline: Bool = false
+
     @Environment(\.modelContext) private var context
     @Environment(MCPServerManager.self) private var mcpManager
     @Query(sort: \Server.sortOrder) private var servers: [Server]
@@ -21,6 +24,20 @@ struct SettingsView: View {
     private var cloudServers: [Server] { servers.filter { $0.kind == .cloudAPI } }
 
     var body: some View {
+        if isInline {
+            tabContent
+        } else {
+            tabContent
+                .frame(minWidth: 580, idealWidth: 700, maxWidth: .infinity,
+                       minHeight: 480, idealHeight: 580, maxHeight: .infinity)
+                // Override the main window's .toolbarBackground(.hidden) so the tab
+                // strip has an opaque background and scroll content doesn't bleed through.
+                .toolbarBackground(Theme.windowBG, for: .windowToolbar)
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
         TabView {
             // MARK: Servers
             ScrollView {
@@ -114,14 +131,9 @@ struct SettingsView: View {
             .clipped()
             .tabItem { Label("MCP Servers", systemImage: "terminal") }
         }
-        .frame(minWidth: 580, idealWidth: 700, maxWidth: .infinity,
-               minHeight: 480, idealHeight: 580, maxHeight: .infinity)
         .background(Theme.windowBG)
         .tint(Theme.amber)
         .preferredColorScheme(.dark)
-        // The main window sets .toolbarBackground(.hidden) globally; override it here
-        // so the tab strip has an opaque background and scroll content doesn't bleed through.
-        .toolbarBackground(Theme.windowBG, for: .windowToolbar)
     }
 
     private func addButton(_ label: String, action: @escaping () -> Void) -> some View {
