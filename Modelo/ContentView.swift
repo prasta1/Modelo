@@ -62,6 +62,7 @@ struct ContentView: View {
         NavigationSplitView {
             SidebarView(route: $route, endpointFilter: $endpointFilter,
                         renamingIDs: renamingIDs,
+                        onNewChat: { newChat() },
                         onRenameWithAI: { convo in Task { await renameWithAI(convo) } })
                 .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
         } detail: {
@@ -74,12 +75,6 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
-            // Navigation lives in the sidebar (and the Go menu, ⌘1/2/3); the
-            // toolbar carries actions only — create, inspect, configure.
-            ToolbarItem {
-                Button { newChat() } label: { Label("New Chat", systemImage: "square.and.pencil") }
-                    .help("New chat (⌘N)")
-            }
             ToolbarItem {
                 Button {
                     inspectorOpen.toggle()
