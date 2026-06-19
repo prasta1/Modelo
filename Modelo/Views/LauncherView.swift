@@ -42,11 +42,11 @@ struct LauncherView: View {
 
     var body: some View {
         ZStack {
-            InstrumentBackground()
+            Theme.windowBG.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     personaSection
-                    Divider().overlay(Theme.Palette.strokeStrong)
+                    Divider().overlay(Color.white.opacity(0.10))
                     modelSection
                 }
                 .padding(24)
@@ -111,12 +111,12 @@ struct LauncherView: View {
             let loaded = filteredModels.filter { $0.model.isLoaded }.count
             HStack(spacing: 8) {
                 StatusLED(status: registry.status(for: server), size: 7, breathe: false)
-                Eyebrow(server.label, color: Theme.Palette.ink, size: 11)
+                Eyebrow(server.label, color: Theme.textHi, size: 11)
                 Spacer()
                 Text(loaded > 0 ? "\(loaded) loaded · \(filteredModels.count)"
                                 : "\(filteredModels.count) models")
                     .font(Theme.metric(10))
-                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .foregroundStyle(Theme.textFaint)
             }
         }
     }
@@ -138,14 +138,14 @@ struct LauncherView: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 14))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
             Text(text)
                 .font(Theme.metric(11))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel(Theme.Palette.panel, radius: 10)
+        .panel(Color.white.opacity(0.02), radius: 10)
     }
 
     // MARK: - Capability filter row
@@ -153,16 +153,16 @@ struct LauncherView: View {
     private var capabilityFilterRow: some View {
         HStack(spacing: 6) {
             CapabilityFilterChip(label: "Free",   key: "free",
-                                 tint: Theme.Palette.live,
+                                 tint: Theme.green,
                                  active: activeFilters.contains("free"))   { toggle("free") }
             CapabilityFilterChip(label: "Vision", key: "vision",
-                                 tint: Theme.Palette.vision,
+                                 tint: Theme.blue,
                                  active: activeFilters.contains("vision")) { toggle("vision") }
             CapabilityFilterChip(label: "Tools",  key: "tools",
-                                 tint: Theme.Palette.signal,
+                                 tint: Theme.amber,
                                  active: activeFilters.contains("tools"))  { toggle("tools") }
             CapabilityFilterChip(label: "Reason", key: "reason",
-                                 tint: Theme.Palette.think,
+                                 tint: Theme.purple,
                                  active: activeFilters.contains("reason")) { toggle("reason") }
         }
     }
@@ -178,34 +178,34 @@ struct LauncherView: View {
         HStack(spacing: 10) {
             Image(systemName: "line.3.horizontal.decrease")
                 .font(.system(size: 13))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
             Text("No models match the selected filters.")
                 .font(Theme.metric(11))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
             Button("Clear filters") {
                 activeFilters.removeAll()
             }
             .buttonStyle(.plain)
             .font(Theme.label(10))
-            .foregroundStyle(Theme.Palette.signal)
+            .foregroundStyle(Theme.amber)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel(Theme.Palette.panel, radius: 10)
+        .panel(Color.white.opacity(0.02), radius: 10)
     }
 
     private var noModelsHint: some View {
         HStack(spacing: 10) {
             Image(systemName: "wifi.slash")
                 .font(.system(size: 14))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
             Text("No models available — check server connections in Settings.")
                 .font(Theme.metric(11))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel(Theme.Palette.panel, radius: 10)
+        .panel(Color.white.opacity(0.02), radius: 10)
     }
 }
 
@@ -224,16 +224,16 @@ private struct CapabilityFilterChip: View {
             Text(label.uppercased())
                 .font(Theme.label(9))
                 .tracking(0.8)
-                .foregroundStyle(active ? tint : Theme.Palette.inkDim)
+                .foregroundStyle(active ? tint : Theme.textLo)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
-                    active ? tint.opacity(0.15) : (hovering ? Theme.Palette.panelHigh : Color.clear),
+                    active ? tint.opacity(0.15) : (hovering ? Theme.fillHi : Color.clear),
                     in: Capsule()
                 )
                 .overlay(
                     Capsule().strokeBorder(
-                        active ? tint.opacity(0.5) : Theme.Palette.stroke,
+                        active ? tint.opacity(0.5) : Theme.line,
                         lineWidth: 1
                     )
                 )
@@ -259,28 +259,28 @@ private struct PersonaTile: View {
                 HStack(spacing: 6) {
                     Image(systemName: persona.icon)
                         .font(.system(size: 13))
-                        .foregroundStyle(isSelected ? Theme.Palette.signal : Theme.Palette.inkDim)
+                        .foregroundStyle(isSelected ? Theme.amber : Theme.textLo)
                     Text(persona.name.uppercased())
                         .font(Theme.label(10))
                         .tracking(0.8)
-                        .foregroundStyle(isSelected ? Theme.Palette.signal : Theme.Palette.ink)
+                        .foregroundStyle(isSelected ? Theme.amber : Theme.textHi)
                 }
                 Text(persona.tagline)
                     .font(Theme.metric(9))
-                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .foregroundStyle(Theme.textFaint)
                     .lineLimit(1)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
-                isSelected ? Theme.Palette.signal.opacity(0.10) :
-                hovering   ? Theme.Palette.panelHigh : Theme.Palette.panel,
+                isSelected ? Theme.amber.opacity(0.10) :
+                hovering   ? Theme.fillHi : Color.white.opacity(0.02),
                 in: RoundedRectangle(cornerRadius: 9, style: .continuous)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(
-                        isSelected ? Theme.Palette.signal.opacity(0.5) : Theme.Palette.stroke,
+                        isSelected ? Theme.amber.opacity(0.5) : Theme.line,
                         lineWidth: 1
                     )
             )
@@ -310,12 +310,12 @@ private struct PersonaEditPopover: View {
             HStack(spacing: 10) {
                 Image(systemName: validIcon)
                     .font(.system(size: 16))
-                    .foregroundStyle(Theme.Palette.signal)
+                    .foregroundStyle(Theme.amber)
                     .frame(width: 24)
                 TextField("Name", text: $persona.name)
                     .textFieldStyle(.plain)
                     .font(Theme.mono(13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                     .focused($focus, equals: .name)
             }
 
@@ -341,20 +341,20 @@ private struct PersonaEditPopover: View {
                 Eyebrow("System Prompt", size: 9)
                 TextEditor(text: $persona.systemPrompt)
                     .font(Theme.metric(12))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                     .scrollContentBackground(.hidden)
                     .focused($focus, equals: .prompt)
                     .frame(minHeight: 80, maxHeight: 160)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 8)
-                    .background(Theme.Palette.bg,
+                    .background(Theme.windowBG,
                                 in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(
                                 focus == .prompt
-                                    ? Theme.Palette.signal.opacity(0.85)
-                                    : Theme.Palette.strokeStrong,
+                                    ? Theme.amber.opacity(0.85)
+                                    : Color.white.opacity(0.10),
                                 lineWidth: 1
                             )
                     )
@@ -363,7 +363,7 @@ private struct PersonaEditPopover: View {
         }
         .padding(20)
         .frame(width: 340)
-        .background(InstrumentBackground())
+        .background(Theme.windowBG)
         .preferredColorScheme(.dark)
     }
 
@@ -379,14 +379,14 @@ private struct PopoverFieldChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(Theme.metric(12))
-            .foregroundStyle(Theme.Palette.ink)
+            .foregroundStyle(Theme.textHi)
             .padding(.horizontal, 11)
             .padding(.vertical, 8)
-            .background(Theme.Palette.bg, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Theme.windowBG, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(
-                        focused ? Theme.Palette.signal.opacity(0.85) : Theme.Palette.strokeStrong,
+                        focused ? Theme.amber.opacity(0.85) : Color.white.opacity(0.10),
                         lineWidth: 1
                     )
             )
@@ -423,7 +423,7 @@ private struct ModelTile: View {
                         Button(action: onUnpin) {
                             Image(systemName: "pin.slash")
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Theme.Palette.inkDim)
+                                .foregroundStyle(Theme.textLo)
                         }
                         .buttonStyle(.plain)
                         .help("Unpin model (allow eviction)")
@@ -431,7 +431,7 @@ private struct ModelTile: View {
                         Button(action: onPin) {
                             Image(systemName: "pin")
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Theme.Palette.inkDim)
+                                .foregroundStyle(Theme.textLo)
                         }
                         .buttonStyle(.plain)
                         .help("Pin model (prevent auto-eviction)")
@@ -443,7 +443,7 @@ private struct ModelTile: View {
                         } label: {
                             Image(systemName: "eject.fill")
                                 .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Theme.Palette.inkDim)
+                                .foregroundStyle(Theme.textLo)
                         }
                         .buttonStyle(.plain)
                         .help("Unload model")
@@ -454,13 +454,13 @@ private struct ModelTile: View {
                     if model.keepInRam == true {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 7, weight: .semibold))
-                            .foregroundStyle(Theme.Palette.signal)
+                            .foregroundStyle(Theme.amber)
                             .help("Pinned — will not be auto-evicted")
                     }
                     Circle()
-                        .fill(Theme.Palette.live)
+                        .fill(Theme.green)
                         .frame(width: 6, height: 6)
-                        .shadow(color: Theme.Palette.live.opacity(0.9), radius: 4)
+                        .shadow(color: Theme.green.opacity(0.9), radius: 4)
                         .help("Loaded")
                 }
             }
@@ -481,7 +481,7 @@ private struct ModelTile: View {
                 HStack(spacing: 6) {
                     Text(model.familyName)
                         .font(Theme.mono(15, weight: .semibold))
-                        .foregroundStyle(hovering ? Theme.Palette.signal : Theme.Palette.ink)
+                        .foregroundStyle(hovering ? Theme.amber : Theme.textHi)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     trailingStatus
@@ -497,11 +497,11 @@ private struct ModelTile: View {
                                 Text("as \(p.name)")
                                     .font(Theme.label(9))
                                     .tracking(0.5)
-                                    .foregroundStyle(Theme.Palette.signal)
+                                    .foregroundStyle(Theme.amber)
                             }
                             Image(systemName: "arrow.right")
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(Theme.Palette.signal)
+                                .foregroundStyle(Theme.amber)
                         }
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                     }
@@ -510,12 +510,12 @@ private struct ModelTile: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(hovering ? Theme.Palette.panelHigh : Theme.Palette.panel,
+            .background(hovering ? Theme.fillHi : Color.white.opacity(0.02),
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(
-                        hovering ? Theme.Palette.signal.opacity(0.4) : Theme.Palette.stroke,
+                        hovering ? Theme.amber.opacity(0.4) : Theme.line,
                         lineWidth: 1
                     )
             )
