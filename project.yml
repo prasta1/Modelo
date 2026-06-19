@@ -6,15 +6,10 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    # Sign with a stable Apple Development identity instead of the default
-    # ad-hoc "Sign to Run Locally". Ad-hoc signing gives the app a new code
-    # signature (cdhash) on every build, so macOS treats each rebuild as a
-    # different app and re-prompts for the Keychain-stored API keys every run —
-    # "Always Allow" never sticks. A real signing identity keeps the signature,
-    # and therefore the Keychain's trust, stable across rebuilds.
-    CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: "Apple Development: Patrick Ruster (WXQ53X7LZ7)"
-    PROVISIONING_PROFILE_SPECIFIER: ""
+    # Automatic signing picks each developer's own certificate, so the cdhash
+    # stays stable per machine and Keychain trust works. No hardcoded identities.
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
 targets:
   Modelo:
     type: application
