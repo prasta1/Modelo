@@ -37,8 +37,14 @@ final class ReachabilityMonitor {
         // Build the Sendable Endpoint snapshot off the @Model here, on the main
         // actor, before handing it to the off-main probe.
         let endpoint = Endpoint(server: server, keychain: keychain)
+        // Time the probe round-trip for the Status dashboard's latency tile. The
+        // probe is a single short HTTP request, so wall-clock around the await is
+        // a good proxy for endpoint latency.
+        let start = Date()
         let ok = await probe(endpoint)
+        let elapsedMs = Date().timeIntervalSince(start) * 1000
         registry.setStatus(ok ? .online : .offline, for: server)
+        registry.setLatency(ok ? elapsedMs : nil, for: server)
     }
 
     /// Starts a polling loop per server. Cancels any previous loops first.

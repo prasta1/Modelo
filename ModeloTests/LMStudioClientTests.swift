@@ -67,7 +67,7 @@ final class LMStudioClientTests: XCTestCase {
         StubURLProtocol.handler = { req in
             XCTAssertTrue(req.url!.absoluteString.hasSuffix("/api/v1/models"))
             XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer sk-or-test")
-            XCTAssertEqual(req.value(forHTTPHeaderField: "X-Title"), "Modelo")
+            XCTAssertEqual(req.value(forHTTPHeaderField: "X-Title"), "ModeloDos")
             return (.stub(200), Data(body.utf8))
         }
         let models = try await makeClient().fetchModels(endpoint: openRouter())

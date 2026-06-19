@@ -7,8 +7,9 @@ import Charts
 /// model count, and real usage metrics (requests / tok-s / TTFT) from the
 /// per-server `UsageRecord` rollup, plus an amber throughput sparkline.
 ///
-/// `LATENCY` from the mock isn't surfaced — it isn't tracked yet — so its tile is
-/// given over to the real average TTFT instead.
+/// Both LM Studio machines and the OpenRouter cloud endpoint appear. `LATENCY` is
+/// the last reachability-probe round-trip from `ServerRegistry`; `MODELS` is blank
+/// for OpenRouter, which isn't polled for a loaded-model snapshot.
 struct StatusView: View {
     /// Called with (server, modelID) when the user pins a loaded model. Retained
     /// for API parity with the launcher/picker; the compact card has no pin UI.
@@ -19,8 +20,7 @@ struct StatusView: View {
     @Environment(ServerMonitor.self) private var monitor
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
-    private var lmServers: [Server] { servers.filter { $0.kind == .lmStudio } }
-    private var liveCount: Int { lmServers.filter { registry.isOnline($0) }.count }
+    private var liveCount: Int { servers.filter { registry.isOnline($0) }.count }
 
     private let columns = [GridItem(.adaptive(minimum: 230), spacing: 12)]
 
@@ -29,10 +29,11 @@ struct StatusView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                    ForEach(lmServers) { server in
+                    ForEach(servers) { server in
                         CompactServerCard(
                             server: server,
                             status: registry.status(for: server),
+                            latency: registry.latency(for: server),
                             snapshot: monitor.snapshot(for: server)
                         )
                     }
@@ -49,7 +50,7 @@ struct StatusView: View {
             Text("Server status")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Theme.textHi)
-            Text("\(liveCount) of \(lmServers.count) live")
+            Text("\(liveCount) of \(servers.count) live")
                 .font(.mono(11))
                 .foregroundStyle(Theme.textDim)
             Spacer()
@@ -62,12 +63,14 @@ struct StatusView: View {
 private struct CompactServerCard: View {
     let server: Server
     let status: ServerStatus
+    let latency: Double?
     let snapshot: ModelSnapshot?
     @Query private var records: [UsageRecord]
 
-    init(server: Server, status: ServerStatus, snapshot: ModelSnapshot?) {
+    init(server: Server, status: ServerStatus, latency: Double?, snapshot: ModelSnapshot?) {
         self.server = server
         self.status = status
+        self.latency = latency
         self.snapshot = snapshot
         let label = server.label
         _records = Query(
@@ -89,7 +92,7 @@ private struct CompactServerCard: View {
                 Spacer(minLength: 0)
                 statusLabel
             }
-            Text(server.host)
+            Text(server.kind == .openRouter ? "openrouter.ai" : server.host)
                 .font(.mono(10))
                 .foregroundStyle(Theme.textDim)
                 .lineLimit(1)
@@ -99,12 +102,12 @@ private struct CompactServerCard: View {
 
             Grid(horizontalSpacing: 10, verticalSpacing: 13) {
                 GridRow {
-                    MetricTile(label: "MODELS",   value: modelCount.map { "\($0)" } ?? "—")
-                    MetricTile(label: "REQUESTS", value: rollup.requestCount > 0 ? "\(rollup.requestCount)" : "—")
+                    MetricTile(label: "LATENCY", value: latency.map { "\(Int($0)) ms" } ?? "—")
+                    MetricTile(label: "MODELS",  value: modelCount.map { "\($0)" } ?? "—")
                 }
                 GridRow {
-                    MetricTile(label: "TOK/S", value: rollup.avgTokPerSec.map { String(format: "%.0f", $0) } ?? "—")
-                    MetricTile(label: "TTFT",  value: rollup.avgTTFTms.map { "\(Int($0)) ms" } ?? "—")
+                    MetricTile(label: "REQUESTS",   value: rollup.requestCount > 0 ? "\(rollup.requestCount)" : "—")
+                    MetricTile(label: "THROUGHPUT", value: rollup.avgTokPerSec.map { String(format: "%.0f t/s", $0) } ?? "—")
                 }
             }
 

@@ -11,12 +11,21 @@ enum ServerStatus: Equatable { case unknown, online, offline }
 @MainActor
 final class ServerRegistry {
     private(set) var statuses: [UUID: ServerStatus] = [:]
+    /// Last successful reachability-probe round-trip per server, in milliseconds.
+    /// Only set while a server is online; cleared when it goes offline.
+    private(set) var latencies: [UUID: Double] = [:]
 
     func status(for server: Server) -> ServerStatus { statuses[server.id] ?? .unknown }
     func isOnline(_ server: Server) -> Bool { status(for: server) == .online }
+    func latency(for server: Server) -> Double? { latencies[server.id] }
 
     func setStatus(_ status: ServerStatus, for server: Server) {
         statuses[server.id] = status
+    }
+
+    /// Records (or clears, with nil) a server's last probe latency in milliseconds.
+    func setLatency(_ ms: Double?, for server: Server) {
+        latencies[server.id] = ms
     }
 
     /// Seeds one generic local server + OpenRouter on first launch. Idempotent.
