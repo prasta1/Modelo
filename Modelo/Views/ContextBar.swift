@@ -13,8 +13,8 @@ struct ContextBar: View {
 
     private var barColor: Color {
         switch fraction {
-        case ..<0.6:  Theme.Palette.live
-        case ..<0.85: Theme.Palette.idle
+        case ..<0.6:  Theme.green
+        case ..<0.85: Theme.amber
         default:      Theme.Palette.alert
         }
     }
@@ -22,14 +22,14 @@ struct ContextBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Eyebrow("context", color: Theme.Palette.inkDim)
+                Eyebrow("context", color: Theme.textDim)
                 Spacer()
                 Text("\(used.formatted()) / \(window.formatted())")
-                    .font(Theme.metric(11))
+                    .font(.mono(11))
                     .monospacedDigit()
-                    .foregroundStyle(Theme.Palette.inkDim)
+                    .foregroundStyle(Theme.textMute)
                 Text("\(Int(fraction * 100))%")
-                    .font(Theme.metric(11))
+                    .font(.mono(11))
                     .monospacedDigit()
                     .foregroundStyle(barColor)
             }
@@ -38,7 +38,7 @@ struct ContextBar: View {
             // rather than a stock progress bar we can't fully theme.
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.Palette.panelHigh)
+                    Capsule().fill(Color.white.opacity(0.08))
                     Capsule()
                         .fill(barColor)
                         .frame(width: max(4, geo.size.width * fraction))

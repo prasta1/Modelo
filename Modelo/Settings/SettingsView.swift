@@ -97,6 +97,14 @@ struct SettingsView: View {
                         .font(Theme.metric(10))
                         .foregroundStyle(Theme.Palette.inkFaint)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    Divider()
+                        .overlay(Theme.Palette.stroke)
+                        .padding(.vertical, 6)
+
+                    MCPDiscoverySection(installed: mcpManager.configs) { entry in
+                        mcpManager.addConfig(entry.makeConfig())
+                    }
                 }
                 .padding(24)
             }
@@ -551,5 +559,173 @@ private struct MCPServerSettingsRow: View {
             .map(String.init)
         updated.isEnabled = enabled ?? isEnabled
         onUpdate(updated)
+    }
+}
+
+// MARK: - MCP discovery
+
+/// Browse the bundled catalog of known MCP servers and add one in a single click.
+/// Adding hands a ready-to-run `MCPServerConfig` to the manager (disabled), so the
+/// user can set any path or key and then enable it. Entries already configured are
+/// hidden so the same server can't be added twice.
+private struct MCPDiscoverySection: View {
+    let installed: [MCPServerConfig]
+    let onAdd: (MCPCatalogEntry) -> Void
+
+    private let catalog: MCPCatalogSource = BundledMCPCatalog()
+    @State private var entries: [MCPCatalogEntry] = []
+    @State private var query = ""
+    @State private var category = "All"
+    @FocusState private var searchFocused: Bool
+
+    /// "All" plus each catalog category in first-seen order.
+    private var categories: [String] {
+        var seen = Set<String>()
+        let ordered = entries.map(\.category).filter { seen.insert($0).inserted }
+        return ["All"] + ordered
+    }
+
+    /// Apply the category filter and search query, and hide already-installed
+    /// servers (matched on the exact command + arguments they'd be added with).
+    private var visible: [MCPCatalogEntry] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return entries.filter { entry in
+            (category == "All" || entry.category == category)
+            && (q.isEmpty || entry.searchText.contains(q))
+            && !installed.contains { $0.command == entry.command && $0.arguments == entry.arguments }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Eyebrow("Discover")
+
+            // Search
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.inkFaint)
+                TextField("Search MCP servers", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+            }
+            .fieldChrome(focused: searchFocused)
+
+            // Category filter chips
+            if categories.count > 2 {
+                HStack(spacing: 7) {
+                    ForEach(categories, id: \.self) { cat in
+                        CategoryChip(label: cat, active: cat == category) { category = cat }
+                    }
+                }
+            }
+
+            // Results
+            if visible.isEmpty {
+                Text(emptyMessage)
+                    .font(Theme.metric(11))
+                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .padding(.vertical, 6)
+            } else {
+                ForEach(visible) { entry in
+                    CatalogEntryRow(entry: entry) { onAdd(entry) }
+                }
+            }
+        }
+        .task { entries = await catalog.load() }
+    }
+
+    private var emptyMessage: String {
+        if entries.isEmpty { return "Loading catalog…" }
+        if !query.isEmpty  { return "No servers match “\(query)”." }
+        return "Every catalog server is already installed."
+    }
+}
+
+/// A small pill that filters the catalog by category. Mirrors the app's chip look.
+private struct CategoryChip: View {
+    let label: String
+    let active: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label.uppercased())
+                .font(Theme.label(9))
+                .tracking(0.8)
+                .foregroundStyle(active ? Theme.Palette.signal : Theme.Palette.inkDim)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(active ? Theme.Palette.signal.opacity(0.15) : Theme.Palette.panelHigh,
+                            in: Capsule())
+                .overlay(Capsule().strokeBorder(active ? Theme.Palette.signal.opacity(0.5)
+                                                       : Theme.Palette.stroke, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// One discoverable server: name, summary, the command it will run, an optional
+/// setup hint, and a one-click Add.
+private struct CatalogEntryRow: View {
+    let entry: MCPCatalogEntry
+    let onAdd: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(entry.name)
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text(entry.summary)
+                    .font(Theme.metric(11))
+                    .foregroundStyle(Theme.Palette.inkDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let hint = setupHint {
+                    Label(hint, systemImage: setupIcon)
+                        .font(Theme.metric(10))
+                        .foregroundStyle(Theme.Palette.signal)
+                }
+                Text(commandLine)
+                    .font(Theme.mono(10))
+                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            Button(action: onAdd) {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Add")
+                        .font(Theme.label(11))
+                }
+                .foregroundStyle(Theme.Palette.signal)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .panel(Theme.Palette.panelHigh, radius: 8, stroke: Theme.Palette.signal.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .panel(Theme.Palette.panel)
+    }
+
+    private var commandLine: String { ([entry.command] + entry.arguments).joined(separator: " ") }
+
+    private var setupHint: String? {
+        switch entry.setup {
+        case .none:               return nil
+        case .needsPath:          return "Set a path in Arguments before enabling"
+        case .needsKey(let env):  return "Needs \(env)"
+        }
+    }
+
+    private var setupIcon: String {
+        switch entry.setup {
+        case .none:      return ""
+        case .needsPath: return "folder"
+        case .needsKey:  return "key.fill"
+        }
     }
 }

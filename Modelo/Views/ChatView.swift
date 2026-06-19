@@ -48,7 +48,7 @@ struct ChatView: View {
             messageStream
             footer
         }
-        .background(InstrumentBackground())
+        .background(Theme.windowBG)
         .onAppear { ensureSession() }
         .onDisappear { cancelInFlight() }
     }
@@ -79,9 +79,9 @@ struct ChatView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-        .background(Theme.Palette.panel)
+        .background(Theme.windowBG)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.Palette.strokeStrong).frame(height: 1)
+            Rectangle().fill(Theme.line).frame(height: 1)
         }
     }
 
@@ -91,16 +91,16 @@ struct ChatView: View {
         return HStack(spacing: 6) {
             StatusLED(status: status, size: 6)
             Text(live ? "LIVE" : status == .offline ? "OFFLINE" : "PROBING")
-                .font(Theme.label(9))
-                .tracking(1)
-                .foregroundStyle(live ? Theme.Palette.live : Theme.Palette.inkDim)
+                .font(.mono(9)).tracking(1)
+                .foregroundStyle(live ? Theme.green : Theme.textMute)
             Text(server.label)
-                .font(Theme.metric(10))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .font(.mono(10))
+                .foregroundStyle(Theme.textFaint)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .panel(Theme.Palette.bg.opacity(0.6), radius: 6)
+        .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.line))
     }
 
     // MARK: Message stream
@@ -115,7 +115,7 @@ struct ChatView: View {
                     } else {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(sortedMessages) { msg in
-                                MessageRow(message: msg, onReuse: reuseDraft).id(msg.id)
+                                MessageRow(message: msg, modelName: conversation.modelID, onReuse: reuseDraft).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
                         }
@@ -147,12 +147,12 @@ struct ChatView: View {
         VStack(spacing: 12) {
             Image(systemName: "text.bubble")
                 .font(.system(size: 30, weight: .light))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
             Text(pickedModel == nil
                  ? "Pick a model above, then say something."
                  : "Send a message to \(pickedModel!.model.familyName) to begin.")
-                .font(Theme.mono(12))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .font(.mono(12))
+                .foregroundStyle(Theme.textFaint)
                 .multilineTextAlignment(.center)
         }
         .padding(24)
@@ -198,15 +198,19 @@ struct ChatView: View {
 
             composer
         }
-        .background(Theme.Palette.panel)
+        .background(Theme.windowBG)
         .overlay(alignment: .top) {
-            Rectangle().fill(Theme.Palette.strokeStrong).frame(height: 1)
+            Rectangle().fill(Theme.line).frame(height: 1)
         }
     }
 
     private var isStreaming: Bool { session?.isStreaming == true }
     private var canSend: Bool {
         (!draft.trimmingCharacters(in: .whitespaces).isEmpty || !pendingAttachments.isEmpty) && !isStreaming
+    }
+    /// Amber gradient when the send/stop button is active, otherwise a flat fill.
+    private var sendButtonBackground: AnyShapeStyle {
+        (canSend || isStreaming) ? AnyShapeStyle(Theme.sendGradient) : AnyShapeStyle(Theme.fillHi)
     }
 
     // MARK: Composer
@@ -223,13 +227,13 @@ struct ChatView: View {
                 TextField("Message…", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: messageFontSize))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                     .lineLimit(1...8)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
-                    .panel(Theme.Palette.bg.opacity(0.5),
-                           radius: 10,
-                           stroke: composerFocused ? Theme.Palette.signal : Theme.Palette.stroke)
+                    .panel(Theme.fill,
+                           radius: Theme.Radius.field,
+                           stroke: composerFocused ? Theme.amber : Theme.line)
                     .focused($composerFocused)
                     .onSubmit(send)
 
@@ -238,17 +242,16 @@ struct ChatView: View {
                         if isStreaming {
                             Image(systemName: "stop.fill")
                                 .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Theme.Palette.bg)
+                                .foregroundStyle(Theme.windowBG)
                         } else {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(Theme.Palette.bg)
+                                .foregroundStyle(Theme.windowBG)
                         }
                     }
                     .frame(width: 36, height: 36)
-                    .background(canSend || isStreaming ? Theme.Palette.signal : Theme.Palette.panelHigh,
-                                in: Circle())
-                    .shadow(color: canSend || isStreaming ? Theme.Palette.signal.opacity(0.5) : .clear, radius: 6)
+                    .background(sendButtonBackground, in: Circle())
+                    .shadow(color: canSend || isStreaming ? Theme.amber.opacity(0.5) : .clear, radius: 6)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend && !isStreaming)
@@ -262,7 +265,7 @@ struct ChatView: View {
         .overlay(alignment: .center) {
             if isDragTarget {
                 RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(Theme.Palette.signal.opacity(0.5), lineWidth: 2)
+                    .strokeBorder(Theme.amber.opacity(0.5), lineWidth: 2)
                     .allowsHitTesting(false)
             }
         }
