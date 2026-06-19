@@ -110,7 +110,8 @@ struct SettingsView: View {
             }
             .tabItem { Label("MCP Servers", systemImage: "terminal") }
         }
-        .frame(width: 600, height: 460)
+        .frame(minWidth: 580, idealWidth: 700, maxWidth: .infinity,
+               minHeight: 480, idealHeight: 580, maxHeight: .infinity)
         .background(Theme.windowBG)
         .tint(Theme.amber)
         .preferredColorScheme(.dark)
@@ -234,7 +235,7 @@ private struct PersonaSettingsRow: View {
                                           : Color.white.opacity(0.10),
                                           lineWidth: 1)
                     )
-                    .animation(.easeOut(duration: 0.15), value: focus == .prompt)
+                    .animation(.snappy(duration: 0.2), value: focus == .prompt)
             }
         }
         .padding(16)
@@ -434,7 +435,7 @@ private struct FieldChrome: ViewModifier {
                                           : Color.white.opacity(0.10),
                                   lineWidth: 1)
             )
-            .animation(.easeOut(duration: 0.15), value: focused)
+            .animation(.snappy(duration: 0.2), value: focused)
     }
 }
 
