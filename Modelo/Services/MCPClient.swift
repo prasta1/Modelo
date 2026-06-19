@@ -60,6 +60,11 @@ actor MCPClient {
         var env = ProcessInfo.processInfo.environment
         let extra = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin"
         env["PATH"] = "\(extra):\(env["PATH"] ?? "/usr/bin:/bin")"
+        // Inject server-specific env vars (API keys, etc.) — skip empty values so a
+        // key field that hasn't been filled in yet doesn't shadow the real env.
+        for (key, value) in config.env where !value.isEmpty {
+            env[key] = value
+        }
         p.environment = env
 
         let inPipe  = Pipe()

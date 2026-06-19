@@ -451,8 +451,10 @@ private struct MCPServerSettingsRow: View {
     @State private var name: String
     @State private var command: String
     @State private var argsString: String  // space-joined arguments
+    @State private var envValues: [String: String]
     @State private var isEnabled: Bool
     @FocusState private var focus: Field?
+    @FocusState private var envFocused: String?
 
     private enum Field { case name, command, args }
 
@@ -463,9 +465,10 @@ private struct MCPServerSettingsRow: View {
         self.error    = error
         self.onUpdate = onUpdate
         self.onDelete = onDelete
-        _name      = State(initialValue: config.name)
-        _command   = State(initialValue: config.command)
+        _name       = State(initialValue: config.name)
+        _command    = State(initialValue: config.command)
         _argsString = State(initialValue: config.arguments.joined(separator: " "))
+        _envValues  = State(initialValue: config.env)
         _isEnabled  = State(initialValue: config.isEnabled)
     }
 
@@ -516,6 +519,20 @@ private struct MCPServerSettingsRow: View {
                 }
             }
 
+            if !envValues.isEmpty {
+                ForEach(envValues.keys.sorted(), id: \.self) { key in
+                    EnvKeyField(
+                        caption: key,
+                        value: Binding(
+                            get: { envValues[key] ?? "" },
+                            set: { envValues[key] = $0; commit() }
+                        ),
+                        focused: $envFocused,
+                        focusKey: key
+                    )
+                }
+            }
+
             if let error {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
@@ -532,8 +549,10 @@ private struct MCPServerSettingsRow: View {
         .padding(16)
         .panel(Theme.popoverBG)
         .onChange(of: focus) { old, new in
-            // Commit when focus leaves any field
             if old != nil, new == nil { commit() }
+        }
+        .onChange(of: envFocused) { _, new in
+            if new == nil { commit() }
         }
     }
 
@@ -555,8 +574,48 @@ private struct MCPServerSettingsRow: View {
         updated.arguments = argsString
             .split(separator: " ", omittingEmptySubsequences: true)
             .map(String.init)
+        updated.env       = envValues
         updated.isEnabled = enabled ?? isEnabled
         onUpdate(updated)
+    }
+}
+
+// MARK: - Env key field
+
+/// A labeled secure field for a single environment variable. Used inside
+/// `MCPServerSettingsRow` for API-key-needing servers (e.g. GITHUB_PERSONAL_ACCESS_TOKEN).
+private struct EnvKeyField: View {
+    let caption: String
+    @Binding var value: String
+    var focused: FocusState<String?>.Binding
+    let focusKey: String
+
+    @State private var isRevealed = false
+
+    var body: some View {
+        FieldGroup(caption: caption) {
+            HStack(spacing: 0) {
+                Group {
+                    if isRevealed {
+                        TextField("Paste your key", text: $value)
+                    } else {
+                        SecureField("Paste your key", text: $value)
+                    }
+                }
+                .textFieldStyle(.plain)
+                .focused(focused, equals: focusKey)
+
+                Button { isRevealed.toggle() } label: {
+                    Image(systemName: isRevealed ? "eye.slash" : "eye")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textLo)
+                        .padding(.trailing, 4)
+                }
+                .buttonStyle(.plain)
+                .help(isRevealed ? "Hide key" : "Reveal key")
+            }
+            .fieldChrome(focused: focused.wrappedValue == focusKey)
+        }
     }
 }
 
@@ -685,7 +744,7 @@ private struct CatalogEntryRow: View {
                         .foregroundStyle(Theme.amber)
                 }
                 Text(commandLine)
-                    .font(Theme.mono(10))
+                    .font(Theme.code(10))
                     .foregroundStyle(Theme.textFaint)
                     .lineLimit(1)
                     .truncationMode(.middle)

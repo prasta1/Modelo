@@ -8,14 +8,18 @@ struct MCPServerConfig: Codable, Identifiable, Sendable {
     var command: String
     /// Arguments after the command (e.g. ["-y", "@modelcontextprotocol/server-filesystem", "/path"]).
     var arguments: [String]
+    /// Environment variables injected into the server process at launch (e.g. API keys).
+    /// Keys are env var names; empty-string values are stored but not passed to the process.
+    var env: [String: String]
     var isEnabled: Bool
 
     init(id: UUID = UUID(), name: String, command: String = "npx",
-         arguments: [String] = [], isEnabled: Bool = true) {
+         arguments: [String] = [], env: [String: String] = [:], isEnabled: Bool = true) {
         self.id = id
         self.name = name
         self.command = command
         self.arguments = arguments
+        self.env = env
         self.isEnabled = isEnabled
     }
 
@@ -64,8 +68,13 @@ struct MCPCatalogEntry: Identifiable, Sendable {
 
     /// A config ready to hand to `MCPServerManager.addConfig`. Added disabled by
     /// default so the user can adjust paths/keys before it launches.
+    /// For `needsKey` entries the env dict is pre-seeded with an empty value so the
+    /// key field appears immediately in the settings row.
     func makeConfig(isEnabled: Bool = false) -> MCPServerConfig {
-        MCPServerConfig(name: name, command: command, arguments: arguments, isEnabled: isEnabled)
+        var envDict: [String: String] = [:]
+        if case .needsKey(let envVar) = setup { envDict[envVar] = "" }
+        return MCPServerConfig(name: name, command: command, arguments: arguments,
+                               env: envDict, isEnabled: isEnabled)
     }
 
     /// Lowercased haystack for substring search.
