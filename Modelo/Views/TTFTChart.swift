@@ -9,7 +9,7 @@ struct TTFTChart: View {
         Chart {
             ForEach(Array(values.enumerated()), id: \.offset) { i, v in
                 BarMark(x: .value("Request", i), y: .value("ms", v))
-                    .foregroundStyle(Theme.Palette.think.opacity(0.75))
+                    .foregroundStyle(Theme.purple.opacity(0.75))
                     .cornerRadius(2)
             }
         }

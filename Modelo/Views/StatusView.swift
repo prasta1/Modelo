@@ -3,6 +3,11 @@ import SwiftData
 
 /// Full-page monitoring console — one card per LM Studio server.
 /// All servers appear: offline cards are dimmed but present.
+///
+/// Native Refined look (handoff §6): cards over `Theme.windowBG`, design
+/// typography, and amber telemetry. The content stays the detailed per-server
+/// console (live loaded models + real Tok/s & TTFT rollups), re-skinned rather
+/// than reduced to the mock's static 3-up summary cards.
 struct StatusView: View {
     /// Called with (server, modelID) when the user pins a loaded model. nil hides the pin action.
     var onPin: ((Server, String) -> Void)? = nil
@@ -13,22 +18,41 @@ struct StatusView: View {
     @Environment(ServerMonitor.self) private var monitor
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
+    private var lmServers: [Server] { servers.filter { $0.kind == .lmStudio } }
+    private var liveCount: Int { lmServers.filter { registry.isOnline($0) }.count }
+
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
-                ForEach(servers.filter { $0.kind == .lmStudio }) { server in
-                    ServerConsoleCard(
-                        server: server,
-                        status: registry.status(for: server),
-                        snapshot: monitor.snapshot(for: server),
-                        onPin: onPin.map { cb in { modelID in cb(server, modelID) } },
-                        onUnpin: onUnpin.map { cb in { modelID in cb(server, modelID) } }
-                    )
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                LazyVStack(spacing: 14) {
+                    ForEach(lmServers) { server in
+                        ServerConsoleCard(
+                            server: server,
+                            status: registry.status(for: server),
+                            snapshot: monitor.snapshot(for: server),
+                            onPin: onPin.map { cb in { modelID in cb(server, modelID) } },
+                            onUnpin: onUnpin.map { cb in { modelID in cb(server, modelID) } }
+                        )
+                    }
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
         }
-        .background(InstrumentBackground())
+        .background(Theme.windowBG)
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text("Server status")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.textHi)
+            Text("\(liveCount) of \(lmServers.count) live")
+                .font(.mono(11))
+                .foregroundStyle(Theme.textDim)
+            Spacer()
+        }
     }
 }
 
@@ -44,28 +68,32 @@ private struct ServerConsoleCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             cardHeader
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(Theme.Palette.strokeStrong).frame(height: 1)
-                }
+            Text(server.host)
+                .font(.mono(10))
+                .foregroundStyle(Theme.textDim)
+                .lineLimit(1)
+                .padding(.top, 6)
+            Divider().overlay(Theme.line).padding(.vertical, 14)
             ServerCardBody(server: server, snapshot: snapshot, onPin: onPin, onUnpin: onUnpin)
-                .padding(12)
         }
-        .panel(Theme.Palette.panel, radius: 10)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(Color.white.opacity(0.018),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.line))
         .opacity(status == .offline ? 0.6 : 1)
     }
 
     private var cardHeader: some View {
-        HStack(spacing: 8) {
-            StatusLED(status: status, size: 6)
+        HStack(spacing: 9) {
+            StatusLED(status: status, size: 7)
             Text(server.label)
-                .font(Theme.mono(12, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
-            Spacer()
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textHi)
+                .lineLimit(1)
+            Spacer(minLength: 0)
             statusLabel
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Theme.Palette.panelHigh)
     }
 
     @ViewBuilder
@@ -73,16 +101,16 @@ private struct ServerConsoleCard: View {
         switch status {
         case .online:
             Text("LIVE")
-                .font(Theme.label(9)).tracking(1)
-                .foregroundStyle(Theme.Palette.live)
+                .font(.mono(9)).tracking(1)
+                .foregroundStyle(Theme.green)
         case .offline:
             Text("OFFLINE")
-                .font(Theme.label(9)).tracking(1)
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .font(.mono(9)).tracking(1)
+                .foregroundStyle(Theme.textFaint)
         case .unknown:
             Text("PROBING")
-                .font(Theme.label(9)).tracking(1)
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .font(.mono(9)).tracking(1)
+                .foregroundStyle(Theme.textDim)
         }
     }
 }
@@ -125,7 +153,7 @@ private struct ServerCardBody: View {
             }
 
             if rollup.requestCount > 0 {
-                Divider().overlay(Theme.Palette.stroke)
+                Divider().overlay(Theme.line)
 
                 Eyebrow("All Models · Last \(rollup.requestCount) requests")
 

@@ -9,12 +9,12 @@ struct ThroughputChart: View {
         Chart {
             ForEach(Array(values.enumerated()), id: \.offset) { i, v in
                 LineMark(x: .value("Request", i), y: .value("tok/s", v))
-                    .foregroundStyle(Theme.Palette.signal)
+                    .foregroundStyle(Theme.amber)
                     .interpolationMethod(.catmullRom)
                 AreaMark(x: .value("Request", i), y: .value("tok/s", v))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [Theme.Palette.signal.opacity(0.25), .clear],
+                            colors: [Theme.amber.opacity(0.25), .clear],
                             startPoint: .top, endPoint: .bottom
                         )
                     )

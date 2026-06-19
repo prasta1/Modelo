@@ -24,12 +24,12 @@ struct MetricStat: View {
     private func column(_ heading: String, value: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(heading)
-                .font(Theme.label(9))
+                .font(.mono(9))
                 .tracking(0.8)
-                .foregroundStyle(Theme.Palette.inkDim)
+                .foregroundStyle(Theme.textFaint)
             Text(value ?? "—")
-                .font(Theme.metric(15))
-                .foregroundStyle(value != nil ? Theme.Palette.ink : Theme.Palette.inkFaint)
+                .font(.mono(15))
+                .foregroundStyle(value != nil ? Theme.textHi : Theme.textFaint)
                 .monospacedDigit()
         }
     }
