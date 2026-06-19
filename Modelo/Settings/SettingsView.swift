@@ -95,11 +95,11 @@ struct SettingsView: View {
                     addButton("Add MCP Server", action: addMCPServer)
                     Text("MCP servers run as local processes. New tools are available when you start the next chat.")
                         .font(Theme.metric(10))
-                        .foregroundStyle(Theme.Palette.inkFaint)
+                        .foregroundStyle(Theme.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Divider()
-                        .overlay(Theme.Palette.stroke)
+                        .overlay(Theme.line)
                         .padding(.vertical, 6)
 
                     MCPDiscoverySection(installed: mcpManager.configs) { entry in
@@ -111,8 +111,8 @@ struct SettingsView: View {
             .tabItem { Label("MCP Servers", systemImage: "terminal") }
         }
         .frame(width: 600, height: 460)
-        .background(InstrumentBackground())
-        .tint(Theme.Palette.signal)
+        .background(Theme.windowBG)
+        .tint(Theme.amber)
         .preferredColorScheme(.dark)
     }
 
@@ -124,12 +124,12 @@ struct SettingsView: View {
                 Text(label)
                     .font(Theme.label(11))
             }
-            .foregroundStyle(Theme.Palette.signal)
+            .foregroundStyle(Theme.amber)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity)
-            .panel(Theme.Palette.panel, radius: 9,
-                   stroke: Theme.Palette.signal.opacity(0.3))
+            .panel(Theme.popoverBG, radius: 9,
+                   stroke: Theme.amber.opacity(0.3))
         }
         .buttonStyle(.plain)
     }
@@ -183,12 +183,12 @@ private struct PersonaSettingsRow: View {
             HStack(spacing: 10) {
                 Image(systemName: validIcon)
                     .font(.system(size: 16))
-                    .foregroundStyle(Theme.Palette.signal)
+                    .foregroundStyle(Theme.amber)
                     .frame(width: 24)
                 TextField("Name", text: $persona.name)
                     .textFieldStyle(.plain)
                     .font(Theme.mono(13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                     .focused($focus, equals: .name)
                 Spacer(minLength: 8)
                 Button(action: onDelete) {
@@ -219,26 +219,26 @@ private struct PersonaSettingsRow: View {
             FieldGroup(caption: "System Prompt") {
                 TextEditor(text: $persona.systemPrompt)
                     .font(Theme.metric(12))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                     .scrollContentBackground(.hidden)
                     .focused($focus, equals: .prompt)
                     .frame(minHeight: 80, maxHeight: 160)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 8)
-                    .background(Theme.Palette.bg,
+                    .background(Theme.windowBG,
                                 in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(focus == .prompt
-                                          ? Theme.Palette.signal.opacity(0.85)
-                                          : Theme.Palette.strokeStrong,
+                                          ? Theme.amber.opacity(0.85)
+                                          : Color.white.opacity(0.10),
                                           lineWidth: 1)
                     )
                     .animation(.easeOut(duration: 0.15), value: focus == .prompt)
             }
         }
         .padding(16)
-        .panel(Theme.Palette.panel)
+        .panel(Theme.popoverBG)
     }
 
     /// Falls back to "person" if the entered symbol name doesn't resolve.
@@ -288,7 +288,7 @@ private struct ServerSettingsRow: View {
                 TextField("Server name", text: $server.label)
                     .textFieldStyle(.plain)
                     .font(Theme.mono(13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                     .focused($focus, equals: .label)
                 Spacer(minLength: 8)
                 Chip(text: server.kind == .lmStudio ? "lm studio" : "openrouter")
@@ -323,7 +323,7 @@ private struct ServerSettingsRow: View {
             }
         }
         .padding(16)
-        .panel(Theme.Palette.panel)
+        .panel(Theme.popoverBG)
         // Also normalize when focus leaves the host field (clicking away doesn't
         // fire .onSubmit), so the stored host is cleaned whichever way it's committed.
         .onChange(of: focus) { old, new in
@@ -366,7 +366,7 @@ private struct KeyCard: View {
                     Button { isRevealed.toggle() } label: {
                         Image(systemName: isRevealed ? "eye.slash" : "eye")
                             .font(.system(size: 10))
-                            .foregroundStyle(Theme.Palette.inkDim)
+                            .foregroundStyle(Theme.textLo)
                             .padding(.trailing, 4)
                     }
                     .buttonStyle(.plain)
@@ -376,11 +376,11 @@ private struct KeyCard: View {
             }
             Text(hint)
                 .font(Theme.metric(10))
-                .foregroundStyle(Theme.Palette.inkFaint)
+                .foregroundStyle(Theme.textFaint)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
-        .panel(Theme.Palette.panel)
+        .panel(Theme.popoverBG)
         .onAppear { key = keychain.get(account: account) ?? "" }
         .onChange(of: key) { _, newValue in
             keychain.set(newValue.isEmpty ? nil : newValue, account: account)
@@ -424,14 +424,14 @@ private struct FieldChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(Theme.metric(12))
-            .foregroundStyle(Theme.Palette.ink)
+            .foregroundStyle(Theme.textHi)
             .padding(.horizontal, 11)
             .padding(.vertical, 8)
-            .background(Theme.Palette.bg, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Theme.windowBG, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(focused ? Theme.Palette.signal.opacity(0.85)
-                                          : Theme.Palette.strokeStrong,
+                    .strokeBorder(focused ? Theme.amber.opacity(0.85)
+                                          : Color.white.opacity(0.10),
                                   lineWidth: 1)
             )
             .animation(.easeOut(duration: 0.15), value: focused)
@@ -473,15 +473,13 @@ private struct MCPServerSettingsRow: View {
         VStack(alignment: .leading, spacing: 14) {
             // Header row
             HStack(spacing: 8) {
-                Toggle("", isOn: $isEnabled)
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
+                PillToggle(isOn: $isEnabled)
                     .onChange(of: isEnabled) { _, v in commit(enabled: v) }
                     .help(isEnabled ? "Disable server" : "Enable server")
                 TextField("Server name", text: $name)
                     .textFieldStyle(.plain)
                     .font(Theme.mono(13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                     .focused($focus, equals: .name)
                     .onSubmit { commit() }
                 Spacer(minLength: 8)
@@ -532,7 +530,7 @@ private struct MCPServerSettingsRow: View {
             }
         }
         .padding(16)
-        .panel(Theme.Palette.panel)
+        .panel(Theme.popoverBG)
         .onChange(of: focus) { old, new in
             // Commit when focus leaves any field
             if old != nil, new == nil { commit() }
@@ -540,8 +538,8 @@ private struct MCPServerSettingsRow: View {
     }
 
     private var statusColor: Color {
-        guard isEnabled else { return Theme.Palette.inkFaint }
-        return error == nil ? Theme.Palette.live : Theme.Palette.alert
+        guard isEnabled else { return Theme.textFaint }
+        return error == nil ? Theme.green : Theme.Palette.alert
     }
 
     private var statusHelp: String {
@@ -604,7 +602,7 @@ private struct MCPDiscoverySection: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
-                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .foregroundStyle(Theme.textFaint)
                 TextField("Search MCP servers", text: $query)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
@@ -624,7 +622,7 @@ private struct MCPDiscoverySection: View {
             if visible.isEmpty {
                 Text(emptyMessage)
                     .font(Theme.metric(11))
-                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .foregroundStyle(Theme.textFaint)
                     .padding(.vertical, 6)
             } else {
                 ForEach(visible) { entry in
@@ -653,13 +651,13 @@ private struct CategoryChip: View {
             Text(label.uppercased())
                 .font(Theme.label(9))
                 .tracking(0.8)
-                .foregroundStyle(active ? Theme.Palette.signal : Theme.Palette.inkDim)
+                .foregroundStyle(active ? Theme.amber : Theme.textLo)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(active ? Theme.Palette.signal.opacity(0.15) : Theme.Palette.panelHigh,
+                .background(active ? Theme.amber.opacity(0.15) : Theme.fillHi,
                             in: Capsule())
-                .overlay(Capsule().strokeBorder(active ? Theme.Palette.signal.opacity(0.5)
-                                                       : Theme.Palette.stroke, lineWidth: 1))
+                .overlay(Capsule().strokeBorder(active ? Theme.amber.opacity(0.5)
+                                                       : Theme.line, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -676,19 +674,19 @@ private struct CatalogEntryRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(entry.name)
                     .font(Theme.mono(13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.textHi)
                 Text(entry.summary)
                     .font(Theme.metric(11))
-                    .foregroundStyle(Theme.Palette.inkDim)
+                    .foregroundStyle(Theme.textLo)
                     .fixedSize(horizontal: false, vertical: true)
                 if let hint = setupHint {
                     Label(hint, systemImage: setupIcon)
                         .font(Theme.metric(10))
-                        .foregroundStyle(Theme.Palette.signal)
+                        .foregroundStyle(Theme.amber)
                 }
                 Text(commandLine)
                     .font(Theme.mono(10))
-                    .foregroundStyle(Theme.Palette.inkFaint)
+                    .foregroundStyle(Theme.textFaint)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -700,15 +698,15 @@ private struct CatalogEntryRow: View {
                     Text("Add")
                         .font(Theme.label(11))
                 }
-                .foregroundStyle(Theme.Palette.signal)
+                .foregroundStyle(Theme.amber)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .panel(Theme.Palette.panelHigh, radius: 8, stroke: Theme.Palette.signal.opacity(0.3))
+                .panel(Theme.fillHi, radius: 8, stroke: Theme.amber.opacity(0.3))
             }
             .buttonStyle(.plain)
         }
         .padding(14)
-        .panel(Theme.Palette.panel)
+        .panel(Theme.popoverBG)
     }
 
     private var commandLine: String { ([entry.command] + entry.arguments).joined(separator: " ") }
