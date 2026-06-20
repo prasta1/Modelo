@@ -1,0 +1,17 @@
+[package]
+name = "modelo-tap"
+version = "0.1.0"
+edition = "2021"
+description = "Tiny GPU-metrics exporter for Modelo — nvidia-smi + /proc/meminfo over HTTP"
+license = "MIT"
+
+[[bin]]
+name = "modelo-tap"
+path = "src/main.rs"
+
+# Zero dependencies: std-only, so it cross-compiles trivially and scp's as a
+# single static-ish binary onto a DGX Spark (or any NVIDIA Linux box).
+
+[profile.release]
+opt-level = "s"
+strip = true
