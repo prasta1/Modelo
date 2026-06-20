@@ -27,7 +27,7 @@ final class ReachabilityMonitor {
     /// Cloud APIs use a fixed cadence (no sleep state); LM Studio backs off when offline.
     func pollInterval(for status: ServerStatus, kind: ServerKind) -> Duration {
         switch kind {
-        case .cloudAPI: return .seconds(30)
+        case .cloudAPI, .openRouter: return .seconds(30)
         case .lmStudio: return status == .online ? .seconds(10) : .seconds(30)
         }
     }

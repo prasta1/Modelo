@@ -26,7 +26,7 @@ struct LauncherView: View {
             if let serverID, item.server.id != serverID { return false }
             let m = item.model
             // Free filter only applies to cloud endpoints — local models are always shown.
-            if activeFilters.contains("free") && item.server.kind == .cloudAPI && !m.isFree { return false }
+            if activeFilters.contains("free") && item.server.kind != .lmStudio && !m.isFree { return false }
             if activeFilters.contains("vision") && !m.supportsVision   { return false }
             if activeFilters.contains("tools")  && !m.supportsToolUse  { return false }
             if activeFilters.contains("reason") && !m.supportsThinking { return false }

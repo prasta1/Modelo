@@ -29,7 +29,7 @@ final class LMStudioClient: ChatProvider {
     /// Embedding models are filtered out.
     func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] {
         switch endpoint.kind {
-        case .cloudAPI:
+        case .cloudAPI, .openRouter:
             let data = try await authedGet(path: "/models", endpoint: endpoint)
             return try JSONDecoder().decode(ModelsResponse.self, from: data).data
                 .filter { !$0.isEmbeddingModel }
@@ -56,7 +56,7 @@ final class LMStudioClient: ChatProvider {
 
     /// Adds bearer auth for cloud API endpoints; no-op for LM Studio.
     private func applyAuth(_ request: inout URLRequest, endpoint: Endpoint) {
-        guard endpoint.kind == .cloudAPI, let key = endpoint.apiKey else { return }
+        guard endpoint.kind != .lmStudio, let key = endpoint.apiKey else { return }
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
     }
 
@@ -75,7 +75,7 @@ final class LMStudioClient: ChatProvider {
     /// present on all versions and compatible servers) rather than `/api/v0/models`
     /// (LM Studio-specific, absent on older builds and other local servers).
     func probeReachable(endpoint: Endpoint, timeout: TimeInterval = 4) async -> Bool {
-        let path = endpoint.kind == .cloudAPI ? "/models" : "/v1/models"
+        let path = endpoint.kind != .lmStudio ? "/models" : "/v1/models"
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
@@ -224,7 +224,7 @@ final class LMStudioClient: ChatProvider {
     ) async -> Bool {
         do {
             // LM Studio's base is host:port (needs /v1); cloud API bases already end in /v1.
-            let chatPath = endpoint.kind == .cloudAPI ? "/chat/completions" : "/v1/chat/completions"
+            let chatPath = endpoint.kind != .lmStudio ? "/chat/completions" : "/v1/chat/completions"
             guard let url = URL(string: "\(endpoint.baseURL)\(chatPath)") else {
                 throw ClientError.invalidURL
             }

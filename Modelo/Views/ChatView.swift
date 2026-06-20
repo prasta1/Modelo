@@ -224,7 +224,7 @@ struct ChatView: View {
                 if pickedModel?.model.supportsVision == true {
                     attachButton
                 }
-                TextField("Message…", text: $draft, axis: .vertical)
+                TextField("Message… (⇧↩ to send)", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: messageFontSize))
                     .foregroundStyle(Theme.textHi)
@@ -235,7 +235,11 @@ struct ChatView: View {
                            radius: Theme.Radius.field,
                            stroke: composerFocused ? Theme.amber : Theme.line)
                     .focused($composerFocused)
-                    .onSubmit(send)
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.shift) else { return .ignored }
+                        send()
+                        return .handled
+                    }
 
                 Button(action: isStreaming ? stop : send) {
                     Group {

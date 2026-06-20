@@ -21,6 +21,7 @@ struct SettingsView: View {
     private let keychain = KeychainStore()
 
     private var lmStudioServers: [Server] { servers.filter { $0.kind == .lmStudio } }
+    private var openRouterServers: [Server] { servers.filter { $0.kind == .openRouter } }
     private var cloudServers: [Server] { servers.filter { $0.kind == .cloudAPI } }
 
     var body: some View {
@@ -58,6 +59,20 @@ struct SettingsView: View {
             // MARK: Cloud APIs
             ScrollView {
                 VStack(spacing: 12) {
+                    ForEach(openRouterServers) { server in
+                        OpenRouterSettingsRow(server: server, keychain: keychain) {
+                            context.delete(server)
+                            try? context.save()
+                        }
+                    }
+                    addButton("Add OpenRouter", action: addOpenRouterServer)
+
+                    if !cloudServers.isEmpty {
+                        Divider()
+                            .overlay(Theme.line)
+                            .padding(.vertical, 4)
+                    }
+
                     ForEach(cloudServers) { server in
                         CloudServerSettingsRow(server: server, keychain: keychain) {
                             context.delete(server)
@@ -161,6 +176,13 @@ struct SettingsView: View {
             arguments: ["-y", "@modelcontextprotocol/server-filesystem", "/"],
             isEnabled: false
         ))
+    }
+
+    private func addOpenRouterServer() {
+        let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
+        let server = Server(label: "OpenRouter", host: "", port: 0, sortOrder: nextOrder, kind: .openRouter)
+        context.insert(server)
+        try? context.save()
     }
 
     private func addCloudServer() {
@@ -377,6 +399,82 @@ private struct ServerSettingsRow: View {
             if old == .host, new != .host {
                 server.host = Server.normalizedHost(server.host)
             }
+        }
+    }
+}
+
+// MARK: - OpenRouter server row
+
+/// Dedicated OpenRouter endpoint: the base URL is hardcoded; the user only supplies their API key.
+private struct OpenRouterSettingsRow: View {
+    @Bindable var server: Server
+    let keychain: KeychainStore
+    let onDelete: () -> Void
+
+    @State private var apiKey = ""
+    @State private var isKeyRevealed = false
+    @FocusState private var focus: Field?
+
+    private enum Field { case label, key }
+    private var keychainAccount: String { Endpoint.keychainAccount(for: server) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                TextField("Server name", text: $server.label)
+                    .textFieldStyle(.plain)
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                    .focused($focus, equals: .label)
+                Spacer(minLength: 8)
+                Chip(text: "openrouter")
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.alert.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .help("Remove this endpoint")
+            }
+
+            Text(Endpoint.openRouterBaseURL)
+                .font(Theme.metric(11))
+                .foregroundStyle(Theme.textFaint)
+
+            FieldGroup(caption: "API Key") {
+                HStack(spacing: 0) {
+                    Group {
+                        if isKeyRevealed {
+                            TextField("sk-or-…", text: $apiKey)
+                        } else {
+                            SecureField("sk-or-…", text: $apiKey)
+                        }
+                    }
+                    .textFieldStyle(.plain)
+                    .focused($focus, equals: .key)
+
+                    Button { isKeyRevealed.toggle() } label: {
+                        Image(systemName: isKeyRevealed ? "eye.slash" : "eye")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.textLo)
+                            .padding(.trailing, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isKeyRevealed ? "Hide key" : "Reveal key")
+                }
+                .fieldChrome(focused: focus == .key)
+            }
+
+            Text("Bearer token — stored in your Keychain. Models load once a valid key is set.")
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .panel(Theme.popoverBG)
+        .onAppear { apiKey = keychain.get(account: keychainAccount) ?? "" }
+        .onChange(of: apiKey) { _, newValue in
+            keychain.set(newValue.isEmpty ? nil : newValue, account: keychainAccount)
         }
     }
 }
