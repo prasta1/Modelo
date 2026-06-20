@@ -9,6 +9,26 @@ Each item lists: **Goal · Modelo touchpoints · Schema · Steps · Effort · Fo
 
 ---
 
+## Progress
+
+Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not started.
+
+- ✅ **Phase 0 groundwork** — `MERGE_PLAN.md` / `AGENTS.md` / `CLAUDE.md` added; `upstream`
+  remote (`prasta1/Modelo`) wired; collaboration model agreed (PR #2 fork / PR #8 upstream).
+- 🔶 **`modelo-tap` agent vendored + renamed** (ex `fornax-agent`) — builds, runs (PR #3).
+- ✅ **Local server runtimes** — `ServerKind.llamaSwap` added (LM Studio + llama.cpp/llama-swap
+  are local; cloud stays cloud). Groundwork for §2.1 gating and §2.3 (PR #4). vLLM/sglang
+  are future enum cases.
+- 🔶 **§2.1 Remote GPU telemetry via `modelo-tap`** — agent (PR #3) + Swift consumer
+  (`Server.metricsAgentURL`, `GPUMonitor`, `GPUSnapshot`, Status tiles, Settings Agent URL)
+  (PR #4). Builds green, 25 tests pass; pending merge + live verification on an NVIDIA box.
+- ⬜ Everything else below.
+
+> Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
+> llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
+
+---
+
 ## 0. Strategic decision: port, don't fuse codebases
 
 Modelo and Fornax are the **same product built on different stacks** (Swift/SwiftData vs.
@@ -267,7 +287,12 @@ helper view and `Conversation.contextTokensUsed`.
 
 ## Phase 2 — Instrument-panel differentiators (play to Modelo's identity)
 
-### 2.1 Remote GPU telemetry via `modelo-tap` 🟢🟡 — recommended early win
+### 2.1 Remote GPU telemetry via `modelo-tap` 🟢🟡 — recommended early win — 🔶 DONE (PR #3 + #4, pending merge)
+
+> Status: agent vendored/renamed (PR #3); Swift consumer — `Server.metricsAgentURL`,
+> `GPUMonitor`, `GPUSnapshot`, Status card tiles, Settings "Agent URL" field — landed in PR #4
+> alongside the `ServerKind.llamaSwap` local-server kind. Builds green; 25 tests pass.
+> Remaining: Console-inspector GPU charts (deferred), and live verification on an NVIDIA box.
 
 **Goal.** Show live VRAM / power / temp / GPU-util from a remote inference box (DGX Spark,
 vLLM host) on the Status dashboard + Console inspector. The agent is **reused as-is** (only
