@@ -24,11 +24,11 @@ final class ReachabilityMonitor {
     }
 
     /// Pure policy: how long to wait before the next probe.
-    /// Cloud APIs use a fixed cadence (no sleep state); LM Studio backs off when offline.
+    /// Cloud APIs use a fixed cadence (no sleep state); local servers back off when offline.
     func pollInterval(for status: ServerStatus, kind: ServerKind) -> Duration {
         switch kind {
         case .cloudAPI: return .seconds(30)
-        case .lmStudio: return status == .online ? .seconds(10) : .seconds(30)
+        case .lmStudio, .llamaSwap: return status == .online ? .seconds(10) : .seconds(30)
         }
     }
 

@@ -3,11 +3,34 @@ import SwiftData
 
 /// Which kind of backend a `Server` row points at.
 /// - `lmStudio`: a local LM Studio machine (host:port over HTTP, no auth).
+/// - `llamaSwap`: a local llama.cpp server, typically fronted by llama-swap
+///   (host:port over HTTP, OpenAI-compatible `/v1`, no auth, no `/api/v0`).
 /// - `cloudAPI`: any OpenAI-compatible cloud endpoint (user-supplied HTTPS base URL, bearer auth).
-enum ServerKind: String, Codable, Sendable {
+///
+/// `lmStudio` and `llamaSwap` are *local* (self-hosted) — they run on hardware you
+/// control and can have a `modelo-tap` GPU agent next to them. Add new local runtimes
+/// (vLLM, sglang, …) as cases here; they automatically pick up local behavior.
+enum ServerKind: String, Codable, Sendable, CaseIterable {
     case lmStudio
+    case llamaSwap
     /// Raw value kept as "openRouter" so existing SwiftData records deserialise correctly.
     case cloudAPI = "openRouter"
+
+    /// Self-hosted servers run on your own hardware (host:port, no auth) and may expose
+    /// a `modelo-tap` GPU agent. Cloud APIs are managed endpoints that do not.
+    var isLocal: Bool { self != .cloudAPI }
+
+    /// Human-readable runtime name for chips, menus, and labels.
+    var displayName: String {
+        switch self {
+        case .lmStudio:  return "LM Studio"
+        case .llamaSwap: return "llama.cpp"
+        case .cloudAPI:  return "Cloud API"
+        }
+    }
+
+    /// The local runtimes, in declaration order — used to populate the runtime picker.
+    static var localCases: [ServerKind] { allCases.filter(\.isLocal) }
 }
 
 /// A `Sendable` snapshot of a `Server` for the networking layer. Built on the

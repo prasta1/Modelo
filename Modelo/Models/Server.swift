@@ -29,7 +29,8 @@ final class Server {
     /// - Cloud API: the value stored in `host` (the user's full base URL, e.g. `https://api.together.xyz/v1`).
     var baseURL: String {
         switch kind {
-        case .lmStudio: "http://\(Server.normalizedHost(host)):\(port)"
+        // Local runtimes are addressed by host:port.
+        case .lmStudio, .llamaSwap: "http://\(Server.normalizedHost(host)):\(port)"
         case .cloudAPI:  host
         }
     }
