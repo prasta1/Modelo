@@ -1,0 +1,31 @@
+title: "[Idea]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the place to **riff** — half-formed ideas welcome. Nothing here is a commitment.
+        When an idea firms up and is ready for a decision, promote it to a
+        [💡 Feature idea issue](../issues/new?template=feature-idea.yml) (the issue is where
+        the decision gets made and tracked).
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What are you imagining? A sentence or a wall of text — both are fine.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why might this be worth it?
+      description: What problem does it scratch, or what would it make nicer? Rough is fine.
+    validations:
+      required: false
+  - type: textarea
+    id: unknowns
+    attributes:
+      label: Open questions / unknowns
+      description: What are you unsure about? What would you want feedback on before this becomes a real proposal?
+    validations:
+      required: false

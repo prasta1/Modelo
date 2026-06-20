@@ -1,0 +1,62 @@
+name: 💡 Feature idea
+description: Formally propose a feature for Modelo. Use this once an idea is concrete enough to decide on.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature! This form is the **system of record** for a feature
+        decision. If your idea is still half-formed and you just want to riff on it, start a
+        [💡 Ideas discussion](../discussions/categories/ideas) instead and open this issue once
+        it has taken shape.
+
+        Fill in as much as you can — the more concrete the Problem and Options, the faster this
+        converges on a decision.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What's missing or wrong today? Describe the motivation, the observed behavior, and (if known) the root cause.
+      placeholder: |
+        When X happens, Modelo does Y, but the user expects Z because…
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options
+      description: Lay out the approaches you've considered, each with its trade-offs. It's fine to list just one — but state why alternatives were rejected if you can.
+      placeholder: |
+        1. **Approach A** — …
+           - Pro: …
+           - Con: …
+        2. **Approach B** — …
+           - Pro: …
+           - Con: …
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision needed
+      description: What's the specific call you're asking maintainers to make? Phrase it so the thread can converge on a yes/no or a pick-one.
+      placeholder: |
+        Pick an approach (A, B, or do-nothing) and confirm whether Modelo should…
+    validations:
+      required: true
+  - type: input
+    id: discussion-link
+    attributes:
+      label: Originating discussion (optional)
+      description: If this idea was riffed on in a Discussion first, link it here for context.
+      placeholder: "https://github.com/prasta1/modelo/discussions/…"
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, related issues/PRs, affected files, platform details, anything else.
+    validations:
+      required: false

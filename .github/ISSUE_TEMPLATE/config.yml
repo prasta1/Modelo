@@ -1,0 +1,9 @@
+# Keep blank issues available for maintainers, but steer idea-stage chatter to Discussions.
+blank_issues_enabled: true
+contact_links:
+  - name: 💡 Riff on an idea (Discussions)
+    url: https://github.com/prasta1/modelo/discussions/categories/ideas
+    about: Half-formed idea you want to explore before formally proposing it? Start here. Promote it to a Feature idea issue once it's concrete.
+  - name: 🙋 Questions & help
+    url: https://github.com/prasta1/modelo/discussions/categories/q-a
+    about: Usage questions and "how do I…" belong in Discussions, not issues.
