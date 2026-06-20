@@ -27,11 +27,11 @@ Connects to **LM Studio** over your local network or Tailscale, and to any **Ope
 ## Building
 
 ```bash
-xcodegen generate   # regenerates Modelo2.xcodeproj from project.yml
-open Modelo2.xcodeproj
+xcodegen generate   # regenerates Modelo.xcodeproj from project.yml
+open Modelo.xcodeproj
 ```
 
-Build the **Modelo2** scheme. No dependencies to install.
+Build the **Modelo** scheme. No dependencies to install.
 
 ## Layout
 

@@ -33,7 +33,7 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// File size on disk in bytes, from the `size` field of `/api/v0/models`.
     let sizeBytes: Int?
     /// When true, LM Studio will not evict this model from RAM when another is loaded.
-    let keepInRam: Bool?
+    var keepInRam: Bool?
 
     /// Zero-cost to use. Only meaningful for OpenRouter models (set from the
     /// API's pricing data when mapped); local models default to false and the

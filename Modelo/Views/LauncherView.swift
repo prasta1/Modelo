@@ -94,7 +94,7 @@ struct LauncherView: View {
                     ForEach(filteredModels) { item in
                         ModelTile(item: item, persona: selectedPersona,
                                   onTap: { onLaunch(item, selectedPersona) },
-                                  onUnload: onUnload.map { fn in { Task<Void, Never> { await fn(item) } } },
+                                  onUnload: onUnload.map { fn in { await fn(item) } },
                                   onPin: onPin.map { fn in { Task<Void, Never> { await fn(item) } } },
                                   onUnpin: onUnpin.map { fn in { Task<Void, Never> { await fn(item) } } })
                     }
@@ -401,7 +401,7 @@ private struct ModelTile: View {
     let item: DiscoveredModel
     let persona: Persona?
     let onTap: () -> Void
-    var onUnload: (() -> Void)? = nil
+    var onUnload: (() async -> Void)? = nil
     var onPin: (() -> Void)? = nil
     var onUnpin: (() -> Void)? = nil
     @State private var hovering = false
@@ -440,7 +440,10 @@ private struct ModelTile: View {
                     if let onUnload {
                         Button {
                             isUnloading = true
-                            onUnload()
+                            Task {
+                                await onUnload()
+                                isUnloading = false
+                            }
                         } label: {
                             Image(systemName: "eject.fill")
                                 .font(.system(size: 9, weight: .semibold))

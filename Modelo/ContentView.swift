@@ -113,7 +113,7 @@ struct ContentView: View {
             SettingsView(isInline: true)
         case .conversation:
             if let convo = selectedConversation {
-                ChatView(conversation: convo, discovered: discovered, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
+                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
                     .id(convo.persistentModelID)
             } else {
                 launcher
@@ -123,7 +123,7 @@ struct ContentView: View {
 
     private var launcher: some View {
         LauncherView(
-            discovered: discovered,
+            discovered: discoveredWithLiveState,
             endpointFilter: endpointFilter,
             onLaunch: { model, persona in Task { await launch(model: model, persona: persona) } },
             onUnload: handleModelEject,
@@ -266,6 +266,22 @@ struct ContentView: View {
         guard !title.isEmpty, convo.modelContext != nil else { return }
         convo.title = title
         try? context.save()
+    }
+
+    /// `discovered` overlaid with live loaded/keepInRam state from the 3-second monitor poll.
+    /// Since `monitor` is @Observable, SwiftUI re-renders the launcher automatically each poll cycle.
+    private var discoveredWithLiveState: [DiscoveredModel] {
+        discovered.map { item in
+            guard item.server.kind == .lmStudio else { return item }
+            let snapshot = monitor.snapshot(for: item.server)
+            let liveModel = snapshot?.models.first(where: { $0.id == item.model.id })
+            var updated = item.model
+            if snapshot != nil {
+                updated.state = liveModel != nil ? "loaded" : "not-loaded"
+                if let live = liveModel { updated.keepInRam = live.keepInRam }
+            }
+            return DiscoveredModel(server: item.server, model: updated)
+        }
     }
 
     private var onlineServerIDs: [UUID] {

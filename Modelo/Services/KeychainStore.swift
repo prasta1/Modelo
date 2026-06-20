@@ -7,7 +7,7 @@ import Security
 struct KeychainStore {
     let service: String
 
-    init(service: String = "com.peregrine.modelodos") {
+    init(service: String = "com.peregrine.modelo") {
         self.service = service
     }
 

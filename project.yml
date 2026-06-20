@@ -1,4 +1,4 @@
-name: Modelo2
+name: Modelo
 options:
   bundleIdPrefix: com.peregrine
   deploymentTarget:
@@ -31,10 +31,8 @@ targets:
         NSHumanReadableCopyright: "© 2025 Patrick Ruster"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.peregrine.modelodos
-        PRODUCT_NAME: ModeloDos
-        # Ship as ModeloDos.app, but keep the Swift module named "Modelo" so the
-        # test target's `@testable import Modelo` keeps resolving.
+        PRODUCT_BUNDLE_IDENTIFIER: com.peregrine.modelo
+        PRODUCT_NAME: Modelo
         PRODUCT_MODULE_NAME: Modelo
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
@@ -51,13 +49,10 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "5.0"
-        # The host target is named "Modelo" but ships as ModeloDos.app
-        # (PRODUCT_NAME), so XcodeGen's auto-derived TEST_HOST points at the wrong
-        # bundle. Pin it to the real product name.
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ModeloDos.app/Contents/MacOS/ModeloDos"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Modelo.app/Contents/MacOS/Modelo"
         BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
-  Modelo2:
+  Modelo:
     build:
       targets:
         Modelo: all

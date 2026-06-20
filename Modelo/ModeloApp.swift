@@ -13,13 +13,26 @@ struct ModeloApp: App {
 
     init() {
         let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self])
-        // Keep ModeloDos's database separate from the original Modelo app. Neither
-        // app is sandboxed, so SwiftData's default store lands in a shared
-        // ~/Library/Application Support/default.store — both apps would open the
-        // same file. Pin this app to its own ModeloDos subfolder instead.
-        let storeFolder = URL.applicationSupportDirectory.appending(path: "ModeloDos", directoryHint: .isDirectory)
+        // Pin to a dedicated subfolder to avoid colliding with SwiftData's default.store.
+        let storeFolder = URL.applicationSupportDirectory.appending(path: "Modelo", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: storeFolder, withIntermediateDirectories: true)
-        let config = ModelConfiguration(schema: schema, url: storeFolder.appending(path: "ModeloDos.store"))
+
+        // One-time migration: move the ModeloDos store to the new Modelo location.
+        let oldFolder = URL.applicationSupportDirectory.appending(path: "ModeloDos", directoryHint: .isDirectory)
+        let oldStore = oldFolder.appending(path: "ModeloDos.store")
+        let newStore = storeFolder.appending(path: "Modelo.store")
+        if FileManager.default.fileExists(atPath: oldStore.path) &&
+           !FileManager.default.fileExists(atPath: newStore.path) {
+            for suffix in ["", "-wal", "-shm"] {
+                let src = oldFolder.appending(path: "ModeloDos.store\(suffix)")
+                let dst = storeFolder.appending(path: "Modelo.store\(suffix)")
+                if FileManager.default.fileExists(atPath: src.path) {
+                    try? FileManager.default.moveItem(at: src, to: dst)
+                }
+            }
+        }
+
+        let config = ModelConfiguration(schema: schema, url: newStore)
         let container = try! ModelContainer(for: schema, configurations: [config])
         self.container = container
 

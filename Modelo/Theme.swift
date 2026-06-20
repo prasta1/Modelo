@@ -135,6 +135,7 @@ struct Chip: View {
 
     var body: some View {
         Text(text.uppercased())
+            .lineLimit(1)
             .font(Theme.label(9))
             .tracking(0.8)
             .foregroundStyle(tint)
@@ -142,6 +143,7 @@ struct Chip: View {
             .padding(.vertical, 2)
             .background(tint.opacity(0.13), in: Capsule())
             .overlay(Capsule().strokeBorder(tint.opacity(0.30), lineWidth: 0.5))
+            .fixedSize()
     }
 }
 
