@@ -4,17 +4,19 @@
 
 A native macOS client for running inference against local and cloud LLMs.
 
-Connects to **LM Studio** over your local network or Tailscale, and to any **OpenAI-compatible cloud API** (OpenRouter, Together, Mistral, etc.). Built with SwiftUI and SwiftData — no third-party dependencies.
+Connects to **LM Studio** over your local network or Tailscale, **OpenRouter** via a dedicated endpoint, and any other **OpenAI-compatible cloud API** (Together, Mistral, etc.). Built with SwiftUI and SwiftData — no third-party dependencies.
 
 > The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
 
 ## Features
 
-- **Chat** — streaming responses, per-message token metrics, tool-use chip, adjustable text size
-- **Model Picker** — grouped by server with per-model load state (selected / loaded / idle / cloud)
+- **Chat** — streaming responses, per-message token metrics, tool-use chip, adjustable text size; Return sends, Shift+Return inserts a newline
+- **Model Picker** — grouped by server with live per-model load state (selected / loaded / idle / cloud) overlaid from the real-time poll
+- **Spec strip** — parameter count, quantization, context window, and on-disk size (exact from LM Studio when available, estimated otherwise)
 - **Server Status** — live latency, throughput, and request sparklines with a streaming console
 - **Reports** — throughput and TTFT charts (Swift Charts) with a per-model usage table
-- **Settings** — LM Studio endpoints, cloud API endpoints (any OpenAI-compatible base URL), personas, Firecrawl key, MCP servers
+- **Settings** — LM Studio endpoints, OpenRouter (API key only — base URL is fixed), other OpenAI-compatible cloud endpoints, personas, Firecrawl key, MCP servers
+- **OpenRouter** — dedicated endpoint with model catalog parsing and a "free" filter chip
 - **Personas** — system prompt presets with icons and taglines
 - **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
 - **Menu bar mini chat** — quick-access popover from the menu bar
