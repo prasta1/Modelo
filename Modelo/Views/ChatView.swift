@@ -31,6 +31,8 @@ struct ChatView: View {
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
     @AppStorage("globalSamplingJSON") private var globalSamplingJSON = "{}"
+    @Query(sort: \Preset.sortOrder) private var presets: [Preset]
+    @State private var showSampling = false
 
 
     /// The server bound to this conversation (matches conversation.serverID).
@@ -82,6 +84,7 @@ struct ChatView: View {
                 if let server = pickedModel?.server {
                     statusPill(for: server)
                 }
+                samplingButton
                 FontSizeControl(size: $messageFontSize)
             }
             if let model = pickedModel?.model {
@@ -116,6 +119,55 @@ struct ChatView: View {
         .padding(.vertical, 5)
         .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.line))
+    }
+
+    /// Per-conversation sampling overrides (§1.4b) — a popover with the shared
+    /// controls plus a one-tap "apply preset". Amber when this chat overrides defaults.
+    private var samplingButton: some View {
+        let overriding = conversation.samplingOverride != SamplingParams()
+        return Button { showSampling.toggle() } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 12))
+                .foregroundStyle(overriding ? Theme.amber : Theme.Palette.inkDim)
+                .frame(width: 30, height: 26)
+                .panel(Theme.Palette.panel, radius: 7)
+        }
+        .buttonStyle(.plain)
+        .help("Sampling for this chat")
+        .popover(isPresented: $showSampling, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Eyebrow("Sampling · this chat")
+                    Spacer()
+                    if !presets.isEmpty {
+                        Menu("Apply preset") {
+                            ForEach(presets) { preset in
+                                Button(preset.name) { apply(preset) }
+                            }
+                        }
+                        .font(Theme.metric(11))
+                        .fixedSize()
+                    }
+                    Button("Reset") { conversation.samplingOverride = SamplingParams(); try? context.save() }
+                        .font(Theme.metric(11))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.textDim)
+                }
+                SamplingControls(params: Binding(get: { conversation.samplingOverride },
+                                                 set: { conversation.samplingOverride = $0 }))
+                Text("Overrides the global defaults from Settings for this chat only.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+            }
+            .padding(16)
+            .frame(width: 320)
+            .onChange(of: conversation.samplingOverride) { try? context.save() }
+        }
+    }
+
+    /// Applies a preset's system prompt (if any) and sampling overrides to this chat.
+    private func apply(_ preset: Preset) {
+        conversation.apply(preset)
+        try? context.save()
     }
 
     // MARK: Message stream

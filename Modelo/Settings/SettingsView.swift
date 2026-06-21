@@ -91,6 +91,10 @@ struct SettingsView: View {
             SamplingSettingsTab()
                 .tabItem { Label("Sampling", systemImage: "slider.horizontal.3") }
 
+            // MARK: Presets
+            PresetsSettingsTab()
+                .tabItem { Label("Presets", systemImage: "square.stack.3d.up") }
+
             // MARK: Tools
             ScrollView {
                 VStack(spacing: 12) {
@@ -318,11 +322,7 @@ private struct SamplingSettingsTab: View {
                         .foregroundStyle(Theme.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    doubleRow("Temperature", $params.temperature, range: 0...2, step: 0.05, fallback: 0.7)
-                    doubleRow("Top P", $params.topP, range: 0...1, step: 0.05, fallback: 0.9)
-                    doubleRow("Frequency penalty", $params.frequencyPenalty, range: -2...2, step: 0.1, fallback: 0)
-                    doubleRow("Presence penalty", $params.presencePenalty, range: -2...2, step: 0.1, fallback: 0)
-                    intRow("Max tokens", $params.maxTokens, fallback: 2048)
+                    SamplingControls(params: $params)
                 }
             }
             .padding(24)
@@ -335,49 +335,85 @@ private struct SamplingSettingsTab: View {
             json = (try? JSONEncoder().encode(new)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         }
     }
+}
 
-    /// A label + value readout + on/off pill, with a slider shown when enabled.
-    private func doubleRow(_ label: String, _ value: Binding<Double?>,
-                           range: ClosedRange<Double>, step: Double, fallback: Double) -> some View {
-        let on = Binding(get: { value.wrappedValue != nil },
-                         set: { value.wrappedValue = $0 ? (value.wrappedValue ?? fallback) : nil })
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(label).font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                Spacer()
-                Text(value.wrappedValue.map { String(format: "%.2f", $0) } ?? "default")
-                    .font(.mono(11)).monospacedDigit()
-                    .foregroundStyle(value.wrappedValue == nil ? Theme.textFaint : Theme.textLo)
-                PillToggle(isOn: on)
+// MARK: - Presets (§1.4b)
+
+/// CRUD for reusable generation presets — a name, optional system prompt, and a set
+/// of sampling controls. Apply them to a conversation from the chat header.
+private struct PresetsSettingsTab: View {
+    @Environment(\.modelContext) private var context
+    @Query(sort: \Preset.sortOrder) private var presets: [Preset]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(presets) { preset in
+                    PresetSettingsRow(preset: preset) {
+                        context.delete(preset)
+                        try? context.save()
+                    }
+                }
+                Button(action: addPreset) {
+                    Label("Add Preset", systemImage: "plus")
+                        .font(Theme.metric(12))
+                        .foregroundStyle(Theme.amber)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+
+                Text("Apply a preset to a chat from the sliders button in its header.")
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.textFaint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if value.wrappedValue != nil {
-                Slider(value: Binding(get: { value.wrappedValue ?? fallback },
-                                      set: { value.wrappedValue = $0 }),
-                       in: range, step: step)
-                    .tint(Theme.amber)
-            }
+            .padding(24)
         }
+        .clipped()
     }
 
-    private func intRow(_ label: String, _ value: Binding<Int?>, fallback: Int) -> some View {
-        let on = Binding(get: { value.wrappedValue != nil },
-                         set: { value.wrappedValue = $0 ? (value.wrappedValue ?? fallback) : nil })
-        return HStack {
-            Text(label).font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-            Spacer()
-            if value.wrappedValue != nil {
-                TextField("tokens", value: Binding(get: { value.wrappedValue ?? fallback },
-                                                   set: { value.wrappedValue = max(1, $0) }),
-                          format: .number.grouping(.never))
+    private func addPreset() {
+        context.insert(Preset(name: "New Preset", sortOrder: presets.count))
+        try? context.save()
+    }
+}
+
+private struct PresetSettingsRow: View {
+    @Bindable var preset: Preset
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                TextField("Preset name", text: $preset.name)
                     .textFieldStyle(.plain)
-                    .multilineTextAlignment(.trailing)
-                    .fieldChrome(focused: false)
-                    .frame(width: 90)
-            } else {
-                Text("default").font(.mono(11)).foregroundStyle(Theme.textFaint)
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                Spacer(minLength: 8)
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.alert.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .help("Remove this preset")
             }
-            PillToggle(isOn: on)
+
+            FieldGroup(caption: "System prompt (optional)") {
+                TextField("Leave blank to keep the chat's own prompt",
+                          text: Binding(get: { preset.systemPrompt ?? "" },
+                                        set: { preset.systemPrompt = $0.isEmpty ? nil : $0 }),
+                          axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...4)
+                    .fieldChrome(focused: false)
+            }
+
+            SamplingControls(params: Binding(get: { preset.sampling },
+                                             set: { preset.sampling = $0 }))
         }
+        .padding(14)
+        .panel(Theme.fill, radius: Theme.Radius.card, stroke: Theme.line)
     }
 }
 
@@ -655,9 +691,10 @@ private struct FieldGroup<Content: View>: View {
     }
 }
 
-private extension View {
+extension View {
     /// The shared input look: monospaced text on a sunken near-black field with a
-    /// hairline border that lights up amber on focus.
+    /// hairline border that lights up amber on focus. Used across Settings and the
+    /// shared `SamplingControls`.
     func fieldChrome(focused: Bool) -> some View {
         modifier(FieldChrome(focused: focused))
     }

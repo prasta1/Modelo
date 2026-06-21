@@ -13,7 +13,7 @@ struct ModeloApp: App {
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
 
     init() {
-        let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self])
+        let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self, Preset.self])
         // Keep ModeloDos's database separate from the original Modelo app. Neither
         // app is sandboxed, so SwiftData's default store lands in a shared
         // ~/Library/Application Support/default.store — both apps would open the
