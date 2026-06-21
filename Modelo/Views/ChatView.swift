@@ -361,8 +361,7 @@ struct ChatView: View {
             // Mutating tool call awaiting the user's go-ahead (file/shell tools).
             if let pending = session?.pendingApproval {
                 ToolApprovalCard(pending: pending,
-                                 approve: { session?.respondToApproval(true) },
-                                 deny: { session?.respondToApproval(false) })
+                                 onDecision: { session?.respondToApproval($0) })
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
             }
@@ -894,8 +893,7 @@ private struct SlashSuggestionRow: View {
 /// to do (write/edit a file, run a command) and waits for Approve / Deny.
 private struct ToolApprovalCard: View {
     let pending: ChatSession.PendingApproval
-    let approve: () -> Void
-    let deny: () -> Void
+    let onDecision: (ChatSession.ApprovalDecision) -> Void
 
     private var icon: String {
         switch pending.preview.kind {
@@ -932,15 +930,23 @@ private struct ToolApprovalCard: View {
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.line))
 
             HStack(spacing: 8) {
-                Spacer()
-                Button("Deny", action: deny)
+                Button("Deny", action: { onDecision(.deny) })
                     .buttonStyle(.plain)
                     .font(Theme.metric(12))
                     .foregroundStyle(Theme.textLo)
                     .padding(.horizontal, 12).padding(.vertical, 5)
                     .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
-                Button("Approve", action: approve)
+                Spacer(minLength: 0)
+                Button("Approve for session", action: { onDecision(.session) })
+                    .buttonStyle(.plain)
+                    .font(Theme.metric(12))
+                    .foregroundStyle(Theme.amber)
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.amberBorder))
+                    .help("Run \(pending.toolName) without asking again for the rest of this chat")
+                Button("Approve once", action: { onDecision(.once) })
                     .buttonStyle(.plain)
                     .font(Theme.metric(12).weight(.semibold))
                     .foregroundStyle(.black)

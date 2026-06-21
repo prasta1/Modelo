@@ -15,28 +15,37 @@ final class ChatSession {
 
     static let maxToolRounds = 5
 
+    /// What the user chose for a pending mutating tool call.
+    enum ApprovalDecision: Sendable { case deny, once, session }
+
     /// A mutating tool call paused for confirmation (file/shell tools).
     struct PendingApproval: Identifiable {
         let id = UUID()
         let toolName: String
         let preview: ToolApprovalPreview
-        let resume: @MainActor (Bool) -> Void
+        let resume: @MainActor (ApprovalDecision) -> Void
     }
+
+    /// Tools the user approved for the remainder of this chat session ("approve for
+    /// session"), so they run without prompting again until the chat is reopened.
+    private var sessionApprovedTools: Set<String> = []
 
     /// Resolve the pending approval with the user's decision (from the approval card).
-    func respondToApproval(_ approved: Bool) {
+    func respondToApproval(_ decision: ApprovalDecision) {
         let pending = pendingApproval
         pendingApproval = nil
-        pending?.resume(approved)
+        pending?.resume(decision)
     }
 
-    /// Suspend until the user approves/denies a mutating tool call.
+    /// Suspend until the user approves/denies a mutating tool call. Returns whether to
+    /// proceed, and remembers session-wide approvals so we don't ask again.
     private func requestApproval(toolName: String, preview: ToolApprovalPreview) async -> Bool {
-        await withCheckedContinuation { cont in
-            pendingApproval = PendingApproval(toolName: toolName, preview: preview) { decision in
-                cont.resume(returning: decision)
-            }
+        if sessionApprovedTools.contains(toolName) { return true }
+        let decision = await withCheckedContinuation { (cont: CheckedContinuation<ApprovalDecision, Never>) in
+            pendingApproval = PendingApproval(toolName: toolName, preview: preview) { cont.resume(returning: $0) }
         }
+        if decision == .session { sessionApprovedTools.insert(toolName) }
+        return decision != .deny
     }
 
     private let client: any ChatProvider
@@ -317,7 +326,7 @@ final class ChatSession {
         titleTask?.cancel()
         titleTask = nil
         // Release a turn paused on an approval prompt so its continuation can't leak.
-        respondToApproval(false)
+        respondToApproval(.deny)
     }
 
     /// Append a tool's result onto the active path as a `.tool` message.
