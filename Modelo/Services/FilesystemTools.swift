@@ -6,13 +6,30 @@ enum FSToolSettings {
     static let shellKey   = "fsToolsShell"     // extra switch for the bash tool
     static let rootKey    = "fsToolsRoot"      // workspace directory the tools are confined to
 
-    /// Builds the enabled tool set for a workspace, or `[]` if disabled / no valid root.
+    /// Default workspace when the user hasn't picked one: an isolated, auto-created
+    /// `~/.modelo` sandbox — never the home dir or `/`, so a stray call can't roam.
+    static var defaultRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: ".modelo")
+    }
+
+    /// The workspace folder in effect for a stored setting (default if unset).
+    static func effectiveRoot(_ root: String) -> URL {
+        root.isEmpty ? defaultRoot : URL(filePath: root)
+    }
+
+    /// Builds the enabled tool set, confined to the effective workspace (created if
+    /// missing). Returns `[]` if disabled or the path can't be a directory.
     @MainActor
     static func tools(enabled: Bool, shell: Bool, root: String) -> [any Tool] {
-        guard enabled, !root.isEmpty else { return [] }
-        let url = URL(filePath: root)
+        guard enabled else { return [] }
+        let url = effectiveRoot(root)
         var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { return [] }
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
+            guard isDir.boolValue else { return [] }   // a file sits where the workspace should be
+        } else {
+            guard (try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)) != nil
+            else { return [] }
+        }
         let scope = WorkspaceScope(root: url)
         var tools: [any Tool] = [
             ReadFileTool(scope: scope), WriteFileTool(scope: scope), EditFileTool(scope: scope),

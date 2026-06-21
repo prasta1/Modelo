@@ -408,12 +408,17 @@ private struct FilesystemToolsCard: View {
                 HStack(spacing: 10) {
                     Image(systemName: "folder")
                         .font(.system(size: 12)).foregroundStyle(Theme.textMute)
-                    Text(root.isEmpty ? "No workspace folder selected" : root)
+                    Text(root.isEmpty ? "~/.modelo  (default sandbox)" : root)
                         .font(.mono(11))
-                        .foregroundStyle(root.isEmpty ? Theme.textFaint : Theme.textMid)
+                        .foregroundStyle(root.isEmpty ? Theme.textLo : Theme.textMid)
                         .lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 8)
-                    Button(root.isEmpty ? "Choose…" : "Change…", action: chooseFolder)
+                    if !root.isEmpty {
+                        Button("Reset", action: { root = "" })
+                            .font(Theme.metric(11))
+                            .help("Use the default ~/.modelo sandbox")
+                    }
+                    Button(root.isEmpty ? "Choose folder…" : "Change…", action: chooseFolder)
                         .font(Theme.metric(11))
                 }
                 .opacity(enabled ? 1 : 0.5)
