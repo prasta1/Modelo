@@ -59,7 +59,12 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
   (running/queued/KV across vLLM/llama.cpp aliases); `Server.prometheusURL`; `PrometheusMonitor`
   (mirrors `GPUMonitor`); Status SERVER tiles + Settings field (PR #13). Merged to fork `main`. 99 tests.
   Histogram p50/p95 deferred; UI not yet on-device-verified.
-- ⬜ Phase 2 remaining: §2.5 benchmark, §2.4 artifacts panel 🔴, §2.2 macmon 🔴; then §3 QoL, §4 iOS.
+- ✅ **§2.5 Benchmark mode** — `BenchmarkRunner` (bounded-concurrency load test over the
+  `ChatProvider`) + `Percentile` + `BenchmarkReport`; `BenchmarkView` sheet from the chat header
+  (PR #14). Merged to fork `main`. 102 tests. UI not yet on-device-verified.
+- ⬜ Phase 2 remaining (need on-device verification): §2.4 artifacts panel 🔴, §2.2 macmon 🔴.
+- ⬜ §3 QoL sweep (slash commands, MD export, queue-while-streaming, retention, themes, MCP HTTP,
+  ~/.agents) — many small verifiable wins. Then §4 iOS.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
 > llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
