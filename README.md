@@ -11,6 +11,7 @@ Connects to **LM Studio** over your local network or Tailscale, and to any **Ope
 ## Features
 
 - **Chat** — streaming responses, Markdown rendering with syntax-highlighted and copyable code blocks, per-message token metrics, slash commands (`/model`, `/temp`, `/system`, `/export`, `/skills`, …) with an autocomplete popup, queue messages while a reply streams, branch & regenerate any turn, adjustable text size
+- **Artifacts** — substantial model output (HTML, SVG, Mermaid, code, documents) opens in a Claude-style side panel with live preview — see [below](#artifacts)
 - **Tools & agents** — opt-in first-party filesystem + shell tools, MCP servers, `~/.agents` skills, with reliability tuned for local models — see [below](#tools--agents)
 - **Model Picker** — grouped by server with per-model load state (selected / loaded / idle / cloud)
 - **Server Status** — live latency, throughput, and request sparklines with a streaming console
@@ -31,6 +32,15 @@ Modelo gives models a layered tool stack, designed so that even small/quantized 
 - **Local-model reliability** — a tolerant parser recovers tool calls a model emits as text (`<tool_call>…</tool_call>`, fenced JSON) when the server doesn't produce native `tool_calls`, and **progressive disclosure** shows only the most relevant tools per request plus a `find_tools` meta-tool, so a large tool set doesn't overwhelm the model.
 
 Tools are also gated by each chat's **Tools** toggle and the model's tool-use capability.
+
+## Artifacts
+
+Like Claude Desktop — and deliberately **not** one artifact per code block. When a model produces substantial, self-contained content, it wraps it in an `<artifact>` block (taught by a short system instruction; opt-out in **Settings ▸ Tools ▸ Artifacts**); ordinary snippets stay inline.
+
+- In the chat the artifact collapses to a compact, tappable **card**.
+- Opening it shows a **split panel** beside the chat (the console inspector tucks away to make room) with a **live preview** for HTML / SVG / Mermaid (mermaid.js is bundled, so diagrams work offline), a **Preview ⇄ Source** toggle, highlighted source for code, and rendered Markdown for documents.
+- **Versions** — re-emitting the same identifier adds a revision with `◀ v/n ▶` navigation; a **picker** in the header switches between multiple artifacts.
+- A header button toggles the panel (shown once a chat has artifacts); the panel is **resizable** and its width persists. Copy + download included.
 
 ## Remote GPU telemetry (`modelo-tap`)
 
@@ -67,11 +77,12 @@ Modelo/
 │                                # Folder, UsageRecord, Preset
 ├── Services/                    # LMStudioClient, ReachabilityMonitor, ServerRegistry,
 │                                # ChatSession, ToolRegistry, FilesystemTools, ToolSelector,
-│                                # ToolCallParser, MCPClient, AgentsLoader, FirecrawlClient,
-│                                # KeychainStore, Endpoint, UsageRetention
+│                                # ToolCallParser, ArtifactParser, MCPClient, AgentsLoader,
+│                                # FirecrawlClient, KeychainStore, Endpoint, UsageRetention
+├── Resources/                   # bundled assets (e.g. mermaid.min.js for diagram previews)
 ├── Settings/                    # SettingsView + row components
-└── Views/                       # Sidebar, Chat, ModelPicker, Status, Reports,
-                                 # LauncherView, MenuBarChat, ModelBrowser
+└── Views/                       # Sidebar, Chat, ModelPicker, Status, Reports, ArtifactPanel,
+                                 # ArtifactWebView, LauncherView, MenuBarChat, ModelBrowser
 
 modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the NVIDIA box)
 ```
