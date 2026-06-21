@@ -84,7 +84,7 @@ struct ContentView: View {
                 .help("Toggle inference console (⌘I)")
             }
         }
-        .task(id: onlineServerIDs) { selectDefaultEndpoint(); await refreshModels() }
+        .task(id: serverDiscoveryKey) { selectDefaultEndpoint(); await refreshModels() }
         .onAppear { restoreRoute() }
         .onChange(of: route) { saveRoute(route); syncPickedModel() }
         .focusedSceneValue(\.modeloCommands, ModeloCommands(
@@ -128,7 +128,8 @@ struct ContentView: View {
             onLaunch: { model, persona in Task { await launch(model: model, persona: persona) } },
             onUnload: handleModelEject,
             onPin: { item in await handleModelPin(server: item.server, modelID: item.model.id) },
-            onUnpin: { item in await handleModelUnpin(server: item.server, modelID: item.model.id) }
+            onUnpin: { item in await handleModelUnpin(server: item.server, modelID: item.model.id) },
+            onRefresh: { await refreshModels() }
         )
     }
 
@@ -268,8 +269,11 @@ struct ContentView: View {
         try? context.save()
     }
 
-    private var onlineServerIDs: [UUID] {
-        servers.filter { registry.isOnline($0) }.map(\.id)
+    /// Re-discover when a server is added/edited/removed (or comes online), not just
+    /// when the online set changes — so a newly-configured server's models appear.
+    private var serverDiscoveryKey: String {
+        servers.map { "\($0.id)|\($0.host)|\($0.port)|\($0.kindRaw)|\(registry.isOnline($0))" }
+            .joined(separator: ",")
     }
 
     /// Picks the default endpoint when nothing valid is currently selected.
@@ -284,8 +288,11 @@ struct ContentView: View {
     }
 
     private func refreshModels() async {
-        let targets = servers.filter { registry.isOnline($0) }
-            .map { (server: $0, endpoint: Endpoint(server: $0, keychain: keychain)) }
+        // Query every server, not just ones the reachability monitor has already
+        // flagged online — a freshly-added/edited server (or one that came up after
+        // launch) is "unknown" until its next probe, and we shouldn't hide its models
+        // in the meantime. fetchModels fails fast for genuinely-offline servers.
+        let targets = servers.map { (server: $0, endpoint: Endpoint(server: $0, keychain: keychain)) }
 
         var modelsByIndex: [Int: [LMStudioModel]] = [:]
         await withTaskGroup(of: (Int, [LMStudioModel]).self) { group in
@@ -296,6 +303,12 @@ struct ContentView: View {
                 }
             }
             for await (index, models) in group { modelsByIndex[index] = models }
+        }
+
+        // A server that just returned a model list is, by definition, reachable —
+        // mark it online so its dot turns green without waiting for the next probe.
+        for (index, target) in targets.enumerated() where !(modelsByIndex[index] ?? []).isEmpty {
+            registry.setStatus(.online, for: target.server)
         }
 
         discovered = targets.enumerated().flatMap { index, target in

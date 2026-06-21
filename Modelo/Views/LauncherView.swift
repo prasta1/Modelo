@@ -11,8 +11,11 @@ struct LauncherView: View {
     var onUnload: ((DiscoveredModel) async -> Void)? = nil
     var onPin: ((DiscoveredModel) async -> Void)? = nil
     var onUnpin: ((DiscoveredModel) async -> Void)? = nil
+    /// Re-query every server's `/models`. Wired to the "Fetch models" button.
+    var onRefresh: (() async -> Void)? = nil
 
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
+    @State private var isRefreshing = false
     @State private var selectedPersona: Persona?
     @State private var activeFilters: Set<String> = ["free"]
     @Environment(ServerRegistry.self) private var registry
@@ -117,6 +120,22 @@ struct LauncherView: View {
                                 : "\(filteredModels.count) models")
                     .font(Theme.metric(10))
                     .foregroundStyle(Theme.textFaint)
+                if let onRefresh {
+                    Button {
+                        isRefreshing = true
+                        Task { await onRefresh(); isRefreshing = false }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.textDim)
+                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                            .animation(isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default,
+                                       value: isRefreshing)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isRefreshing)
+                    .help("Fetch models — re-query every server's /models")
+                }
             }
         }
     }
