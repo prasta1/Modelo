@@ -41,7 +41,11 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
   estimate + draft) (PR #8). Merged to fork `main`.
 - ✅ **Ponytail pass** — parallel over-engineering review across PRs #5–#9; trimmed ~15 lines
   (TokenEstimator integer math, dropped a single-caller init param, doc trim). Merged in PR #9.
-- ⬜ §1.4 sampling/presets, §1.5 compaction, and Phase 2+ below.
+- ✅ **§1.4a Sampling controls** — `SamplingParams` (optional + `overlaying`) threaded through
+  `ChatProvider`/`LMStudioClient` (top_p/max_tokens/penalties/stop, nil omitted); per-conversation
+  override fields + `samplingOverride`; global-defaults Settings ▸ Sampling tab (PR #10). Merged to
+  fork `main`. 87 tests.
+- ⬜ §1.4b presets + per-conversation sampling UI, §1.5 compaction, and Phase 2+ below.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
 > llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
