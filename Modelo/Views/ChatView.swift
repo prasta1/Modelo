@@ -38,10 +38,21 @@ struct ChatView: View {
     private let keychain = KeychainStore()
 
 
-    /// The server bound to this conversation (matches conversation.serverID).
+    /// The server to send to. Prefer the header's picked model — it's the user's live
+    /// selection — so a send always goes where the header says, not a stale persisted
+    /// `serverID`. Falls back to `serverID` only before a model is picked.
     private var boundServer: Server? {
-        discovered.first { $0.server.id == conversation.serverID }?.server
-            ?? pickedModel?.server
+        pickedModel?.server
+            ?? discovered.first { $0.server.id == conversation.serverID }?.server
+    }
+
+    /// Sync the conversation's model/server to the header selection so the resolved
+    /// server and `conversation.modelID` always agree before a request goes out.
+    private func bindPickedModel() {
+        if let picked = pickedModel {
+            conversation.modelID = picked.model.id
+            conversation.serverID = picked.server.id
+        }
     }
 
     private var contextWindow: Int {
@@ -548,6 +559,7 @@ struct ChatView: View {
     /// turn is already streaming.
     private func regenerate(_ message: Message) {
         guard let session, !isStreaming else { return }
+        bindPickedModel()
         guard let server = boundServer else {
             session.errorText = "Pick a model before regenerating."
             return
@@ -563,6 +575,10 @@ struct ChatView: View {
 
     private func send() {
         guard let session else { return }
+        // Bind to the header's picked model FIRST, so the resolved server and the
+        // modelID sent always agree (otherwise a just-switched model can route to the
+        // previously-bound server).
+        bindPickedModel()
         // No model/server resolved yet (e.g. a conversation bound to an offline
         // server with nothing picked). Surface it instead of silently no-op'ing.
         guard let server = boundServer else {
@@ -575,11 +591,6 @@ struct ChatView: View {
         draft = ""
         pendingAttachments = []
         editingSource = nil
-        // Keep the conversation bound to the chosen model/server.
-        if let picked = pickedModel {
-            conversation.modelID = picked.model.id
-            conversation.serverID = picked.server.id
-        }
         sendTask = Task {
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
