@@ -42,7 +42,7 @@ struct ReportingView: View {
                         statTile("Tokens",     tokenString(summary.totalTokens))
                         statTile("Avg tok/s",  summary.avgTokPerSec.map  { String(format: "%.0f", $0) } ?? "—")
                         statTile("Peak tok/s", summary.peakTokPerSec.map { String(format: "%.0f", $0) } ?? "—")
-                        statTile("Avg TTFT",   summary.avgTTFTms.map     { String(format: "%.0f ms", $0) } ?? "—")
+                        statTile("Avg TTFT",   summary.avgTTFTms.map     { String(format: "%.2f s", $0 / 1000) } ?? "—")
                     }
                     if days.count > 1 {
                         chartSection("Requests / day", trailing: "\(summary.totalRequests)") { RequestsChart(buckets: days) }

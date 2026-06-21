@@ -68,7 +68,7 @@ struct BenchmarkView: View {
             statRow("Succeeded", "\(r.succeeded) / \(r.total)" + (r.failed > 0 ? "  (\(r.failed) failed)" : ""))
             statRow("Wall time", String(format: "%.2f s", r.wallSeconds))
             statRow("Throughput", String(format: "%.1f req/s", r.wallSeconds > 0 ? Double(r.total) / r.wallSeconds : 0))
-            statRow("TTFT p50 / p95", String(format: "%.0f / %.0f ms", r.ttftP50 * 1000, r.ttftP95 * 1000))
+            statRow("TTFT p50 / p95", String(format: "%.2f / %.2f s", r.ttftP50, r.ttftP95))
             statRow("Decode p50 / p95", String(format: "%.0f / %.0f tok/s", r.tpsP50, r.tpsP95))
         }
     }

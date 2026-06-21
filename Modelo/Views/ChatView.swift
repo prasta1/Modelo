@@ -360,7 +360,14 @@ struct ChatView: View {
                            radius: Theme.Radius.field,
                            stroke: composerFocused ? Theme.amber : Theme.line)
                     .focused($composerFocused)
-                    .onSubmit(send)
+                    // Enter sends; Shift+Enter inserts a newline (let the multiline
+                    // field handle that keystroke itself).
+                    .onKeyPress { keyPress in
+                        guard keyPress.key == .return else { return .ignored }
+                        if keyPress.modifiers.contains(.shift) { return .ignored }
+                        if canSend { send() }
+                        return .handled
+                    }
 
                 // Live token estimate for the message being typed (§1.6).
                 if !draft.isEmpty {

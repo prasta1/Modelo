@@ -112,10 +112,10 @@ struct ConsolePanel: View {
 
                 // TTFT
                 MetricStat(
-                    label: "Time to First Token · ms",
-                    last: rollup.lastTTFTms.map { "\($0)" },
-                    avg:  rollup.avgTTFTms.map  { String(format: "%.0f", $0) },
-                    peak: rollup.peakTTFTms.map { "\($0)" }
+                    label: "Time to First Token · s",
+                    last: rollup.lastTTFTms.map { String(format: "%.2f", Double($0) / 1000) },
+                    avg:  rollup.avgTTFTms.map  { String(format: "%.2f", $0 / 1000) },
+                    peak: rollup.peakTTFTms.map { String(format: "%.2f", Double($0) / 1000) }
                 )
                 if !rollup.ttftHistory.isEmpty {
                     TTFTChart(values: rollup.ttftHistory)
