@@ -45,7 +45,11 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
   `ChatProvider`/`LMStudioClient` (top_p/max_tokens/penalties/stop, nil omitted); per-conversation
   override fields + `samplingOverride`; global-defaults Settings ▸ Sampling tab (PR #10). Merged to
   fork `main`. 87 tests.
-- ⬜ §1.4b presets + per-conversation sampling UI, §1.5 compaction, and Phase 2+ below.
+- ✅ **§1.4b Presets + per-conversation sampling UI** — reusable `SamplingControls`; `Preset`
+  `@Model` + Settings ▸ Presets CRUD; chat-header sampling popover with apply-preset; settable
+  `Conversation.samplingOverride` + `apply(_:)` (PR #11). Merged to fork `main`. 91 tests.
+  **Phase 1 complete except §1.5.**
+- ⬜ §1.5 compaction, then Phase 2+ below.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
 > llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
