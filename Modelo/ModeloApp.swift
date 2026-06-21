@@ -27,6 +27,8 @@ struct ModeloApp: App {
         let registry = ServerRegistry()
         registry.seedIfNeeded(in: ctx)
         Persona.seedDefaults(in: ctx)
+        // Backfill the branching tree (§1.2) for pre-existing flat conversations.
+        BranchingMigration.runIfNeeded(in: ctx)
         _registry = State(initialValue: registry)
 
         // Reachability probe: single-shot short-timeout check (NOT fetchModels —

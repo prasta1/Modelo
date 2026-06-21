@@ -23,6 +23,9 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var pendingAttachments: [MessageAttachment] = []
     @State private var isDragTarget = false
+    /// Set when the user taps "edit & resend" on a past user turn; the next send
+    /// forks a sibling branch under that message instead of extending the path.
+    @State private var editingSource: Message?
     @FocusState private var composerFocused: Bool
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
@@ -38,8 +41,10 @@ struct ChatView: View {
         pickedModel?.model.maxContextLength ?? 0
     }
 
-    private var sortedMessages: [Message] {
-        conversation.messages.sorted { $0.createdAt < $1.createdAt }
+    /// The currently-selected branch, root→leaf (§1.2). Siblings on other branches
+    /// are hidden; navigating siblings re-selects the active leaf.
+    private var pathMessages: [Message] {
+        conversation.activePath()
     }
 
     var body: some View {
@@ -109,21 +114,23 @@ struct ChatView: View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView {
-                    if sortedMessages.isEmpty {
+                    if conversation.messages.isEmpty {
                         emptyConversationHint
                             .frame(maxWidth: .infinity, minHeight: geo.size.height)
                     } else {
+                        let path = pathMessages
                         LazyVStack(alignment: .leading, spacing: 10) {
-                            ForEach(sortedMessages) { msg in
+                            ForEach(path) { msg in
                                 MessageRow(
                                     message: msg,
                                     modelName: conversation.modelID,
                                     onReuse: reuseDraft,
+                                    onSelectBranch: selectBranch,
                                     // Only the last assistant turn streams; gate Markdown
                                     // rendering off until it finishes.
                                     isLiveStreaming: session?.isStreaming == true
                                         && msg.role == .assistant
-                                        && msg.id == sortedMessages.last?.id
+                                        && msg.id == path.last?.id
                                 ).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
@@ -401,11 +408,19 @@ struct ChatView: View {
         sendTask?.cancel()
     }
 
-    /// Drops a past message back into the composer (focused) so the user can
-    /// resend it as-is or tweak it first. Wired to MessageRow's reuse action.
-    private func reuseDraft(_ text: String) {
-        draft = text
+    /// Drops a past user turn back into the composer (focused) so it can be edited
+    /// and resent. Resending forks a new sibling branch from this message (§1.2).
+    private func reuseDraft(_ message: Message) {
+        editingSource = message
+        draft = message.content
         composerFocused = true
+    }
+
+    /// Switches the conversation to a sibling branch by re-selecting its active leaf
+    /// (the tail of that branch's subtree). Wired to MessageRow's ◀ k/n ▶ control.
+    private func selectBranch(_ leaf: Message) {
+        conversation.activeLeaf = leaf
+        try? context.save()
     }
 
     private func send() {
@@ -418,8 +433,10 @@ struct ChatView: View {
         }
         let text = draft
         let attachments = pendingAttachments
+        let edited = editingSource
         draft = ""
         pendingAttachments = []
+        editingSource = nil
         // Keep the conversation bound to the chosen model/server.
         if let picked = pickedModel {
             conversation.modelID = picked.model.id
@@ -428,7 +445,8 @@ struct ChatView: View {
         sendTask = Task {
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
-                               modelSupportsTools: pickedModel?.model.supportsToolUse ?? false)
+                               modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
+                               replacing: edited)
             sendTask = nil
         }
     }
