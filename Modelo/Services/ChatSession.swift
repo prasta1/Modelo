@@ -14,6 +14,12 @@ final class ChatSession {
     var pendingApproval: PendingApproval?
 
     static let maxToolRounds = 5
+    /// Above this many registered tools, switch to progressive disclosure.
+    static let progressiveThreshold = 8
+    /// How many relevant tools to pre-select for the model each turn (progressive mode).
+    static let preselectLimit = 6
+    /// Tools surfaced via find_tools during this turn — callable in later rounds.
+    private var revealedTools: Set<String> = []
 
     /// What the user chose for a pending mutating tool call.
     enum ApprovalDecision: Sendable { case deny, once, session }
@@ -150,7 +156,11 @@ final class ChatSession {
 
         let endpoint = Endpoint(server: server, keychain: keychain)
         let toolsActive = modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
-        let toolSpecs = toolsActive ? registry.specs() : nil
+        // Progressive disclosure (large tool sets): show only the most relevant tools for
+        // this request + a find_tools meta-tool, so a small model isn't drowned in specs.
+        let progressive = toolsActive && registry.count > Self.progressiveThreshold
+        let queryText = conversation.activePath().last { $0.role == .user }?.content ?? ""
+        revealedTools.removeAll()
 
         let start = Date()
         var firstTokenAt: Date?
@@ -183,6 +193,7 @@ final class ChatSession {
                 // carries the summary, and only post-cutoff turns are sent (§1.5). The
                 // just-appended empty assistant is dropped by wireKeep.
                 let wire = conversation.wireContext()
+                let toolSpecs = activeToolSpecs(active: toolsActive, progressive: progressive, query: queryText)
                 let stream = client.streamChat(
                     endpoint: endpoint, modelID: conversation.modelID,
                     messages: wire.messages.filter(wireKeep),
@@ -254,6 +265,13 @@ final class ChatSession {
             assistant.toolCallsJSON = toolCalls.json
             for call in toolCalls {
                 if Task.isCancelled { break }
+                // find_tools is a synthetic meta-tool: reveal the matching tools so they
+                // become callable next round, and return their briefs (handled here, not
+                // via the registry).
+                if call.name == FindToolsTool.toolName {
+                    appendToolResult(revealTools(matching: call.arguments), call: call, in: conversation)
+                    continue
+                }
                 // Mutating tools (write/edit/bash) pause for the user's approval.
                 if let preview = registry.approvalPreview(name: call.name, argumentsJSON: call.arguments) {
                     let approved = await requestApproval(toolName: call.name, preview: preview)
@@ -327,6 +345,32 @@ final class ChatSession {
         titleTask = nil
         // Release a turn paused on an approval prompt so its continuation can't leak.
         respondToApproval(.deny)
+    }
+
+    /// Tool specs to offer this round: nil when inactive; the full set in normal mode;
+    /// or a relevance-pre-selected subset ∪ already-revealed tools + find_tools when the
+    /// registry is large (progressive disclosure).
+    private func activeToolSpecs(active: Bool, progressive: Bool, query: String) -> [ToolSpec]? {
+        guard active else { return nil }
+        guard progressive else { return registry.specs() }
+        let preselected = ToolSelector.select(catalog: registry.catalog(), query: query, limit: Self.preselectLimit)
+        let names = Set(preselected).union(revealedTools)
+        return registry.specs(named: names) + [ToolSpec(FindToolsTool())]
+    }
+
+    /// Handle a find_tools call: record the matching tools as revealed (so they become
+    /// callable next round) and return their briefs for the model.
+    private func revealTools(matching argumentsJSON: String) -> String {
+        struct Q: Decodable { let query: String }
+        let query = (try? JSONDecoder().decode(Q.self, from: Data(argumentsJSON.utf8)))?.query ?? ""
+        let matches = ToolSelector.select(catalog: registry.catalog(), query: query, limit: 8)
+            .filter { $0 != FindToolsTool.toolName }
+        revealedTools.formUnion(matches)
+        let briefs = registry.catalog()
+            .filter { matches.contains($0.name) }
+            .map { "- \($0.name): \($0.description)" }
+            .joined(separator: "\n")
+        return briefs.isEmpty ? "No matching tools found." : "These tools are now available to call:\n\(briefs)"
     }
 
     /// Append a tool's result onto the active path as a `.tool` message.
