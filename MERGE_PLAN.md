@@ -29,8 +29,11 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
   `Conversation.activeLeafData` (encoded `PersistentIdentifier`) + `activePath`/`appendToPath`/
   `branch`/`dropLeaf`; `BranchingMigration` launch backfill; `send` rewritten onto the active
   path; `◀ k/n ▶` sibling nav + edit-as-branch (PR #6, stacked on #5). Builds green, 78 tests
-  pass; pending merge + on-device migration verification. Root branching + assistant regenerate
-  (§1.3) deferred.
+  pass; pending merge + on-device migration verification. Root branching deferred.
+- 🔶 **§1.3 Regenerate assistant response** — shared `runTurn` extracted from `send`; new
+  `ChatSession.regenerate` forks an assistant sibling under the same user parent and streams
+  into it; "Regenerate" footer action + `◀ k/n ▶` now lights up on assistant turns (PR #7,
+  stacked on #6). Builds green, 79 tests pass; pending merge.
 - ⬜ Everything else below.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
@@ -188,7 +191,13 @@ var activeLeafID: UUID?       // tail of the currently-selected path
 
 ---
 
-### 1.3 Regenerate assistant response 🟢 (after 1.2)
+### 1.3 Regenerate assistant response 🟢 (after 1.2) — 🔶 IN REVIEW (PR #7, stacked on #6)
+
+> Status: the agentic streaming loop was extracted from `send` into a shared `runTurn(...)`;
+> `ChatSession.regenerate(_:in:server:…)` pre-branches an empty assistant sibling (via §1.2's
+> `branch`) and streams into it, so the wire re-walks the same user prompt. A "Regenerate"
+> action sits in the assistant footer and the `◀ k/n ▶` control now lights up on assistant
+> turns. Title generation is gated to first-exchange sends. Builds green; 79 tests pass.
 
 **Goal.** Re-run the last (or any) assistant turn. Modelo today only supports "edit & resend"
 on *user* turns (`MessageRow` ~167–204).
