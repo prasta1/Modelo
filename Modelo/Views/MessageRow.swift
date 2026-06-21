@@ -24,7 +24,6 @@ struct MessageRow: View {
     var isLiveStreaming: Bool = false
     // Shared with the composer and the View menu; default kept in sync across sites.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
-    @State private var hovering = false
     @State private var copied = false
 
     private var isUser: Bool { message.role == .user }
@@ -50,7 +49,6 @@ struct MessageRow: View {
                 hoverBar
             }
         }
-        .onHover { hovering = $0 }
     }
 
     private var userBubble: some View {
@@ -239,9 +237,6 @@ struct MessageRow: View {
             if !message.content.isEmpty { actionCluster }
         }
         .padding(.horizontal, 2)
-        .opacity(hovering ? 1 : 0)
-        .allowsHitTesting(hovering)
-        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     /// "142 tok/s · 13:05" — shown on hover only.

@@ -3,25 +3,32 @@ import SwiftUI
 /// Load-test sheet (§2.5): fire N requests at a chosen concurrency against the
 /// picked model and report TTFT / decode-rate percentiles. Driven by `BenchmarkRunner`.
 struct BenchmarkView: View {
-    let endpoint: Endpoint
-    let modelID: String
-    var modelName: String = ""
+    let discovered: [DiscoveredModel]
 
+    @State private var selected: DiscoveredModel?
     @State private var runner = BenchmarkRunner()
     @State private var requests = 16
     @State private var concurrency = 4
     @State private var prompt = "Write a haiku about local inference."
     @Environment(\.dismiss) private var dismiss
+    private let keychain = KeychainStore()
+
+    init(discovered: [DiscoveredModel], initial: DiscoveredModel? = nil) {
+        self.discovered = discovered
+        _selected = State(initialValue: initial ?? discovered.first)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Eyebrow("Benchmark · \(modelName.isEmpty ? modelID : modelName)")
+                Eyebrow("Benchmark")
                 Spacer()
                 Button("Done") { dismiss() }
                     .buttonStyle(.plain).font(Theme.metric(11)).foregroundStyle(Theme.textDim)
                     .help("Close")
             }
+
+            modelPicker
 
             stepperRow("Requests", value: $requests, range: 1...256, step: requests < 16 ? 1 : 8)
             stepperRow("Concurrency", value: $concurrency, range: 1...64, step: 1)
@@ -45,11 +52,40 @@ struct BenchmarkView: View {
         .background(Theme.windowBG)
     }
 
+    private var modelPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Model").font(Theme.metric(11)).foregroundStyle(Theme.textLo)
+            if discovered.isEmpty {
+                Text("No models available — load one first.")
+                    .font(Theme.metric(11)).foregroundStyle(Theme.textFaint)
+            } else {
+                Menu {
+                    ForEach(discovered) { item in
+                        Button("\(item.model.displayName)  ·  \(item.server.label)") { selected = item }
+                    }
+                } label: {
+                    HStack {
+                        Text(selected.map { "\($0.model.displayName)  ·  \($0.server.label)" } ?? "Pick a model")
+                            .font(Theme.metric(12)).foregroundStyle(Theme.textHi).lineLimit(1)
+                        Spacer()
+                        Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(Theme.textMute)
+                    }
+                    .fieldChrome(focused: false)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Choose which model to benchmark")
+            }
+        }
+    }
+
     private var runControl: some View {
         Button {
             if runner.isRunning { runner.cancel() }
-            else { runner.run(endpoint: endpoint, modelID: modelID, prompt: prompt,
-                              requests: requests, concurrency: concurrency) }
+            else if let m = selected {
+                runner.run(endpoint: Endpoint(server: m.server, keychain: keychain),
+                           modelID: m.model.id, prompt: prompt,
+                           requests: requests, concurrency: concurrency)
+            }
         } label: {
             Text(runner.isRunning ? "Stop" : "Run benchmark")
                 .font(Theme.metric(12).weight(.semibold))
@@ -59,6 +95,7 @@ struct BenchmarkView: View {
                             in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         }
         .buttonStyle(.plain)
+        .disabled(selected == nil && !runner.isRunning)
         .help(runner.isRunning ? "Stop the benchmark" : "Run the load test")
     }
 

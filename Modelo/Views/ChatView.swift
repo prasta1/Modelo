@@ -28,6 +28,7 @@ struct ChatView: View {
     @State private var editingSource: Message?
     @State private var composerFocused: Bool = false
     @State private var composerHeight: CGFloat = 22
+    @State private var commandFeedback: String?
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
@@ -35,7 +36,6 @@ struct ChatView: View {
     @Query(sort: \Preset.sortOrder) private var presets: [Preset]
     @State private var showSampling = false
     @State private var showBenchmark = false
-    private let keychain = KeychainStore()
 
 
     /// The server to send to. Prefer the header's picked model — it's the user's live
@@ -204,13 +204,10 @@ struct ChatView: View {
                 .panel(Theme.Palette.panel, radius: 7)
         }
         .buttonStyle(.plain)
-        .help("Benchmark this model")
-        .disabled(pickedModel == nil)
+        .help("Benchmark a model")
+        .disabled(discovered.isEmpty)
         .sheet(isPresented: $showBenchmark) {
-            if let picked = pickedModel {
-                BenchmarkView(endpoint: Endpoint(server: picked.server, keychain: keychain),
-                              modelID: picked.model.id, modelName: picked.model.familyName)
-            }
+            BenchmarkView(discovered: discovered, initial: pickedModel)
         }
     }
 
@@ -315,6 +312,23 @@ struct ChatView: View {
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
                 .background(Theme.Palette.alert.opacity(0.10))
+            }
+
+            // Transient slash-command confirmation (§3.1).
+            if let commandFeedback {
+                HStack(spacing: 8) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.amber)
+                    Text(commandFeedback)
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.textMid)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Theme.amberFillLo)
             }
 
             // Hidden when the window is unknown (server only exposed /v1/models), so
@@ -555,6 +569,62 @@ struct ChatView: View {
         try? context.save()
     }
 
+    // MARK: Slash commands (§3.1)
+
+    private func handleSlash(_ command: SlashCommand) {
+        switch command {
+        case .help:
+            flash(SlashParser.helpText)
+        case .clear:
+            for message in conversation.messages { context.delete(message) }
+            conversation.messages.removeAll()
+            conversation.summary = nil
+            conversation.summaryThroughData = nil
+            conversation.activeLeafData = nil
+            try? context.save()
+            flash("Cleared this conversation.")
+        case .copy:
+            if let last = conversation.activePath().last(where: { $0.role == .assistant && !$0.content.isEmpty }) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(last.content, forType: .string)
+                flash("Copied the last response.")
+            } else {
+                flash("No response to copy yet.")
+            }
+        case .temperature(let value):
+            let clamped = min(max(value, 0), 2)
+            conversation.temperature = clamped
+            try? context.save()
+            flash(String(format: "Temperature set to %.2f for this chat.", clamped))
+        case .system(let prompt):
+            conversation.systemPrompt = prompt.isEmpty ? nil : prompt
+            try? context.save()
+            flash(prompt.isEmpty ? "Cleared the system prompt." : "System prompt updated.")
+        case .model(let query):
+            if let match = discovered.first(where: {
+                $0.model.id.localizedCaseInsensitiveContains(query)
+                    || $0.model.familyName.localizedCaseInsensitiveContains(query)
+            }) {
+                pickedModel = match
+                conversation.modelID = match.model.id
+                conversation.serverID = match.server.id
+                try? context.save()
+                flash("Switched to \(match.model.familyName).")
+            } else {
+                flash("No model matches “\(query)”.")
+            }
+        }
+    }
+
+    /// Shows a transient one-line confirmation in the composer area, auto-clearing.
+    private func flash(_ message: String) {
+        commandFeedback = message
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            if commandFeedback == message { commandFeedback = nil }
+        }
+    }
+
     /// Re-runs an assistant turn on a fresh sibling branch (§1.3). No-ops while a
     /// turn is already streaming.
     private func regenerate(_ message: Message) {
@@ -575,6 +645,12 @@ struct ChatView: View {
 
     private func send() {
         guard let session else { return }
+        // Slash commands (§3.1) are handled locally, never sent to the model.
+        if let command = SlashParser.parse(draft) {
+            handleSlash(command)
+            draft = ""
+            return
+        }
         // Bind to the header's picked model FIRST, so the resolved server and the
         // modelID sent always agree (otherwise a just-switched model can route to the
         // previously-bound server).
