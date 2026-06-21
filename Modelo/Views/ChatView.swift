@@ -33,6 +33,8 @@ struct ChatView: View {
     @AppStorage("globalSamplingJSON") private var globalSamplingJSON = "{}"
     @Query(sort: \Preset.sortOrder) private var presets: [Preset]
     @State private var showSampling = false
+    @State private var showBenchmark = false
+    private let keychain = KeychainStore()
 
 
     /// The server bound to this conversation (matches conversation.serverID).
@@ -85,6 +87,7 @@ struct ChatView: View {
                     statusPill(for: server)
                 }
                 samplingButton
+                benchmarkButton
                 FontSizeControl(size: $messageFontSize)
             }
             if let model = pickedModel?.model {
@@ -173,6 +176,26 @@ struct ChatView: View {
             .frame(width: 320)
             .onChange(of: conversation.samplingOverride) { try? context.save() }
             .onChange(of: conversation.autoCompact) { try? context.save() }
+        }
+    }
+
+    /// Opens the load-test sheet for the picked model (§2.5).
+    private var benchmarkButton: some View {
+        Button { showBenchmark = true } label: {
+            Image(systemName: "stopwatch")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 30, height: 26)
+                .panel(Theme.Palette.panel, radius: 7)
+        }
+        .buttonStyle(.plain)
+        .help("Benchmark this model")
+        .disabled(pickedModel == nil)
+        .sheet(isPresented: $showBenchmark) {
+            if let picked = pickedModel {
+                BenchmarkView(endpoint: Endpoint(server: picked.server, keychain: keychain),
+                              modelID: picked.model.id, modelName: picked.model.familyName)
+            }
         }
     }
 
