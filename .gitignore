@@ -14,3 +14,7 @@ Modelo/Info.plist
 DerivedData/
 .build/
 *.swiftpm
+
+# Rust build artifacts (modelo-tap agent)
+modelo-tap/target/
+modelo-tap/Cargo.lock

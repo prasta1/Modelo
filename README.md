@@ -19,6 +19,16 @@ Connects to **LM Studio** over your local network or Tailscale, and to any **Ope
 - **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
 - **Menu bar mini chat** — quick-access popover from the menu bar
 
+## Remote GPU telemetry (`modelo-tap`)
+
+When your inference runs on a remote NVIDIA box (a DGX Spark, vLLM host, etc.), the
+[`modelo-tap`](modelo-tap/README.md) agent exports that machine's VRAM, power, temperature,
+and utilization over HTTP so Modelo can display it on the Status dashboard. It's a single
+zero-dependency Rust binary that reads `nvidia-smi` *and* `/proc/meminfo` (the latter is the
+only way to get correct VRAM on unified-memory boxes like the GB10).
+
+Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**.
+
 ## Requirements
 
 - macOS 14.0+
@@ -46,6 +56,8 @@ Modelo/
 ├── Settings/                    # SettingsView + row components
 └── Views/                       # Sidebar, Chat, ModelPicker, Status, Reports,
                                  # LauncherView, MenuBarChat, ModelBrowser
+
+modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the NVIDIA box)
 ```
 
 ## Target
