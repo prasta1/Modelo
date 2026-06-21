@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 /// Polls each local server's `modelo-tap` GPU agent (`GET /gpu`) and publishes the
-/// latest snapshot plus a short utilization history for sparklines.
+/// latest snapshot.
 ///
 /// Mirrors `ServerMonitor`'s shape: one cancellable polling `Task` per server,
 /// `@MainActor`-isolated state, and a `start(servers:)` / `stop()` lifecycle.
@@ -11,13 +11,10 @@ import SwiftUI
 @MainActor
 final class GPUMonitor {
     private(set) var snapshots: [UUID: GPUSnapshot] = [:]
-    /// Recent `util_pct` samples per server (oldest → newest), capped for charts.
-    private(set) var utilHistory: [UUID: [Double]] = [:]
 
     private var loops: [UUID: Task<Void, Never>] = [:]
     private let session: URLSession
     private let interval: Duration
-    private static let historyLimit = 40
 
     init(session: URLSession = GPUMonitor.defaultSession(), interval: Duration = .seconds(2)) {
         self.session = session
@@ -32,7 +29,6 @@ final class GPUMonitor {
     }
 
     func snapshot(for server: Server) -> GPUSnapshot? { snapshots[server.id] }
-    func history(for server: Server) -> [Double] { utilHistory[server.id] ?? [] }
 
     /// (Re)start polling for the given servers. Cancels any previous loops first.
     func start(servers: [Server]) {
@@ -63,9 +59,5 @@ final class GPUMonitor {
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let snap = try? JSONDecoder().decode(GPUSnapshot.self, from: data) else { return }
         snapshots[id] = snap
-        var hist = utilHistory[id] ?? []
-        hist.append(snap.utilPct)
-        if hist.count > Self.historyLimit { hist.removeFirst(hist.count - Self.historyLimit) }
-        utilHistory[id] = hist
     }
 }
