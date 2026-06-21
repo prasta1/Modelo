@@ -72,10 +72,11 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
   code-signing so the Keychain prompt stops recurring.
 - ⬜ Phase 2 remaining: **§2.4 artifacts panel** 🔴 (HTML/SVG/Mermaid preview) — the big unbuilt
   differentiator.
-- 🟩 §3 QoL sweep — **mostly done**: §3.1 slash (PR #19), §3.2 MD export/copy (#21),
-  §3.3 queue-while-streaming (#22), §3.4 usage retention (#23), §3.7 ~/.agents skills (#19) all
-  merged. §3.5 themes ⏸️ deferred (needs interactive verification), §3.6 MCP HTTP ⏭️ skipped by
-  user decision. Then §4 iOS.
+- ✅ §3 QoL sweep — **complete**: §3.1 slash (PR #19), §3.2 MD export/copy (#21),
+  §3.3 queue-while-streaming (#22), §3.4 usage retention (#23), §3.5 themes (#25),
+  §3.7 ~/.agents skills (#19) all merged. §3.6 MCP HTTP ⏭️ skipped by user decision.
+  Follow-up chat fixes (picker write-through, slash popup, retention control) in #24.
+  Then §4 iOS.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
 > llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
@@ -508,20 +509,18 @@ and on `ReportingView` appear / setting-change; a **Keep** menu in the Reports h
 (`@AppStorage(UsageRetention.key)`, Forever / 7 / 14 / 30 / 60 / 90 days; 0 = forever).
 Unit-tested (`UsageRetentionTests`: window boundary + keep-everything).
 
-### 3.5 Themes beyond dark 🟡🔴 — ⏸️ DEFERRED (needs interactive verification)
-`Theme.swift` is **static** and the app forces `.preferredColorScheme(.dark)`. Real theming
-means making tokens dynamic (environment-injected `Theme` value, or `@AppStorage` palette
-selection) and auditing all `Theme.*` call sites. Add Light + Catppuccin flavors + font/size/
-scale settings. **Fornax ref.** 6 themes in `config.toml`.
+### 3.5 Themes beyond dark 🟡🔴 — ✅ merged (PR #25, verified on-device)
+Shipped: a `ThemePalette` value type (`Modelo/ThemePalette.swift`) holds every resolved token;
+the static `Theme.*` / `Theme.Palette.*` accessors read through `Theme.active`, so the ~600 call
+sites stayed unchanged. Switching swaps `active` + bumps a root `.id(themeID)` to repaint; the 4
+hardcoded `.preferredColorScheme(.dark)` sites now follow `Theme.active.scheme`. Six palettes:
+**Dark** (preserved token-for-token), **Light**, and Catppuccin **Latte / Frappé / Macchiato /
+Mocha**, selectable live in **Settings ▸ Appearance** (`@AppStorage("themeID")`). Font sizing
+already shipped (`messageFontSize` + View menu). **Fornax ref.** 6 themes in `config.toml`.
 
-> **Deferred deliberately.** Font sizing already ships (`messageFontSize` @AppStorage + View ▸
-> Increase/Decrease/Actual menu commands). The remaining color-theme work is the single most
-> visual-verification-dependent feature in the sweep: the token surface is large and **doubled**
-> (`Theme.Palette.*` *and* a second top-level `Theme.*` color system — ~40 tokens, ~600 call
-> sites) plus 4 hardcoded `.preferredColorScheme(.dark)` sites. Building a multi-palette switch
-> blind (no on-device verification) and auto-merging it risks shipping a broken/illegible theme,
-> which is worse than none. **Recommendation:** tackle this together interactively so each screen
-> can be eyeballed in Light + Catppuccin as the palette is tuned.
+> Code-block syntax highlighting (Highlightr `atom-one-dark`) is theme-independent and stays dark;
+> revisit if it clashes on the light palettes. A few minor chrome bits (e.g. `PillToggle` off-state)
+> still use fixed light-on-dark values — harmless on dark themes.
 
 ### 3.6 MCP streamable-HTTP transport 🟡 — ⏭️ SKIPPED (user decision)
 User: *"do we need it? this already has MCP capabilities."* The stdio transport + the `~/.agents`
