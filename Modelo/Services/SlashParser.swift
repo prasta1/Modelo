@@ -5,6 +5,7 @@ enum SlashCommand: Equatable {
     case help
     case clear
     case copy
+    case export                // write the conversation to ~/Downloads as Markdown (§3.2)
     case skills                // list available ~/.agents skills (§3.7)
     case temperature(Double)
     case system(String)        // empty string clears the per-conversation prompt
@@ -34,6 +35,8 @@ enum SlashParser {
             return .copy
         case "skills":
             return .skills
+        case "export", "save":
+            return .export
         case "temp", "temperature":
             guard let t = Double(arg) else { return nil }   // "/temp" w/o a number → send as text
             return .temperature(t)
@@ -49,6 +52,6 @@ enum SlashParser {
 
     /// One-line help shown by `/help`.
     static let helpText = """
-    Commands: /model <name> · /temp <0–2> · /system <prompt> · /skills · /clear · /copy · /help
+    Commands: /model <name> · /temp <0–2> · /system <prompt> · /skills · /export · /clear · /copy · /help
     """
 }

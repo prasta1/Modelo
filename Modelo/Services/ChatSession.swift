@@ -319,8 +319,9 @@ final class ChatSession {
     }
 
     /// Drops a leading `<think>…</think>` reasoning block (reasoning models emit one
-    /// before the answer). Shared by titling and compaction.
-    static func stripReasoning(_ raw: String) -> String {
+    /// before the answer). Shared by titling, compaction, and export — pure, so
+    /// `nonisolated` to call off the main actor.
+    nonisolated static func stripReasoning(_ raw: String) -> String {
         guard let r = raw.range(of: "</think>", options: .backwards) else { return raw }
         return String(raw[r.upperBound...])
     }

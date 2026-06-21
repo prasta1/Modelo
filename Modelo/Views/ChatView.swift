@@ -586,6 +586,12 @@ struct ChatView: View {
             conversation.activeLeafData = nil
             try? context.save()
             flash("Cleared this conversation.")
+        case .export:
+            if let url = ConversationExporter.writeToDownloads(conversation) {
+                flash("Exported to ~/Downloads/\(url.lastPathComponent)")
+            } else {
+                flash("Couldn't export — check Downloads permissions.")
+            }
         case .skills:
             let skills = AgentsLoader.loadSkills()
             flash(skills.isEmpty
