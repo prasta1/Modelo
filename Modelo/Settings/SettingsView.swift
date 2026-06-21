@@ -490,6 +490,9 @@ private struct ServerSettingsRow: View {
                 .fixedSize()
             }
 
+            // Live "is it working?" feedback — re-probes when host/port/runtime change.
+            ServerProbeRow(server: server)
+
             FieldGroup(caption: "Agent URL") {
                 TextField("http://host:9099  ·  optional", text: Binding(
                     get: { server.metricsAgentURL ?? "" },
@@ -547,6 +550,73 @@ private struct ServerSettingsRow: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Runtime")
+    }
+}
+
+// MARK: - Connection probe
+
+/// Live connection feedback for a local server row (#4): probes the endpoint's model
+/// list whenever host/port/runtime change and reports "Connected · N models", an
+/// error, or a manual re-check — so adding a server gives a clear "it's working"
+/// signal instead of silent auto-save.
+private struct ServerProbeRow: View {
+    let server: Server
+    @State private var state: ProbeState = .idle
+
+    private enum ProbeState: Equatable {
+        case idle, checking, ok(Int), failed(String)
+    }
+
+    /// Re-probe whenever the connection-defining fields change.
+    private var probeKey: String { "\(server.host)|\(server.port)|\(server.kindRaw)" }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            indicator
+            Spacer(minLength: 0)
+            Button("Test") { Task { await probe(debounce: false) } }
+                .buttonStyle(.plain)
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textDim)
+                .help("Re-check this server's connection")
+                .disabled(state == .checking)
+        }
+        .task(id: probeKey) { await probe(debounce: true) }
+    }
+
+    @ViewBuilder private var indicator: some View {
+        switch state {
+        case .idle, .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Checking…").font(Theme.metric(11)).foregroundStyle(Theme.textFaint)
+            }
+        case .ok(let n):
+            Label("Connected · \(n) model\(n == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
+                .font(Theme.metric(11)).foregroundStyle(Theme.green)
+        case .failed(let why):
+            Label(why, systemImage: "exclamationmark.triangle.fill")
+                .font(Theme.metric(11)).foregroundStyle(Theme.Palette.alert)
+                .lineLimit(2)
+        }
+    }
+
+    private func probe(debounce: Bool) async {
+        // Debounce typing so we don't probe on every keystroke; manual Test skips it.
+        if debounce { try? await Task.sleep(for: .milliseconds(500)) }
+        if Task.isCancelled { return }
+        guard !server.host.trimmingCharacters(in: .whitespaces).isEmpty else { state = .idle; return }
+        state = .checking
+        let endpoint = Endpoint(server: server, keychain: KeychainStore())
+        do {
+            let models = try await LMStudioClient.shared.fetchModels(endpoint: endpoint)
+            if !Task.isCancelled { state = .ok(models.count) }
+        } catch {
+            if !Task.isCancelled {
+                let msg = (error as? ClientError)?.errorDescription ?? "Couldn't reach this server."
+                state = .failed(msg)
+            }
+        }
     }
 }
 
