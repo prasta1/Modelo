@@ -57,6 +57,25 @@ struct ChatView: View {
         }
     }
 
+    /// The picker binding. `pickedModel` is app-global, so we can't write the
+    /// conversation on every change (navigating between chats mutates it). Instead
+    /// the *setter* — only ever called by an explicit pick in this chat's picker —
+    /// records the model/server on the conversation immediately, so a new chat routes
+    /// correctly without waiting for the first send to `bindPickedModel`.
+    private var pickedModelBinding: Binding<DiscoveredModel?> {
+        Binding(
+            get: { pickedModel },
+            set: { newValue in
+                pickedModel = newValue
+                if let picked = newValue {
+                    conversation.modelID = picked.model.id
+                    conversation.serverID = picked.server.id
+                    try? context.save()
+                }
+            }
+        )
+    }
+
     private var contextWindow: Int {
         pickedModel?.model.maxContextLength ?? 0
     }
@@ -91,7 +110,7 @@ struct ChatView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                ModelPickerView(discovered: discovered, selection: $pickedModel, onModelSelect: onModelSelect, onModelEject: onModelEject)
+                ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject)
                 if pickedModel?.model.supportsToolUse == true {
                     Toggle("Tools", isOn: $conversation.toolsEnabled)
                         .toggleStyle(ChipToggleStyle())
@@ -333,6 +352,15 @@ struct ChatView: View {
                 .background(Theme.amberFillLo)
             }
 
+            // Slash-command autocomplete (§3.1): appears when the draft starts with "/".
+            slashSuggestions
+
+            // Persistent view of messages queued during a stream (§3.3) — stays until
+            // each is actually sent, so the queue never looks like it vanished.
+            if !pendingQueue.isEmpty {
+                queueStrip
+            }
+
             // Hidden when the window is unknown (server only exposed /v1/models), so
             // we don't show a meaningless "0 / 0" bar.
             if contextWindow > 0 {
@@ -346,6 +374,71 @@ struct ChatView: View {
         .background(Theme.windowBG)
         .overlay(alignment: .top) {
             Rectangle().fill(Theme.line).frame(height: 1)
+        }
+    }
+
+    /// Slash-command autocomplete popup (§3.1). Shown above the composer while the
+    /// draft is a bare `/word`; clicking a row fills the command (and runs it if it
+    /// takes no argument).
+    @ViewBuilder private var slashSuggestions: some View {
+        let specs = SlashParser.suggestions(for: draft)
+        if !specs.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(specs) { spec in
+                    SlashSuggestionRow(spec: spec) { applySuggestion(spec) }
+                }
+            }
+            .padding(.vertical, 4)
+            .background(Theme.popoverBG, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.line))
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+    }
+
+    /// Applies a picked slash command: argument commands leave the cursor ready to
+    /// type the argument; argument-less commands run immediately.
+    private func applySuggestion(_ spec: SlashParser.Spec) {
+        if spec.takesArg {
+            draft = "/\(spec.token) "
+        } else {
+            draft = "/\(spec.token)"
+            send()
+        }
+    }
+
+    /// Pending-queue strip: one removable chip per message waiting to send (§3.3).
+    private var queueStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textDim)
+                ForEach(Array(pendingQueue.enumerated()), id: \.offset) { index, text in
+                    HStack(spacing: 6) {
+                        Text(text)
+                            .font(Theme.metric(11))
+                            .foregroundStyle(Theme.textMid)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Button {
+                            pendingQueue.remove(at: index)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(Theme.textDim)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove from queue")
+                    }
+                    .padding(.leading, 9).padding(.trailing, 7).padding(.vertical, 4)
+                    .background(Theme.amberFillLo, in: Capsule())
+                    .overlay(Capsule().stroke(Theme.line))
+                    .frame(maxWidth: 220, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
     }
 
@@ -711,6 +804,40 @@ struct ChatView: View {
             sendTask = nil
             drainQueue()
         }
+    }
+}
+
+/// One row in the slash-command autocomplete popup (§3.1): the command, its
+/// optional argument hint, and a summary, with a hover highlight.
+private struct SlashSuggestionRow: View {
+    let spec: SlashParser.Spec
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text("/\(spec.token)")
+                    .font(Theme.code(12, weight: .medium))
+                    .foregroundStyle(Theme.amber)
+                if let arg = spec.arg {
+                    Text(arg)
+                        .font(Theme.code(11))
+                        .foregroundStyle(Theme.textDim)
+                }
+                Text(spec.summary)
+                    .font(Theme.metric(11))
+                    .foregroundStyle(Theme.textLo)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .background(hovering ? Theme.fillHi : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

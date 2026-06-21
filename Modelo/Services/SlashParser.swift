@@ -54,4 +54,37 @@ enum SlashParser {
     static let helpText = """
     Commands: /model <name> · /temp <0–2> · /system <prompt> · /skills · /export · /clear · /copy · /help
     """
+
+    // MARK: - Autocomplete (§3.1)
+
+    /// A command shown in the composer's slash-autocomplete popup.
+    struct Spec: Identifiable, Equatable {
+        let token: String        // canonical command, e.g. "model"
+        let arg: String?         // argument hint, e.g. "<name>"; nil = no argument
+        let summary: String
+        var id: String { token }
+        var takesArg: Bool { arg != nil }
+    }
+
+    /// The user-facing command palette, in display order.
+    static let catalog: [Spec] = [
+        Spec(token: "model",  arg: "<name>",   summary: "Switch the model"),
+        Spec(token: "temp",   arg: "<0–2>",    summary: "Set temperature for this chat"),
+        Spec(token: "system", arg: "<prompt>", summary: "Set the system prompt (empty clears)"),
+        Spec(token: "skills", arg: nil,        summary: "List available ~/.agents skills"),
+        Spec(token: "export", arg: nil,        summary: "Save the chat to ~/Downloads as Markdown"),
+        Spec(token: "copy",   arg: nil,        summary: "Copy the last response"),
+        Spec(token: "clear",  arg: nil,        summary: "Clear the conversation"),
+        Spec(token: "help",   arg: nil,        summary: "Show available commands"),
+    ]
+
+    /// Commands to suggest for the current composer text. Empty unless the input is a
+    /// bare `/word` with no argument yet (a space means the user is typing an argument).
+    static func suggestions(for input: String) -> [Spec] {
+        guard input.hasPrefix("/") else { return [] }
+        let body = input.dropFirst()
+        guard !body.contains(" ") else { return [] }     // typing an argument → stop suggesting
+        let typed = body.lowercased()
+        return catalog.filter { typed.isEmpty || $0.token.hasPrefix(typed) }
+    }
 }

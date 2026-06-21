@@ -30,4 +30,12 @@ final class SlashParserTests: XCTestCase {
         XCTAssertNil(SlashParser.parse("/model"))            // needs a query
         XCTAssertNil(SlashParser.parse(""))
     }
+
+    func test_suggestions_onlyForBareSlashWord() {
+        XCTAssertTrue(SlashParser.suggestions(for: "hello").isEmpty)   // not a command
+        XCTAssertEqual(SlashParser.suggestions(for: "/").count, SlashParser.catalog.count)
+        XCTAssertEqual(SlashParser.suggestions(for: "/s").map(\.token), ["system", "skills"])
+        XCTAssertEqual(SlashParser.suggestions(for: "/model").map(\.token), ["model"])
+        XCTAssertTrue(SlashParser.suggestions(for: "/model qwen").isEmpty)   // typing an arg
+    }
 }
