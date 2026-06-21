@@ -22,23 +22,23 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
 - 🔶 **§2.1 Remote GPU telemetry via `modelo-tap`** — agent (PR #3) + Swift consumer
   (`Server.metricsAgentURL`, `GPUMonitor`, `GPUSnapshot`, Status tiles, Settings Agent URL)
   (PR #4). Builds green, 25 tests pass; pending merge + live verification on an NVIDIA box.
-- 🔶 **§1.1 Markdown rendering + code highlighting** — `MarkdownText` (MarkdownUI 2.4.1),
+- ✅ **§1.1 Markdown rendering + code highlighting** — `MarkdownText` (MarkdownUI 2.4.1),
   Highlightr-backed code blocks with per-block copy, streaming gate in `MessageRow`/`ChatView`
-  (PR #5). First third-party deps. Builds green, 70 tests pass; pending merge.
-- 🔶 **§1.2 Conversation branching tree** — `Message` parent/children/`branchIndex`;
+  (PR #5). First third-party deps. Merged to fork `main`.
+- ✅ **§1.2 Conversation branching tree** — `Message` parent/children/`branchIndex`;
   `Conversation.activeLeafData` (encoded `PersistentIdentifier`) + `activePath`/`appendToPath`/
   `branch`/`dropLeaf`; `BranchingMigration` launch backfill; `send` rewritten onto the active
-  path; `◀ k/n ▶` sibling nav + edit-as-branch (PR #6, stacked on #5). Builds green, 78 tests
-  pass; pending merge + on-device migration verification. Root branching deferred.
-  Self-review follow-ups (dropLeaf orphan, monotonic branchIndex, migration flag-on-save)
-  in PR #9, stacked on #8.
-- 🔶 **§1.3 Regenerate assistant response** — shared `runTurn` extracted from `send`; new
+  path; `◀ k/n ▶` sibling nav + edit-as-branch (PR #6) + self-review fixes (PR #9). Merged to
+  fork `main`. Root branching deferred; on-device migration verification still pending.
+- ✅ **§1.3 Regenerate assistant response** — shared `runTurn` extracted from `send`; new
   `ChatSession.regenerate` forks an assistant sibling under the same user parent and streams
-  into it; "Regenerate" footer action + `◀ k/n ▶` now lights up on assistant turns (PR #7,
-  stacked on #6). Builds green, 79 tests pass; pending merge.
-- 🔶 **§1.6 Live token counting + context bar** — `TokenEstimator` (chars/4 heuristic);
+  into it; "Regenerate" footer action + `◀ k/n ▶` now lights up on assistant turns (PR #7).
+  Merged to fork `main`.
+- ✅ **§1.6 Live token counting + context bar** — `TokenEstimator` (chars/4 heuristic);
   composer `~N tok` readout + `ContextBar` fed a live projection (last-turn total / path
-  estimate + draft) (PR #8, stacked on #7). Builds green, 82 tests pass; pending merge.
+  estimate + draft) (PR #8). Merged to fork `main`.
+- ✅ **Ponytail pass** — parallel over-engineering review across PRs #5–#9; trimmed ~15 lines
+  (TokenEstimator integer math, dropped a single-caller init param, doc trim). Merged in PR #9.
 - ⬜ §1.4 sampling/presets, §1.5 compaction, and Phase 2+ below.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
