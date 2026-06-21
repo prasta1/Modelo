@@ -59,18 +59,22 @@ final class ChatSession {
     private let recorder: UsageRecorder
     private let keychain: KeychainStore
     private let registry: ToolRegistry
+    /// Appended to every request's system prompt (e.g. the artifact instructions, §2.4).
+    private let systemSuffix: String?
     /// The best-effort title run, tracked so it can be cancelled when the view
     /// goes away (e.g. the user switches conversations mid-titling).
     private var titleTask: Task<Void, Never>?
 
     init(client: any ChatProvider, context: ModelContext, recorder: UsageRecorder,
          keychain: KeychainStore = KeychainStore(),
-         registry: ToolRegistry = ToolRegistry([])) {
+         registry: ToolRegistry = ToolRegistry([]),
+         systemSuffix: String? = nil) {
         self.client = client
         self.context = context
         self.recorder = recorder
         self.keychain = keychain
         self.registry = registry
+        self.systemSuffix = systemSuffix
     }
 
     /// Sends `text` in `conversation`, routed to `server`. Runs the agentic loop:
@@ -194,10 +198,12 @@ final class ChatSession {
                 // just-appended empty assistant is dropped by wireKeep.
                 let wire = conversation.wireContext()
                 let toolSpecs = activeToolSpecs(active: toolsActive, progressive: progressive, query: queryText)
+                let system = [wire.system, systemSuffix]
+                    .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
                 let stream = client.streamChat(
                     endpoint: endpoint, modelID: conversation.modelID,
                     messages: wire.messages.filter(wireKeep),
-                    systemPrompt: wire.system,
+                    systemPrompt: system,
                     sampling: sampling,
                     tools: toolSpecs)
                 // Buffer incoming tokens and flush to the observable property at ~20fps

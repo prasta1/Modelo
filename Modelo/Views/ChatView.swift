@@ -33,6 +33,10 @@ struct ChatView: View {
     @State private var pendingQueue: [String] = []
     /// Keyboard-highlighted row in the slash-command popup (§3.1).
     @State private var slashSelection = 0
+    /// The artifact currently open in the side panel (§2.4), by id.
+    @State private var openArtifactID: String?
+    // Whether to teach the model the artifact syntax (opt-out in Settings ▸ Tools).
+    @AppStorage("artifactsEnabled") private var artifactsEnabled = true
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
@@ -100,15 +104,37 @@ struct ChatView: View {
         return conversation.samplingOverride.overlaying(global)
     }
 
+    /// Artifacts across the active path, grouped into versions (§2.4).
+    private var artifactGroups: [ArtifactGroup] { ArtifactCollector.groups(from: pathMessages) }
+    private var openArtifactGroup: ArtifactGroup? {
+        openArtifactID.flatMap { id in artifactGroups.first { $0.id == id } }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            messageStream
-            footer
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                header
+                messageStream
+                footer
+            }
+            .frame(maxWidth: .infinity)
+
+            if let group = openArtifactGroup {
+                Divider().overlay(Theme.line)
+                ArtifactPanel(group: group, onClose: { openArtifactID = nil })
+                    .frame(width: 460)
+                    .id(group.id)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: openArtifactID)
         .background(Theme.windowBG)
         .onAppear { ensureSession() }
         .onDisappear { cancelInFlight() }
+        // Auto-open the newest artifact when the model produces a new one (Claude-style).
+        .onChange(of: artifactGroups.count) { _, count in
+            if count > 0, let newest = artifactGroups.last { openArtifactID = newest.id }
+        }
     }
 
     // MARK: Header — model spec plate + live status
@@ -267,7 +293,9 @@ struct ChatView: View {
                                     // rendering off until it finishes.
                                     isLiveStreaming: session?.isStreaming == true
                                         && msg.role == .assistant
-                                        && msg.id == path.last?.id
+                                        && msg.id == path.last?.id,
+                                    onOpenArtifact: { openArtifactID = $0 },
+                                    openArtifactID: openArtifactID
                                 ).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
@@ -685,7 +713,8 @@ struct ChatView: View {
         session = ChatSession(client: LMStudioClient.shared, context: context,
                               recorder: UsageRecorder(context: context),
                               keychain: keychain,
-                              registry: ToolRegistry(tools))
+                              registry: ToolRegistry(tools),
+                              systemSuffix: artifactsEnabled ? ArtifactInstructions.system : nil)
         composerFocused = true
     }
 
