@@ -31,6 +31,8 @@ struct ChatView: View {
     @State private var commandFeedback: String?
     /// Messages typed while a reply is streaming; auto-sent in order on completion (§3.3).
     @State private var pendingQueue: [String] = []
+    /// Keyboard-highlighted row in the slash-command popup (§3.1).
+    @State private var slashSelection = 0
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
@@ -381,11 +383,14 @@ struct ChatView: View {
     /// draft is a bare `/word`; clicking a row fills the command (and runs it if it
     /// takes no argument).
     @ViewBuilder private var slashSuggestions: some View {
-        let specs = SlashParser.suggestions(for: draft)
+        let specs = slashSpecs
         if !specs.isEmpty {
             VStack(spacing: 0) {
-                ForEach(specs) { spec in
-                    SlashSuggestionRow(spec: spec) { applySuggestion(spec) }
+                ForEach(Array(specs.enumerated()), id: \.element.id) { index, spec in
+                    SlashSuggestionRow(spec: spec,
+                                       isHighlighted: index == clampedSlashSelection) {
+                        applySuggestion(spec)
+                    }
                 }
             }
             .padding(.vertical, 4)
@@ -394,6 +399,31 @@ struct ChatView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
         }
+    }
+
+    /// Slash suggestions for the current draft, and the clamped keyboard highlight.
+    private var slashSpecs: [SlashParser.Spec] { SlashParser.suggestions(for: draft) }
+    private var clampedSlashSelection: Int {
+        guard !slashSpecs.isEmpty else { return 0 }
+        return min(max(0, slashSelection), slashSpecs.count - 1)
+    }
+
+    /// Return key: pick the highlighted slash command if the popup is open, else send.
+    private func submitComposer() {
+        let specs = slashSpecs
+        if !specs.isEmpty {
+            applySuggestion(specs[clampedSlashSelection])
+        } else if canSend {
+            send()
+        }
+    }
+
+    /// Up/Down within the slash popup. Returns true (consumes the key) only while the
+    /// popup is open, so arrows behave normally for ordinary text.
+    private func moveSlashSelection(_ delta: Int) -> Bool {
+        guard !slashSpecs.isEmpty else { return false }
+        slashSelection = min(max(0, clampedSlashSelection + delta), slashSpecs.count - 1)
+        return true
     }
 
     /// Applies a picked slash command: argument commands leave the cursor ready to
@@ -476,8 +506,11 @@ struct ChatView: View {
                               isFocused: $composerFocused,
                               placeholder: "Message…  (⇧⏎ for newline)",
                               fontSize: messageFontSize,
-                              onSubmit: { if canSend { send() } })
+                              onSubmit: submitComposer,
+                              onMoveUp: { moveSlashSelection(-1) },
+                              onMoveDown: { moveSlashSelection(1) })
                     .frame(height: composerHeight)
+                    .onChange(of: draft) { slashSelection = 0 }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .panel(Theme.fill,
@@ -811,6 +844,7 @@ struct ChatView: View {
 /// optional argument hint, and a summary, with a hover highlight.
 private struct SlashSuggestionRow: View {
     let spec: SlashParser.Spec
+    let isHighlighted: Bool
     let action: () -> Void
     @State private var hovering = false
 
@@ -834,7 +868,7 @@ private struct SlashSuggestionRow: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
-            .background(hovering ? Theme.fillHi : Color.clear)
+            .background(hovering || isHighlighted ? Theme.fillHi : Color.clear)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
