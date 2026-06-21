@@ -4,6 +4,15 @@ options:
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
+# First third-party dependencies (deliberate exception — see MERGE_PLAN §1.1):
+# Markdown (GFM) rendering for chat messages + syntax-highlighted code blocks.
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: "2.4.1"
+  Highlightr:
+    url: https://github.com/raspu/Highlightr
+    from: "2.3.0"
 settings:
   base:
     # Automatic signing lets Xcode pick the right identity per machine.
@@ -16,6 +25,11 @@ targets:
     platform: macOS
     sources:
       - Modelo
+    dependencies:
+      - package: MarkdownUI
+        product: MarkdownUI
+      - package: Highlightr
+        product: Highlightr
     # Explicit Info.plist (not GENERATE_INFOPLIST_FILE) so we can declare an ATS
     # exception: LM Studio serves plain HTTP over Tailscale, which App Transport
     # Security blocks by default — without this, every request silently fails and

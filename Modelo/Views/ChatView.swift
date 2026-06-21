@@ -115,7 +115,16 @@ struct ChatView: View {
                     } else {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(sortedMessages) { msg in
-                                MessageRow(message: msg, modelName: conversation.modelID, onReuse: reuseDraft).id(msg.id)
+                                MessageRow(
+                                    message: msg,
+                                    modelName: conversation.modelID,
+                                    onReuse: reuseDraft,
+                                    // Only the last assistant turn streams; gate Markdown
+                                    // rendering off until it finishes.
+                                    isLiveStreaming: session?.isStreaming == true
+                                        && msg.role == .assistant
+                                        && msg.id == sortedMessages.last?.id
+                                ).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
                         }

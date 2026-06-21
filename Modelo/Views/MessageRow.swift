@@ -12,6 +12,10 @@ struct MessageRow: View {
     /// Invoked with the message text when "edit & resend" is tapped on the user's
     /// own turn; ChatView drops it back into the composer. Nil hides the action.
     var onReuse: ((String) -> Void)? = nil
+    /// True only for the assistant turn that is actively streaming. While set, the
+    /// body renders as plain `Text` (re-parsing Markdown on every delta is wasteful);
+    /// it swaps to `MarkdownText` once the turn completes.
+    var isLiveStreaming: Bool = false
     // Shared with the composer and the View menu; default kept in sync across sites.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     @State private var hovering = false
@@ -98,12 +102,19 @@ struct MessageRow: View {
             if message.content.isEmpty && calls.isEmpty {
                 BlinkingCursor()
             } else if !message.content.isEmpty {
-                Text(message.content)
-                    .font(.system(size: messageFontSize))
-                    .lineSpacing(messageFontSize * 0.3)
-                    .foregroundStyle(Theme.textMid)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                Group {
+                    if isLiveStreaming {
+                        // Plain text while tokens are still arriving — cheap per delta.
+                        Text(message.content)
+                            .font(.system(size: messageFontSize))
+                            .lineSpacing(messageFontSize * 0.3)
+                            .foregroundStyle(Theme.textMid)
+                            .textSelection(.enabled)
+                    } else {
+                        MarkdownText(content: message.content, fontSize: messageFontSize)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if !calls.isEmpty {

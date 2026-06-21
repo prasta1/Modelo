@@ -4,13 +4,13 @@
 
 A native macOS client for running inference against local and cloud LLMs.
 
-Connects to **LM Studio** over your local network or Tailscale, and to any **OpenAI-compatible cloud API** (OpenRouter, Together, Mistral, etc.). Built with SwiftUI and SwiftData — no third-party dependencies.
+Connects to **LM Studio** over your local network or Tailscale, and to any **OpenAI-compatible cloud API** (OpenRouter, Together, Mistral, etc.). Built with SwiftUI and SwiftData.
 
 > The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
 
 ## Features
 
-- **Chat** — streaming responses, per-message token metrics, tool-use chip, adjustable text size
+- **Chat** — streaming responses, Markdown rendering with syntax-highlighted and copyable code blocks, per-message token metrics, tool-use chip, adjustable text size
 - **Model Picker** — grouped by server with per-model load state (selected / loaded / idle / cloud)
 - **Server Status** — live latency, throughput, and request sparklines with a streaming console
 - **Reports** — throughput and TTFT charts (Swift Charts) with a per-model usage table
@@ -31,7 +31,7 @@ xcodegen generate   # regenerates Modelo2.xcodeproj from project.yml
 open Modelo2.xcodeproj
 ```
 
-Build the **Modelo2** scheme. No dependencies to install.
+Build the **Modelo2** scheme. Swift Package Manager resolves dependencies automatically on first build.
 
 ## Layout
 
@@ -50,4 +50,4 @@ Modelo/
 
 ## Target
 
-macOS 14+, SwiftUI + Swift Charts + Observation framework. No third-party packages.
+macOS 14+, SwiftUI + Swift Charts + Observation framework. Dependencies (SPM): [swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui), [Highlightr](https://github.com/raspu/Highlightr).
