@@ -72,8 +72,10 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
   code-signing so the Keychain prompt stops recurring.
 - ⬜ Phase 2 remaining: **§2.4 artifacts panel** 🔴 (HTML/SVG/Mermaid preview) — the big unbuilt
   differentiator.
-- ⬜ §3 QoL sweep (slash commands, MD export, queue-while-streaming, retention, themes, MCP HTTP,
-  ~/.agents). Then §4 iOS.
+- 🟩 §3 QoL sweep — **mostly done**: §3.1 slash (PR #19), §3.2 MD export/copy (#21),
+  §3.3 queue-while-streaming (#22), §3.4 usage retention (#23), §3.7 ~/.agents skills (#19) all
+  merged. §3.5 themes ⏸️ deferred (needs interactive verification), §3.6 MCP HTTP ⏭️ skipped by
+  user decision. Then §4 iOS.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
 > llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
@@ -484,38 +486,49 @@ Benchmark toggle like Fornax) reusing the existing Swift Charts patterns
 
 ## Phase 3 — Quality-of-life & polish
 
-### 3.1 Slash commands in chat 🟢🟡
+### 3.1 Slash commands in chat 🟢🟡 — ✅ merged (PR #19)
 `/model /temp /system /clear /copy /help` (+ aliases). Parse `draft` in `ChatView.send` before
 dispatch; new `Modelo/Services/SlashParser.swift`. Maps to existing conversation fields +
 clipboard. **Touchpoint:** `ChatView.swift` ~218–272. **Fornax ref.** `src/lib/slash.ts`, `core/slash.rs`.
 
-### 3.2 Markdown export + `/copy` 🟢
+### 3.2 Markdown export + `/copy` 🟢 — ✅ merged (PR #21)
 `Modelo/Services/ConversationExporter.swift` → Markdown (`## User` / `## Assistant`, timestamps,
 optional reasoning strip) to a save panel / `~/Downloads`. **Fornax ref.** `conversation_storage.rs`
 markdown export.
 
-### 3.3 Queue-while-streaming 🟢🟡
+### 3.3 Queue-while-streaming 🟢🟡 — ✅ merged (PR #22)
 Let the user type + queue messages during a stream; auto-send on completion.
 `ChatSession.isStreaming` already exists; add a pending-queue in `ChatView`/`ChatSession`.
 **Fornax ref.** auto-continue/steering in `ChatView.tsx`.
 
-### 3.4 Configurable usage retention 🟢
-Prune `UsageRecord` older than `usageRetentionDays` on launch + when Reports opens
-(`UsageRecorder`/`ReportCalculator`). Add a settings field (0 = forever). Modelo keeps usage
-forever today.
+### 3.4 Configurable usage retention 🟢 — ✅ merged (PR #23)
+Prune `UsageRecord` older than `usageRetentionDays` on launch + when Reports opens.
+Shipped: `Modelo/Services/UsageRetention.prune(in:retentionDays:now:)` runs in `ModeloApp.init`
+and on `ReportingView` appear / setting-change; a **Keep** menu in the Reports header
+(`@AppStorage(UsageRetention.key)`, Forever / 7 / 14 / 30 / 60 / 90 days; 0 = forever).
+Unit-tested (`UsageRetentionTests`: window boundary + keep-everything).
 
-### 3.5 Themes beyond dark 🟡🔴
+### 3.5 Themes beyond dark 🟡🔴 — ⏸️ DEFERRED (needs interactive verification)
 `Theme.swift` is **static** and the app forces `.preferredColorScheme(.dark)`. Real theming
 means making tokens dynamic (environment-injected `Theme` value, or `@AppStorage` palette
 selection) and auditing all `Theme.*` call sites. Add Light + Catppuccin flavors + font/size/
-scale settings. **Effort scales with how many hardcoded colors exist** — token call sites are
-already centralized in `Theme.swift`, which helps. **Fornax ref.** 6 themes in `config.toml`.
+scale settings. **Fornax ref.** 6 themes in `config.toml`.
 
-### 3.6 MCP streamable-HTTP transport 🟡
-`Modelo/Services/MCPClient.swift` is a stdio `actor`. Add an HTTP transport variant + a
-`transport` field on `MCPServerConfig`. **Fornax ref.** `rmcp` stdio + streamable-HTTP.
+> **Deferred deliberately.** Font sizing already ships (`messageFontSize` @AppStorage + View ▸
+> Increase/Decrease/Actual menu commands). The remaining color-theme work is the single most
+> visual-verification-dependent feature in the sweep: the token surface is large and **doubled**
+> (`Theme.Palette.*` *and* a second top-level `Theme.*` color system — ~40 tokens, ~600 call
+> sites) plus 4 hardcoded `.preferredColorScheme(.dark)` sites. Building a multi-palette switch
+> blind (no on-device verification) and auto-merging it risks shipping a broken/illegible theme,
+> which is worse than none. **Recommendation:** tackle this together interactively so each screen
+> can be eyeballed in Light + Catppuccin as the palette is tuned.
 
-### 3.7 Portable `~/.agents` convention 🟡
+### 3.6 MCP streamable-HTTP transport 🟡 — ⏭️ SKIPPED (user decision)
+User: *"do we need it? this already has MCP capabilities."* The stdio transport + the `~/.agents`
+skills work (3.7) cover the need. Left unbuilt by choice; revisit only if a remote HTTP MCP
+server actually comes up.
+
+### 3.7 Portable `~/.agents` convention 🟡 — ✅ merged (PR #19)
 Discover `commands/`, `skills/`, `tools/` from `~/.agents`, `~/.agents/local`, and the
 conversation working dir; expose slash commands + a `use_skill` tool. New
 `Modelo/Services/AgentsLoader.swift`; integrates with `ToolRegistry` + 3.1. **Fornax ref.**
