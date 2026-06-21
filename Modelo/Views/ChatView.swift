@@ -234,26 +234,26 @@ struct ChatView: View {
     /// Draggable separator that resizes the artifact panel (§2.4). The 1pt line sits
     /// inside a wider invisible hit area with a resize cursor.
     private var artifactResizeHandle: some View {
-        Rectangle()
-            .fill(Theme.line)
-            .frame(width: 1)
-            .overlay {
-                Color.clear
-                    .frame(width: 9)
-                    .contentShape(Rectangle())
-                    .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                let base = dragStartWidth ?? artifactPanelWidth
-                                dragStartWidth = base
-                                // Cap so the chat keeps at least minChatWidth in view.
-                                let maxW = max(360, Double(detailWidth) - minChatWidth)
-                                artifactPanelWidth = min(max(base - value.translation.width, 320), maxW)
-                            }
-                            .onEnded { _ in dragStartWidth = nil }
-                    )
-            }
+        // A real-width column (its own layout space) so the whole zone is grabbable,
+        // not just the 1pt line — overlapping the neighbors lost the hit-test before.
+        ZStack {
+            Color.clear
+            Rectangle().fill(Theme.line).frame(width: 1)
+        }
+        .frame(width: 10)
+        .contentShape(Rectangle())
+        .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    let base = dragStartWidth ?? artifactPanelWidth
+                    dragStartWidth = base
+                    // Cap so the chat keeps at least minChatWidth in view.
+                    let maxW = max(360, Double(detailWidth) - minChatWidth)
+                    artifactPanelWidth = min(max(base - value.translation.width, 320), maxW)
+                }
+                .onEnded { _ in dragStartWidth = nil }
+        )
     }
 
     /// Toggles the artifact side panel. Only shown once the chat has artifacts (§2.4).
