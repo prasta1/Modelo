@@ -15,6 +15,9 @@ struct MessageRow: View {
     /// Invoked with the leaf of a sibling branch when the ◀ k/n ▶ control is used,
     /// so ChatView can re-select the active path. Nil hides the control.
     var onSelectBranch: ((Message) -> Void)? = nil
+    /// Invoked to re-run an assistant turn as a new sibling branch (§1.3). Nil hides
+    /// the regenerate action.
+    var onRegenerate: ((Message) -> Void)? = nil
     /// True only for the assistant turn that is actively streaming. While set, the
     /// body renders as plain `Text` (re-parsing Markdown on every delta is wasteful);
     /// it swaps to `MarkdownText` once the turn completes.
@@ -162,6 +165,14 @@ struct MessageRow: View {
             }
             branchNav
             Spacer(minLength: 0)
+            // Regenerate is hidden on the actively-streaming turn (nothing to re-run yet).
+            if let onRegenerate, !isLiveStreaming {
+                Button { onRegenerate(message) } label: {
+                    Text("Regenerate").foregroundStyle(Theme.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("Regenerate this response on a new branch")
+            }
             Button(action: copy) {
                 Text(copied ? "Copied" : "Copy")
                     .foregroundStyle(copied ? Theme.green : Theme.textDim)

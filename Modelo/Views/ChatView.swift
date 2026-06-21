@@ -126,6 +126,7 @@ struct ChatView: View {
                                     modelName: conversation.modelID,
                                     onReuse: reuseDraft,
                                     onSelectBranch: selectBranch,
+                                    onRegenerate: regenerate,
                                     // Only the last assistant turn streams; gate Markdown
                                     // rendering off until it finishes.
                                     isLiveStreaming: session?.isStreaming == true
@@ -421,6 +422,22 @@ struct ChatView: View {
     private func selectBranch(_ leaf: Message) {
         conversation.activeLeaf = leaf
         try? context.save()
+    }
+
+    /// Re-runs an assistant turn on a fresh sibling branch (§1.3). No-ops while a
+    /// turn is already streaming.
+    private func regenerate(_ message: Message) {
+        guard let session, !isStreaming else { return }
+        guard let server = boundServer else {
+            session.errorText = "Pick a model before regenerating."
+            return
+        }
+        sendTask = Task {
+            await session.regenerate(message, in: conversation, server: server,
+                                     serverOnline: registry.isOnline(server),
+                                     modelSupportsTools: pickedModel?.model.supportsToolUse ?? false)
+            sendTask = nil
+        }
     }
 
     private func send() {

@@ -69,6 +69,32 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertFalse(session.isStreaming)
     }
 
+    func test_regenerate_forksSiblingAssistantBranch() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.delta("First"), .usage(promptTokens: 10, completionTokens: 1)],
+            [.delta("Second"), .usage(promptTokens: 10, completionTokens: 1)],
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("Hi", in: convo, server: server)
+        let firstAssistant = try XCTUnwrap(convo.activePath().last)
+        XCTAssertEqual(firstAssistant.content, "First")
+
+        await session.regenerate(firstAssistant, in: convo, server: server)
+
+        // A new assistant sibling under the same user parent; the active path now
+        // shows it, and the original turn is preserved on its own branch.
+        XCTAssertEqual(convo.activePath().map(\.content), ["Hi", "Second"])
+        XCTAssertEqual(firstAssistant.content, "First")
+        XCTAssertEqual(firstAssistant.siblings.count, 2)
+        XCTAssertTrue(firstAssistant.parent === convo.activePath().last?.parent)
+        XCTAssertEqual(convo.messages.count, 3)   // user + two assistant branches
+    }
+
     func test_cleanTitle_normalizesModelOutput() {
         XCTAssertEqual(ChatSession.cleanTitle("Hello world"), "Hello world")
         XCTAssertEqual(ChatSession.cleanTitle("  \"Quoted Title\"  "), "Quoted Title")

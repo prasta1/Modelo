@@ -60,6 +60,44 @@ final class ChatSession {
         }
         try? context.save()
 
+        await runTurn(in: conversation, server: server,
+                      modelSupportsTools: modelSupportsTools,
+                      firstAssistant: nil, titleOnFirstExchange: true)
+    }
+
+    /// Re-runs an assistant turn as a new sibling branch under the same parent
+    /// (§1.3). The previous turn is preserved on its own branch and stays reachable
+    /// via the ◀ k/n ▶ control.
+    func regenerate(_ target: Message, in conversation: Conversation, server: Server,
+                    serverOnline: Bool = true, modelSupportsTools: Bool = false) async {
+        errorText = nil
+        guard serverOnline else {
+            errorText = "\(server.label) is offline — can't regenerate right now."
+            return
+        }
+        guard target.role == .assistant else { return }
+
+        // Fork an empty assistant sibling and stream into it; its active path walks
+        // back through the same user parent, so the model re-answers the same prompt.
+        let fresh = Message(role: .assistant, content: "")
+        conversation.branch(fresh, asSiblingOf: target)
+        try? context.save()
+
+        await runTurn(in: conversation, server: server,
+                      modelSupportsTools: modelSupportsTools,
+                      firstAssistant: fresh, titleOnFirstExchange: false)
+    }
+
+    /// The shared agentic streaming loop, run into the conversation's active path:
+    /// streams an assistant reply, executes any requested tools and re-streams (capped
+    /// at `maxToolRounds`), then records telemetry. `firstAssistant`, when non-nil, is
+    /// streamed into on the first round (regenerate passes its pre-branched sibling);
+    /// otherwise a fresh assistant is appended each round. The user turn must already
+    /// be on the active path.
+    private func runTurn(in conversation: Conversation, server: Server,
+                         modelSupportsTools: Bool,
+                         firstAssistant: Message?,
+                         titleOnFirstExchange: Bool) async {
         isStreaming = true
         defer { isStreaming = false }
 
@@ -74,12 +112,20 @@ final class ChatSession {
         var totalCompletionTokens = 0
         var round = 0
         var lastAssistant: Message?
+        var pendingAssistant = firstAssistant
 
         while true {
             // User-initiated stop before a new round: don't start another stream.
             if Task.isCancelled { break }
-            let assistant = Message(role: .assistant, content: "")
-            conversation.appendToPath(assistant)
+            let assistant: Message
+            if let supplied = pendingAssistant {
+                // Regenerate's pre-branched sibling is the active leaf already.
+                assistant = supplied
+                pendingAssistant = nil
+            } else {
+                assistant = Message(role: .assistant, content: "")
+                conversation.appendToPath(assistant)
+            }
             lastAssistant = assistant
             try? context.save()
 
@@ -196,9 +242,12 @@ final class ChatSession {
 
         // On the first exchange, name the chat with a short, separate model run.
         // Detached so it never blocks the input or flips `isStreaming`; best-effort.
-        let isFirstExchange = conversation.messages.filter { $0.role == .user }.count == 1
-        if isFirstExchange, (conversation.title ?? "").isEmpty {
-            titleTask = Task { await generateTitle(for: conversation, server: server) }
+        // Skipped on regenerate — a re-run isn't a new exchange.
+        if titleOnFirstExchange {
+            let isFirstExchange = conversation.messages.filter { $0.role == .user }.count == 1
+            if isFirstExchange, (conversation.title ?? "").isEmpty {
+                titleTask = Task { await generateTitle(for: conversation, server: server) }
+            }
         }
     }
 
