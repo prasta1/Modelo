@@ -93,10 +93,31 @@ final class LMStudioClientTests: XCTestCase {
 
         let stream = makeClient().streamChat(
             endpoint: lmStudio(), modelID: "m", messages: [],
-            systemPrompt: "", temperature: 0.7, tools: nil)
+            systemPrompt: "", sampling: SamplingParams(temperature: 0.7), tools: nil)
         var calls: [ToolCall] = []
         for try await event in stream { if case .toolCalls(let c) = event { calls = c } }
 
         XCTAssertEqual(calls, [ToolCall(id: "c1", name: "search", arguments: #"{"q":"cats"}"#)])
+    }
+
+    /// Set sampling params reach the request body; unset ones are omitted so a
+    /// server that rejects an unknown param never receives it (§1.4).
+    func test_streamChat_encodesSetSamplingParamsAndOmitsNil() async throws {
+        StubURLProtocol.handler = { _ in (.stub(200), Data("data: [DONE]\n\n".utf8)) }
+        let stream = makeClient().streamChat(
+            endpoint: lmStudio(), modelID: "m", messages: [],
+            systemPrompt: "",
+            sampling: SamplingParams(temperature: 0.4, topP: 0.9, maxTokens: 256),
+            tools: nil)
+        for try await _ in stream {}   // drain to ensure the request was sent
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["temperature"] as? Double, 0.4)
+        XCTAssertEqual(json["top_p"] as? Double, 0.9)
+        XCTAssertEqual(json["max_tokens"] as? Int, 256)
+        XCTAssertNil(json["frequency_penalty"])   // unset → omitted
+        XCTAssertNil(json["presence_penalty"])
+        XCTAssertNil(json["stop"])
     }
 }

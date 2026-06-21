@@ -29,6 +29,8 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+    // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
+    @AppStorage("globalSamplingJSON") private var globalSamplingJSON = "{}"
 
 
     /// The server bound to this conversation (matches conversation.serverID).
@@ -45,6 +47,14 @@ struct ChatView: View {
     /// are hidden; navigating siblings re-selects the active leaf.
     private var pathMessages: [Message] {
         conversation.activePath()
+    }
+
+    /// Effective sampling for this turn (§1.4): the conversation's overrides layered
+    /// over the global defaults from Settings.
+    private var effectiveSampling: SamplingParams {
+        let global = (try? JSONDecoder().decode(SamplingParams.self,
+                                                from: Data(globalSamplingJSON.utf8))) ?? SamplingParams()
+        return conversation.samplingOverride.overlaying(global)
     }
 
     var body: some View {
@@ -453,7 +463,8 @@ struct ChatView: View {
         sendTask = Task {
             await session.regenerate(message, in: conversation, server: server,
                                      serverOnline: registry.isOnline(server),
-                                     modelSupportsTools: pickedModel?.model.supportsToolUse ?? false)
+                                     modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
+                                     sampling: effectiveSampling)
             sendTask = nil
         }
     }
@@ -481,6 +492,7 @@ struct ChatView: View {
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
+                               sampling: effectiveSampling,
                                replacing: edited)
             sendTask = nil
         }

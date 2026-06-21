@@ -152,7 +152,7 @@ final class LMStudioClient: ChatProvider {
         modelID: String,
         messages: [Message],
         systemPrompt: String,
-        temperature: Double,
+        sampling: SamplingParams,
         tools: [ToolSpec]?
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         // Snapshot the SwiftData-backed messages into Sendable value types on the
@@ -201,7 +201,13 @@ final class LMStudioClient: ChatProvider {
                 // succeeds, just without token-count telemetry for that turn.
                 for includeUsage in [true, false] {
                     let body = ChatRequest(
-                        model: modelID, messages: wire, tools: tools, temperature: temperature,
+                        model: modelID, messages: wire, tools: tools,
+                        temperature: sampling.temperature ?? 0.7,
+                        top_p: sampling.topP,
+                        max_tokens: sampling.maxTokens,
+                        frequency_penalty: sampling.frequencyPenalty,
+                        presence_penalty: sampling.presencePenalty,
+                        stop: sampling.stop,
                         stream: true,
                         stream_options: includeUsage ? StreamOptions(include_usage: true) : nil
                     )
@@ -320,6 +326,13 @@ final class LMStudioClient: ChatProvider {
         let messages: [WireMessage]
         let tools: [ToolSpec]?
         let temperature: Double
+        // Optional sampling controls (§1.4); nil → omitted from JSON, so servers
+        // that reject an unknown param never receive it.
+        let top_p: Double?
+        let max_tokens: Int?
+        let frequency_penalty: Double?
+        let presence_penalty: Double?
+        let stop: [String]?
         let stream: Bool
         let stream_options: StreamOptions?   // nil → omitted from JSON
     }

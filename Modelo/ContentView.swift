@@ -255,7 +255,7 @@ struct ContentView: View {
                 endpoint: Endpoint(server: server, keychain: keychain),
                 modelID: convo.modelID,
                 messages: [prompt], systemPrompt: system,
-                temperature: 0.3, tools: nil
+                sampling: SamplingParams(temperature: 0.3), tools: nil
             )
             for try await event in stream {
                 if case .delta(let t) = event { raw += t }

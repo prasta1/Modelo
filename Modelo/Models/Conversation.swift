@@ -18,8 +18,14 @@ final class Conversation {
 
     /// Per-conversation system prompt override; nil = none.
     var systemPrompt: String?
-    /// Per-conversation temperature override; nil = use default (0.7).
+    /// Per-conversation sampling overrides (§1.4); nil = inherit the global default.
+    /// `temperature` predates the rest (kept for store compatibility).
     var temperature: Double?
+    var topP: Double?
+    var maxTokens: Int?
+    var frequencyPenalty: Double?
+    var presencePenalty: Double?
+    var stopSequences: [String]?
     /// Most recent total context tokens (prompt+completion) for the context bar.
     var contextTokensUsed: Int?
     /// Per-conversation toggle for agentic tool use. Default on; only has effect
@@ -38,6 +44,14 @@ final class Conversation {
     /// Pinned conversations surface in a "Pinned" section above folders and date
     /// buckets, and are excluded from their normal spot to avoid duplication.
     var isPinned: Bool = false
+
+    /// This conversation's sampling overrides as a `SamplingParams` (§1.4) — nil
+    /// fields inherit the global default when resolved via `overlaying(_:)`.
+    var samplingOverride: SamplingParams {
+        SamplingParams(temperature: temperature, topP: topP, maxTokens: maxTokens,
+                       frequencyPenalty: frequencyPenalty, presencePenalty: presencePenalty,
+                       stop: stopSequences)
+    }
 
     /// Sidebar label. Once the first turn finishes, `ChatSession` fills `title` in
     /// from a model run; until then it reads "New Chat" rather than a raw model id.

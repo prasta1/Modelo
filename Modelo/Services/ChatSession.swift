@@ -42,6 +42,7 @@ final class ChatSession {
     func send(_ text: String, attachments: [MessageAttachment] = [],
               in conversation: Conversation, server: Server,
               serverOnline: Bool = true, modelSupportsTools: Bool = false,
+              sampling: SamplingParams = SamplingParams(),
               replacing edited: Message? = nil) async {
         errorText = nil
         guard serverOnline else {
@@ -61,7 +62,7 @@ final class ChatSession {
         try? context.save()
 
         await runTurn(in: conversation, server: server,
-                      modelSupportsTools: modelSupportsTools,
+                      modelSupportsTools: modelSupportsTools, sampling: sampling,
                       firstAssistant: nil, titleOnFirstExchange: true)
     }
 
@@ -69,7 +70,8 @@ final class ChatSession {
     /// (§1.3). The previous turn is preserved on its own branch and stays reachable
     /// via the ◀ k/n ▶ control.
     func regenerate(_ target: Message, in conversation: Conversation, server: Server,
-                    serverOnline: Bool = true, modelSupportsTools: Bool = false) async {
+                    serverOnline: Bool = true, modelSupportsTools: Bool = false,
+                    sampling: SamplingParams = SamplingParams()) async {
         errorText = nil
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't regenerate right now."
@@ -84,7 +86,7 @@ final class ChatSession {
         try? context.save()
 
         await runTurn(in: conversation, server: server,
-                      modelSupportsTools: modelSupportsTools,
+                      modelSupportsTools: modelSupportsTools, sampling: sampling,
                       firstAssistant: fresh, titleOnFirstExchange: false)
     }
 
@@ -96,6 +98,7 @@ final class ChatSession {
     /// be on the active path.
     private func runTurn(in conversation: Conversation, server: Server,
                          modelSupportsTools: Bool,
+                         sampling: SamplingParams,
                          firstAssistant: Message?,
                          titleOnFirstExchange: Bool) async {
         isStreaming = true
@@ -138,7 +141,7 @@ final class ChatSession {
                     // excluded); the just-appended empty assistant is dropped by wireKeep.
                     messages: conversation.activePath().filter(wireKeep),
                     systemPrompt: conversation.systemPrompt ?? "",
-                    temperature: conversation.temperature ?? 0.7,
+                    sampling: sampling,
                     tools: toolSpecs)
                 // Buffer incoming tokens and flush to the observable property at ~20fps
                 // rather than on every character. This prevents SwiftUI from scheduling a
@@ -281,7 +284,8 @@ final class ChatSession {
         do {
             let stream = client.streamChat(
                 endpoint: Endpoint(server: server, keychain: keychain), modelID: conversation.modelID,
-                messages: [prompt], systemPrompt: system, temperature: 0.3,
+                messages: [prompt], systemPrompt: system,
+                sampling: SamplingParams(temperature: 0.3),
                 tools: nil
             )
             for try await event in stream {

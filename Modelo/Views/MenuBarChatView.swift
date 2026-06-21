@@ -251,7 +251,7 @@ struct MenuBarChatView: View {
                     modelID: model.model.id,
                     messages: historyMessages + [userWireMessage],
                     systemPrompt: "",
-                    temperature: 0.7,
+                    sampling: SamplingParams(temperature: 0.7),
                     tools: nil
                 )
                 for try await event in stream {

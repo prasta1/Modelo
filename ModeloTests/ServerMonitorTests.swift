@@ -15,7 +15,7 @@ private final class FakeMonitorProvider: ChatProvider {
     }
 
     func streamChat(endpoint: Endpoint, modelID: String, messages: [Message],
-                    systemPrompt: String, temperature: Double,
+                    systemPrompt: String, sampling: SamplingParams,
                     tools: [ToolSpec]?) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { $0.finish() }
     }

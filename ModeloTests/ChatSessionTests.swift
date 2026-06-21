@@ -12,7 +12,7 @@ final class FakeProvider: ChatProvider {
 
     func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] { [] }
     func streamChat(endpoint: Endpoint, modelID: String, messages: [Message],
-                    systemPrompt: String, temperature: Double,
+                    systemPrompt: String, sampling: SamplingParams,
                     tools: [ToolSpec]?) -> AsyncThrowingStream<StreamEvent, Error> {
         let events = scripts[min(callCount, scripts.count - 1)]
         callCount += 1

@@ -123,6 +123,32 @@ enum ClientError: LocalizedError, Equatable {
     }
 }
 
+/// Generation controls sent with a chat request (§1.4). Every field is optional:
+/// `nil` means "don't send it", so a server that rejects an unknown sampling param
+/// never sees it. Resolved per turn by overlaying a conversation's overrides on the
+/// global defaults; `temperature` falls back to 0.7 at the wire if still unset.
+struct SamplingParams: Codable, Sendable, Equatable {
+    var temperature: Double?
+    var topP: Double?
+    var maxTokens: Int?
+    var frequencyPenalty: Double?
+    var presencePenalty: Double?
+    var stop: [String]?
+
+    /// This params' non-nil fields take precedence; everything else falls through
+    /// to `base`. Used as `conversationOverride.overlaying(globalDefaults)`.
+    func overlaying(_ base: SamplingParams) -> SamplingParams {
+        SamplingParams(
+            temperature:      temperature      ?? base.temperature,
+            topP:             topP             ?? base.topP,
+            maxTokens:        maxTokens        ?? base.maxTokens,
+            frequencyPenalty: frequencyPenalty ?? base.frequencyPenalty,
+            presencePenalty:  presencePenalty  ?? base.presencePenalty,
+            stop:             stop             ?? base.stop
+        )
+    }
+}
+
 /// Common interface for chat backends. `baseURL` is threaded through every call
 /// so a single client instance serves any registered server.
 protocol ChatProvider: AnyObject {
@@ -132,7 +158,7 @@ protocol ChatProvider: AnyObject {
         modelID: String,
         messages: [Message],
         systemPrompt: String,
-        temperature: Double,
+        sampling: SamplingParams,
         tools: [ToolSpec]?
     ) -> AsyncThrowingStream<StreamEvent, Error>
 }
