@@ -208,7 +208,7 @@ struct ChatView: View {
             // Hidden when the window is unknown (server only exposed /v1/models), so
             // we don't show a meaningless "0 / 0" bar.
             if contextWindow > 0 {
-                ContextBar(used: conversation.contextTokensUsed ?? 0, window: contextWindow)
+                ContextBar(used: estimatedContextUsed, window: contextWindow)
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
             }
@@ -219,6 +219,14 @@ struct ChatView: View {
         .overlay(alignment: .top) {
             Rectangle().fill(Theme.line).frame(height: 1)
         }
+    }
+
+    /// Live context usage for the gauge (§1.6): the last turn's server-reported total
+    /// (or an estimate of the active path before any turn) plus the draft being typed,
+    /// so the bar projects what the next request will cost and moves as you type.
+    private var estimatedContextUsed: Int {
+        let base = conversation.contextTokensUsed ?? TokenEstimator.estimate(pathMessages)
+        return base + TokenEstimator.estimate(draft)
     }
 
     private var isStreaming: Bool { session?.isStreaming == true }
@@ -253,6 +261,16 @@ struct ChatView: View {
                            stroke: composerFocused ? Theme.amber : Theme.line)
                     .focused($composerFocused)
                     .onSubmit(send)
+
+                // Live token estimate for the message being typed (§1.6).
+                if !draft.isEmpty {
+                    Text("~\(TokenEstimator.estimate(draft)) tok")
+                        .font(.mono(10))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textFaint)
+                        .help("Estimated tokens in this message")
+                        .padding(.bottom, 9)
+                }
 
                 Button(action: isStreaming ? stop : send) {
                     Group {
