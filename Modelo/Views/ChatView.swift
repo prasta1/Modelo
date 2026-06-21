@@ -535,6 +535,9 @@ struct ChatView: View {
         }
         // Include tools from any connected MCP servers.
         tools += mcpManager.availableTools
+        // Expose ~/.agents skills via a use_skill tool (§3.7).
+        let skills = AgentsLoader.loadSkills()
+        if !skills.isEmpty { tools.append(UseSkillTool(skills: skills)) }
         session = ChatSession(client: LMStudioClient.shared, context: context,
                               recorder: UsageRecorder(context: context),
                               keychain: keychain,
@@ -583,6 +586,11 @@ struct ChatView: View {
             conversation.activeLeafData = nil
             try? context.save()
             flash("Cleared this conversation.")
+        case .skills:
+            let skills = AgentsLoader.loadSkills()
+            flash(skills.isEmpty
+                  ? "No skills found in ~/.agents/skills."
+                  : "\(skills.count) skills available: \(skills.map(\.name).joined(separator: ", "))")
         case .copy:
             if let last = conversation.activePath().last(where: { $0.role == .assistant && !$0.content.isEmpty }) {
                 NSPasteboard.general.clearContents()
