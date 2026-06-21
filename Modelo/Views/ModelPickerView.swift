@@ -13,8 +13,9 @@ struct DiscoveredModel: Identifiable, Hashable {
 struct ModelPickerView: View {
     let discovered: [DiscoveredModel]
     @Binding var selection: DiscoveredModel?
-    /// Optional callback fired when a model is selected. Return true to proceed with
-    /// the selection, false to cancel (e.g., if loading failed).
+    /// Optional callback fired after a model is selected, for best-effort warm-up
+    /// (e.g. LM Studio load-on-select + a model refresh). The return value is ignored;
+    /// selection happens regardless so a failed load never blocks picking a model.
     let onModelSelect: ((DiscoveredModel) async -> Bool)?
     /// Optional callback fired when the user taps the eject button on a loaded model.
     let onModelEject: ((DiscoveredModel) async -> Void)?
@@ -52,13 +53,17 @@ struct ModelPickerView: View {
                             onEject: onModelEject == nil ? nil : { item in
                                 Task { await onModelEject?(item) }
                             }) { item in
-                Task {
-                    let proceed = await onModelSelect?(item) ?? true
-                    if proceed {
-                        selection = item
-                    }
-                }
+                // Reflect the pick immediately. Selection must NOT be gated on the
+                // load below: an OpenAI-compatible server (oMLX, vLLM…) classified as
+                // LM Studio can't be "loaded" and would otherwise fail, leaving the
+                // chat with no model and a "pick a model before sending" error.
+                selection = item
                 showingPopover = false
+                // Best-effort warm-up (LM Studio load-on-select); its result no longer
+                // affects whether the model is selected.
+                if let onModelSelect {
+                    Task { _ = await onModelSelect(item) }
+                }
             }
             // Force the dark theme so the popover never renders as a light system sheet.
             .preferredColorScheme(.dark)

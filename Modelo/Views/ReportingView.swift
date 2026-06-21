@@ -30,8 +30,13 @@ struct ReportingView: View {
         )
     }
 
+    /// Prunes on the next runloop tick so the delete+save never mutates the backing
+    /// `@Query` synchronously inside a tap/onChange, which would flash the UI.
     private func prune() {
-        UsageRetention.prune(in: context, retentionDays: retentionDays)
+        let days = retentionDays
+        Task { @MainActor in
+            UsageRetention.prune(in: context, retentionDays: days)
+        }
     }
 
     var body: some View {
@@ -75,33 +80,42 @@ struct ReportingView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Theme.textHi)
             Spacer()
-            retentionMenu
+            retentionControl
             SegmentedPills(options: ReportCalculator.TimeRange.allCases.map(\.rawValue),
                            selection: rangeSelection,
                            boxed: true)
         }
     }
 
-    /// Usage-retention control (§3.4). 0 = keep forever; otherwise old records are
-    /// pruned on launch and whenever this report opens or the window changes.
-    private var retentionMenu: some View {
-        Menu {
-            Picker("Keep usage", selection: $retentionDays) {
-                Text("Forever").tag(0)
-                Text("90 days").tag(90)
-                Text("60 days").tag(60)
-                Text("30 days").tag(30)
-                Text("14 days").tag(14)
-                Text("7 days").tag(7)
-            }
-        } label: {
-            Label(retentionDays == 0 ? "Keep: forever" : "Keep: \(retentionDays)d",
-                  systemImage: "clock.arrow.circlepath")
-                .font(.system(size: 12))
+    /// Usage-retention options (§3.4); `days == 0` keeps everything forever.
+    private static let retentionOptions: [(label: String, days: Int)] =
+        [("∞", 0), ("7d", 7), ("14d", 14), ("30d", 30), ("60d", 60), ("90d", 90)]
+
+    /// Always-visible retention selector. Uses `SegmentedPills` (not a `Menu`) so a
+    /// re-render — e.g. the prune mutating the `@Query` that backs this page — can't
+    /// dismiss an open popover mid-selection.
+    private var retentionControl: some View {
+        HStack(spacing: 7) {
+            Text("KEEP")
+                .font(.mono(9.5)).tracking(1.2)
+                .foregroundStyle(Theme.textDim)
+            SegmentedPills(options: Self.retentionOptions.map(\.label),
+                           selection: retentionSelection,
+                           boxed: true)
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("How long to keep usage records before pruning them.")
+        .help("How long to keep usage records before pruning them. ∞ = keep forever.")
+    }
+
+    /// Bridges the `Int` retention days to the string-based `SegmentedPills`.
+    private var retentionSelection: Binding<String> {
+        Binding(
+            get: { Self.retentionOptions.first { $0.days == retentionDays }?.label ?? "∞" },
+            set: { new in
+                if let match = Self.retentionOptions.first(where: { $0.label == new }) {
+                    retentionDays = match.days
+                }
+            }
+        )
     }
 
     // MARK: - Stat tiles

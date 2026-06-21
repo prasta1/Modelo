@@ -12,6 +12,10 @@ struct ComposerField: NSViewRepresentable {
     var fontSize: CGFloat = 15
     var maxLines: Int = 8
     var onSubmit: () -> Void
+    /// Up/Down arrow hooks for an attached popup (e.g. the slash menu). Return true to
+    /// consume the key (the cursor doesn't move); nil/false lets the text view handle it.
+    var onMoveUp: (() -> Bool)? = nil
+    var onMoveDown: (() -> Bool)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -62,6 +66,13 @@ struct ComposerField: NSViewRepresentable {
                 let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
                 if shift { return false }
                 parent.onSubmit()
+                return true
+            }
+            // Let an attached popup (slash menu) claim Up/Down before the cursor moves.
+            if commandSelector == #selector(NSResponder.moveUp(_:)), parent.onMoveUp?() == true {
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveDown(_:)), parent.onMoveDown?() == true {
                 return true
             }
             return false
