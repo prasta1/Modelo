@@ -49,7 +49,13 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
   `@Model` + Settings ▸ Presets CRUD; chat-header sampling popover with apply-preset; settable
   `Conversation.samplingOverride` + `apply(_:)` (PR #11). Merged to fork `main`. 91 tests.
   **Phase 1 complete except §1.5.**
-- ⬜ §1.5 compaction, then Phase 2+ below.
+- ✅ **§1.5 Auto-compaction** — `Conversation` summary/summaryThrough (encoded PID) +
+  autoCompact/threshold/keepRecent; `wireContext()` folds the summary into the system prompt and
+  sends only post-cutoff turns; `ChatSession.compactIfNeeded` summarizes older turns via a
+  non-streaming run; toggle in the chat sampling popover (PR #12). Merged to fork `main`. 95 tests.
+  Non-incremental v1; `compactPrompt` customization deferred.
+- **🎉 Phase 1 (core chat parity) COMPLETE.** Next: Phase 2 differentiators (§2.2 macmon, §2.3
+  Prometheus, §2.4 artifacts panel, §2.5 benchmark), then §3 QoL and §4 iOS.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
 > llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
