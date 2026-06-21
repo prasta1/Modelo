@@ -10,9 +10,10 @@ struct ConsoleInspector: View {
     let server: Server
     let activeModel: LMStudioModel?
     let snapshot: ModelSnapshot?
+    var gpu: GPUSnapshot? = nil
 
     var body: some View {
-        ServerRecordsConsole(server: server, activeModel: activeModel, snapshot: snapshot)
+        ServerRecordsConsole(server: server, activeModel: activeModel, snapshot: snapshot, gpu: gpu)
             .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
     }
 }
@@ -23,12 +24,14 @@ private struct ServerRecordsConsole: View {
     let server: Server
     let activeModel: LMStudioModel?
     let snapshot: ModelSnapshot?
+    let gpu: GPUSnapshot?
     @Query private var records: [UsageRecord]
 
-    init(server: Server, activeModel: LMStudioModel?, snapshot: ModelSnapshot?) {
+    init(server: Server, activeModel: LMStudioModel?, snapshot: ModelSnapshot?, gpu: GPUSnapshot?) {
         self.server = server
         self.activeModel = activeModel
         self.snapshot = snapshot
+        self.gpu = gpu
         let label = server.label
         _records = Query(
             filter: #Predicate<UsageRecord> { $0.serverLabel == label },
@@ -38,7 +41,7 @@ private struct ServerRecordsConsole: View {
 
     var body: some View {
         let rollup = InferenceRollup.compute(from: Array(records.prefix(20)).reversed())
-        ConsolePanel(server: server, activeModel: activeModel, snapshot: snapshot, rollup: rollup)
+        ConsolePanel(server: server, activeModel: activeModel, snapshot: snapshot, gpu: gpu, rollup: rollup)
     }
 }
 
@@ -48,6 +51,7 @@ struct ConsolePanel: View {
     let server: Server
     let activeModel: LMStudioModel?
     let snapshot: ModelSnapshot?
+    var gpu: GPUSnapshot? = nil
     let rollup: InferenceRollup
 
     /// The model to display — prefer the one the user actually picked in the
@@ -65,6 +69,20 @@ struct ConsolePanel: View {
                     LoadedModelRow(model: model)
                 } else {
                     NoModelRow()
+                }
+            }
+
+            // Live GPU telemetry for the active server (modelo-tap agent or macmon).
+            if let gpu {
+                Divider().overlay(Theme.Palette.strokeStrong)
+                Eyebrow("GPU")
+                HStack(spacing: 20) {
+                    miniStat("VRAM", value: String(format: "%.0f/%.0f GB", gpu.vramUsedGB, gpu.vramTotalGB))
+                    miniStat("Util", value: String(format: "%.0f%%", gpu.utilPct))
+                }
+                HStack(spacing: 20) {
+                    miniStat("Power", value: String(format: "%.0f W", gpu.powerW))
+                    miniStat("Temp", value: String(format: "%.0f°C", gpu.tempC))
                 }
             }
 

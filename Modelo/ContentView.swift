@@ -38,6 +38,7 @@ extension FocusedValues {
 struct ContentView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
+    @Environment(GPUMonitor.self) private var gpuMonitor
     @Environment(\.modelContext) private var context
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
@@ -136,7 +137,9 @@ struct ContentView: View {
     @ViewBuilder
     private var inspectorContent: some View {
         if let server = pickedModel?.server {
-            ConsoleInspector(server: server, activeModel: pickedModel?.model, snapshot: monitor.snapshot(for: server))
+            ConsoleInspector(server: server, activeModel: pickedModel?.model,
+                             snapshot: monitor.snapshot(for: server),
+                             gpu: gpuMonitor.snapshot(for: server))
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "chart.bar.xaxis")
