@@ -35,6 +35,11 @@ struct ChatView: View {
     @State private var slashSelection = 0
     /// The artifact currently open in the side panel (§2.4), by id.
     @State private var openArtifactID: String?
+    /// Last-open artifact, so the header toggle can reopen what you were viewing.
+    @State private var lastArtifactID: String?
+    /// Draggable artifact-panel width (persisted); `dragStartWidth` anchors a live drag.
+    @AppStorage("artifactPanelWidth") private var artifactPanelWidth: Double = 460
+    @State private var dragStartWidth: Double?
     // Whether to teach the model the artifact syntax (opt-out in Settings ▸ Tools).
     @AppStorage("artifactsEnabled") private var artifactsEnabled = true
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
@@ -120,9 +125,9 @@ struct ChatView: View {
             .frame(maxWidth: .infinity)
 
             if let group = openArtifactGroup {
-                Divider().overlay(Theme.line)
+                artifactResizeHandle
                 ArtifactPanel(group: group, onClose: { openArtifactID = nil })
-                    .frame(width: 460)
+                    .frame(width: artifactPanelWidth)
                     .id(group.id)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -131,6 +136,7 @@ struct ChatView: View {
         .background(Theme.windowBG)
         .onAppear { ensureSession() }
         .onDisappear { cancelInFlight() }
+        .onChange(of: openArtifactID) { _, id in if let id { lastArtifactID = id } }
         // Auto-open the newest artifact when the model produces a new one (Claude-style).
         .onChange(of: artifactGroups.count) { _, count in
             if count > 0, let newest = artifactGroups.last { openArtifactID = newest.id }
@@ -152,6 +158,7 @@ struct ChatView: View {
                 if let server = pickedModel?.server {
                     statusPill(for: server)
                 }
+                artifactsButton
                 samplingButton
                 benchmarkButton
                 FontSizeControl(size: $messageFontSize)
@@ -192,6 +199,54 @@ struct ChatView: View {
 
     /// Per-conversation sampling overrides (§1.4b) — a popover with the shared
     /// controls plus a one-tap "apply preset". Amber when this chat overrides defaults.
+    /// Draggable separator that resizes the artifact panel (§2.4). The 1pt line sits
+    /// inside a wider invisible hit area with a resize cursor.
+    private var artifactResizeHandle: some View {
+        Rectangle()
+            .fill(Theme.line)
+            .frame(width: 1)
+            .overlay {
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let base = dragStartWidth ?? artifactPanelWidth
+                                dragStartWidth = base
+                                artifactPanelWidth = min(max(base - value.translation.width, 320), 900)
+                            }
+                            .onEnded { _ in dragStartWidth = nil }
+                    )
+            }
+    }
+
+    /// Toggles the artifact side panel. Only shown once the chat has artifacts (§2.4).
+    @ViewBuilder private var artifactsButton: some View {
+        if !artifactGroups.isEmpty {
+            let open = openArtifactID != nil
+            Button {
+                if open {
+                    openArtifactID = nil
+                } else {
+                    let remembered = lastArtifactID.flatMap { id in
+                        artifactGroups.contains { $0.id == id } ? id : nil
+                    }
+                    openArtifactID = remembered ?? artifactGroups.last?.id
+                }
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 12))
+                    .foregroundStyle(open ? Theme.amber : Theme.Palette.inkDim)
+                    .frame(width: 30, height: 26)
+                    .panel(Theme.Palette.panel, radius: 7)
+            }
+            .buttonStyle(.plain)
+            .help(open ? "Hide artifacts (\(artifactGroups.count))" : "Show artifacts (\(artifactGroups.count))")
+        }
+    }
+
     private var samplingButton: some View {
         let overriding = conversation.samplingOverride != SamplingParams()
         return Button { showSampling.toggle() } label: {
