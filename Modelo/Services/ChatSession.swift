@@ -35,9 +35,14 @@ final class ChatSession {
     /// streams a reply, and if the model requests tools, executes them and re-streams
     /// (capped at `maxToolRounds`) until a final answer. Pass `serverOnline:false` to
     /// short-circuit with an inline error; `modelSupportsTools` gates tool offering.
+    /// Pass `replacing:` an existing user message to fork a new sibling branch under
+    /// the same parent (edit & resend); otherwise the new turn extends the active
+    /// path linearly. Editing a root turn falls back to a linear append (§1.2 keeps
+    /// root branching out of scope).
     func send(_ text: String, attachments: [MessageAttachment] = [],
               in conversation: Conversation, server: Server,
-              serverOnline: Bool = true, modelSupportsTools: Bool = false) async {
+              serverOnline: Bool = true, modelSupportsTools: Bool = false,
+              replacing edited: Message? = nil) async {
         errorText = nil
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't send right now."
@@ -48,7 +53,11 @@ final class ChatSession {
 
         let userMsg = Message(role: .user, content: trimmed)
         if !attachments.isEmpty { userMsg.attachmentsJSON = attachments.json }
-        conversation.messages.append(userMsg)
+        if let edited, edited.parent != nil {
+            conversation.branch(userMsg, asSiblingOf: edited)
+        } else {
+            conversation.appendToPath(userMsg)
+        }
         try? context.save()
 
         isStreaming = true
@@ -70,7 +79,7 @@ final class ChatSession {
             // User-initiated stop before a new round: don't start another stream.
             if Task.isCancelled { break }
             let assistant = Message(role: .assistant, content: "")
-            conversation.messages.append(assistant)
+            conversation.appendToPath(assistant)
             lastAssistant = assistant
             try? context.save()
 
@@ -79,9 +88,9 @@ final class ChatSession {
             do {
                 let stream = client.streamChat(
                     endpoint: endpoint, modelID: conversation.modelID,
-                    // SwiftData to-many relations are unordered; sort by createdAt so the
-                    // wire (and tool_call/tool_result pairing) is in conversational order.
-                    messages: conversation.messages.sorted { $0.createdAt < $1.createdAt }.filter(wireKeep),
+                    // Walk the active root→leaf path (siblings on other branches are
+                    // excluded); the just-appended empty assistant is dropped by wireKeep.
+                    messages: conversation.activePath().filter(wireKeep),
                     systemPrompt: conversation.systemPrompt ?? "",
                     temperature: conversation.temperature ?? 0.7,
                     tools: toolSpecs)
@@ -122,7 +131,7 @@ final class ChatSession {
             } catch {
                 errorText = (error as? ClientError)?.errorDescription ?? error.localizedDescription
                 if assistant.content.isEmpty && assistant.toolCallsJSON == nil {
-                    conversation.messages.removeAll { $0 === assistant }
+                    conversation.dropLeaf(assistant)
                 }
                 try? context.save()
                 return
@@ -141,7 +150,7 @@ final class ChatSession {
                 let toolMsg = Message(role: .tool, content: result)
                 toolMsg.toolCallID = call.id
                 toolMsg.toolName = call.name
-                conversation.messages.append(toolMsg)
+                conversation.appendToPath(toolMsg)
             }
             try? context.save()
 
@@ -157,7 +166,7 @@ final class ChatSession {
         // usage frame.
         if Task.isCancelled {
             if let last = lastAssistant, last.content.isEmpty, last.toolCallsJSON == nil {
-                conversation.messages.removeAll { $0 === last }
+                conversation.dropLeaf(last)
             }
             try? context.save()
             return
@@ -173,6 +182,10 @@ final class ChatSession {
         lastAssistant?.tokenCount = totalCompletionTokens
         lastAssistant?.tokensPerSecond = tps
         conversation.contextTokensUsed = lastPromptTokens + lastCompletionTokens
+        // Re-encode the active leaf now that the message has a permanent
+        // persistentModelID (the id assigned before the first save was temporary),
+        // so branch navigation resolves it instead of falling back to date order.
+        if let lastAssistant { conversation.activeLeaf = lastAssistant }
         try? context.save()
 
         recorder.record(

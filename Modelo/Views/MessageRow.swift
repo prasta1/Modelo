@@ -9,9 +9,12 @@ struct MessageRow: View {
     let message: Message
     /// Model label shown in the assistant header (the conversation's model id).
     var modelName: String = ""
-    /// Invoked with the message text when "edit & resend" is tapped on the user's
-    /// own turn; ChatView drops it back into the composer. Nil hides the action.
-    var onReuse: ((String) -> Void)? = nil
+    /// Invoked with the message when "edit & resend" is tapped on the user's own
+    /// turn; ChatView drops it into the composer and forks a branch. Nil hides it.
+    var onReuse: ((Message) -> Void)? = nil
+    /// Invoked with the leaf of a sibling branch when the ◀ k/n ▶ control is used,
+    /// so ChatView can re-select the active path. Nil hides the control.
+    var onSelectBranch: ((Message) -> Void)? = nil
     /// True only for the assistant turn that is actively streaming. While set, the
     /// body renders as plain `Text` (re-parsing Markdown on every delta is wasteful);
     /// it swaps to `MarkdownText` once the turn completes.
@@ -157,6 +160,7 @@ struct MessageRow: View {
             if let tokens = message.tokenCount {
                 Text("\(tokens) tok")
             }
+            branchNav
             Spacer(minLength: 0)
             Button(action: copy) {
                 Text(copied ? "Copied" : "Copy")
@@ -173,6 +177,42 @@ struct MessageRow: View {
         .foregroundStyle(Theme.textFaint)
     }
 
+    // MARK: Branch navigation — ◀ k/n ▶ across sibling turns (§1.2)
+
+    /// Sibling switcher, shown only when this turn has more than one branch. Tapping
+    /// an arrow re-selects the conversation's active leaf onto the chosen sibling.
+    @ViewBuilder private var branchNav: some View {
+        let sibs = message.siblings
+        if sibs.count > 1, let onSelectBranch {
+            let idx = message.siblingIndex
+            HStack(spacing: 3) {
+                branchArrow("chevron.left", enabled: idx > 0) {
+                    onSelectBranch(sibs[idx - 1].subtreeLeaf)
+                }
+                Text("\(idx + 1)/\(sibs.count)")
+                    .font(.mono(9))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textDim)
+                branchArrow("chevron.right", enabled: idx < sibs.count - 1) {
+                    onSelectBranch(sibs[idx + 1].subtreeLeaf)
+                }
+            }
+        }
+    }
+
+    private func branchArrow(_ symbol: String, enabled: Bool,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(enabled ? Theme.textMute : Theme.textFaint.opacity(0.4))
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
     // MARK: User hover row — actions + telemetry
 
     private var hoverBar: some View {
@@ -181,6 +221,7 @@ struct MessageRow: View {
                 .font(.mono(9))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
+            branchNav
             if !message.content.isEmpty { actionCluster }
         }
         .padding(.horizontal, 2)
@@ -205,7 +246,7 @@ struct MessageRow: View {
                        action: copy)
             shareButton
             if let onReuse {
-                iconButton("arrow.uturn.up", help: "Edit & resend") { onReuse(message.content) }
+                iconButton("arrow.uturn.up", help: "Edit & resend") { onReuse(message) }
             }
         }
         .padding(.horizontal, 4)
