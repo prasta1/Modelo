@@ -54,9 +54,9 @@ final class LMStudioClient: ChatProvider {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ClientError.unreachable }
         // A 401/403 means the server is up but wants (a different) API key — surface
-        // that distinctly so the user can add one, rather than "unreachable".
+        // that distinctly so the UI can reveal a key field, rather than "unreachable".
         if http.statusCode == 401 || http.statusCode == 403 {
-            throw ClientError.serverError("This server requires an API key. Add one below.")
+            throw ClientError.authRequired
         }
         guard (200..<300).contains(http.statusCode) else { throw ClientError.unreachable }
         return data

@@ -453,6 +453,7 @@ private struct ServerSettingsRow: View {
     @FocusState private var focus: Field?
     @State private var apiKey = ""
     @State private var isKeyRevealed = false
+    @State private var needsAuth = false
     private let keychain = KeychainStore()
     private var keychainAccount: String { Endpoint.keychainAccount(for: server) }
 
@@ -497,31 +498,31 @@ private struct ServerSettingsRow: View {
                 .fixedSize()
             }
 
-            // Live "is it working?" feedback — re-probes when host/port/runtime change.
-            ServerProbeRow(server: server)
+            // Live "is it working?" feedback — re-probes when host/port/runtime/key change.
+            ServerProbeRow(server: server, keyHint: apiKey, onNeedsAuth: { needsAuth = $0 })
 
-            FieldGroup(caption: "API key (optional)") {
-                HStack(spacing: 0) {
-                    Group {
-                        if isKeyRevealed { TextField("only if the server requires one", text: $apiKey) }
-                        else { SecureField("only if the server requires one", text: $apiKey) }
+            // Shown only once the server actually asks for auth (401), or when a key
+            // is already set — so the common no-auth case stays uncluttered.
+            if needsAuth || !apiKey.isEmpty {
+                FieldGroup(caption: "API key") {
+                    HStack(spacing: 0) {
+                        Group {
+                            if isKeyRevealed { TextField("the key this server expects", text: $apiKey) }
+                            else { SecureField("the key this server expects", text: $apiKey) }
+                        }
+                        .textFieldStyle(.plain)
+                        .focused($focus, equals: .key)
+                        Button { isKeyRevealed.toggle() } label: {
+                            Image(systemName: isKeyRevealed ? "eye.slash" : "eye")
+                                .font(.system(size: 10)).foregroundStyle(Theme.textLo).padding(.trailing, 4)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isKeyRevealed ? "Hide key" : "Reveal key")
                     }
-                    .textFieldStyle(.plain)
-                    .focused($focus, equals: .key)
-                    Button { isKeyRevealed.toggle() } label: {
-                        Image(systemName: isKeyRevealed ? "eye.slash" : "eye")
-                            .font(.system(size: 10)).foregroundStyle(Theme.textLo).padding(.trailing, 4)
-                    }
-                    .buttonStyle(.plain)
-                    .help(isKeyRevealed ? "Hide key" : "Reveal key")
+                    .fieldChrome(focused: focus == .key)
                 }
-                .fieldChrome(focused: focus == .key)
+                .transition(.opacity)
             }
-
-            Text("Optional — a bearer token (Keychain) for a local server that requires auth, e.g. an MLX server. Leave blank for LM Studio / llama.cpp.")
-                .font(Theme.metric(10))
-                .foregroundStyle(Theme.textFaint)
-                .fixedSize(horizontal: false, vertical: true)
 
             FieldGroup(caption: "Agent URL") {
                 TextField("http://host:9099  ·  optional", text: Binding(
@@ -595,14 +596,21 @@ private struct ServerSettingsRow: View {
 /// signal instead of silent auto-save.
 private struct ServerProbeRow: View {
     let server: Server
+    /// The current key text — only used to re-probe when it changes (the request
+    /// itself reads the key from the Keychain via `Endpoint`).
+    var keyHint: String = ""
+    /// Reports whether the server answered with a 401/403, so the parent row can
+    /// reveal the API-key field exactly when it's needed.
+    var onNeedsAuth: (Bool) -> Void = { _ in }
+
     @State private var state: ProbeState = .idle
 
     private enum ProbeState: Equatable {
-        case idle, checking, ok(Int), failed(String)
+        case idle, checking, ok(Int), needsKey, failed(String)
     }
 
-    /// Re-probe whenever the connection-defining fields change.
-    private var probeKey: String { "\(server.host)|\(server.port)|\(server.kindRaw)" }
+    /// Re-probe whenever the connection-defining fields (or the key) change.
+    private var probeKey: String { "\(server.host)|\(server.port)|\(server.kindRaw)|\(keyHint)" }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -628,6 +636,9 @@ private struct ServerProbeRow: View {
         case .ok(let n):
             Label("Connected · \(n) model\(n == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
                 .font(Theme.metric(11)).foregroundStyle(Theme.green)
+        case .needsKey:
+            Label("Connected — needs an API key", systemImage: "key.fill")
+                .font(Theme.metric(11)).foregroundStyle(Theme.amber)
         case .failed(let why):
             Label(why, systemImage: "exclamationmark.triangle.fill")
                 .font(Theme.metric(11)).foregroundStyle(Theme.Palette.alert)
@@ -644,11 +655,18 @@ private struct ServerProbeRow: View {
         let endpoint = Endpoint(server: server, keychain: KeychainStore())
         do {
             let models = try await LMStudioClient.shared.fetchModels(endpoint: endpoint)
-            if !Task.isCancelled { state = .ok(models.count) }
+            if Task.isCancelled { return }
+            state = .ok(models.count)
+            onNeedsAuth(false)
         } catch {
-            if !Task.isCancelled {
+            if Task.isCancelled { return }
+            if case ClientError.authRequired = error {
+                state = .needsKey
+                onNeedsAuth(true)              // reveal the key field
+            } else {
                 let msg = (error as? ClientError)?.errorDescription ?? "Couldn't reach this server."
                 state = .failed(msg)
+                onNeedsAuth(false)
             }
         }
     }
