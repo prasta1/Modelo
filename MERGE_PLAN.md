@@ -25,6 +25,12 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
 - 🔶 **§1.1 Markdown rendering + code highlighting** — `MarkdownText` (MarkdownUI 2.4.1),
   Highlightr-backed code blocks with per-block copy, streaming gate in `MessageRow`/`ChatView`
   (PR #5). First third-party deps. Builds green, 70 tests pass; pending merge.
+- 🔶 **§1.2 Conversation branching tree** — `Message` parent/children/`branchIndex`;
+  `Conversation.activeLeafData` (encoded `PersistentIdentifier`) + `activePath`/`appendToPath`/
+  `branch`/`dropLeaf`; `BranchingMigration` launch backfill; `send` rewritten onto the active
+  path; `◀ k/n ▶` sibling nav + edit-as-branch (PR #6, stacked on #5). Builds green, 78 tests
+  pass; pending merge + on-device migration verification. Root branching + assistant regenerate
+  (§1.3) deferred.
 - ⬜ Everything else below.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
@@ -124,11 +130,18 @@ This is Modelo's single most visible gap — today everything is `Text(message.c
 
 ---
 
-### 1.2 Conversation branching tree 🔴
+### 1.2 Conversation branching tree 🔴 — 🔶 IN REVIEW (PR #6, stacked on #5)
 
-**Goal.** Regenerate or edit any turn to fork a **sibling branch**; navigate siblings with
-`◀ N/M ▶`. Today Modelo is strictly linear: `Conversation.messages` cascade-owned, sorted by
-`createdAt`, with no parent pointers.
+> Status: `Message` gained a `parent`/`children` self-relationship + `branchIndex` (with
+> `siblings`/`siblingIndex`/`subtreeLeaf` helpers); `Conversation` tracks the active leaf as an
+> encoded `PersistentIdentifier` (`activeLeafData`) — chosen over a new `Message.id` to avoid the
+> UUID-default footgun and an extra inverse — plus `activePath`/`appendToPath`/`branch`/`dropLeaf`.
+> `ChatSession.send` builds the wire from `activePath().filter(wireKeep)`, links new turns via
+> `appendToPath`, forks via a `replacing:` param, and re-encodes the leaf once ids are permanent.
+> `MessageRow` shows `◀ k/n ▶`; editing a user turn forks a sibling. `BranchingMigration` chains
+> legacy flat conversations at launch (idempotent, flag-guarded). Builds green; 78 tests pass.
+> Deferred: **root-turn branching** (editing the first turn resends linearly) and **assistant
+> regenerate** (§1.3, will reuse `branch`). Remaining: merge + on-device migration verification.
 
 **Modelo touchpoints.**
 - `Modelo/Models/Message.swift` — add tree fields.
