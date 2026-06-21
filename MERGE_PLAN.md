@@ -62,9 +62,18 @@ Completed item status: ✅ done · 🔶 in progress / in review · ⬜ not start
 - ✅ **§2.5 Benchmark mode** — `BenchmarkRunner` (bounded-concurrency load test over the
   `ChatProvider`) + `Percentile` + `BenchmarkReport`; `BenchmarkView` sheet from the chat header
   (PR #14). Merged to fork `main`. 102 tests. UI not yet on-device-verified.
-- ⬜ Phase 2 remaining (need on-device verification): §2.4 artifacts panel 🔴, §2.2 macmon 🔴.
+- ✅ **§2.2 Local Apple-Silicon GPU (macmon)** — `Macmon.parse` → `GPUSnapshot`; `GPUMonitor`
+  spawns `macmon pipe` for servers with `localGPU`; Settings toggle (PR #17). Verified on-device.
+- ✅ **GPU in chat inspector** — ⌘I inspector shows VRAM/util/power/temp for the active server
+  (modelo-tap or macmon) (PR #16). Verified on-device.
+- ✅ **Test-feedback UX batch (verified on-device):** server connection probe + tooltips + local
+  API key w/ progressive disclosure + honest errors + all-server discovery + Fetch-models button
+  (PR #15); Shift+Enter newline via NSTextView composer + TTFT shown in seconds (PR #18); stable
+  code-signing so the Keychain prompt stops recurring.
+- ⬜ Phase 2 remaining: **§2.4 artifacts panel** 🔴 (HTML/SVG/Mermaid preview) — the big unbuilt
+  differentiator.
 - ⬜ §3 QoL sweep (slash commands, MD export, queue-while-streaming, retention, themes, MCP HTTP,
-  ~/.agents) — many small verifiable wins. Then §4 iOS.
+  ~/.agents). Then §4 iOS.
 
 > Sequencing note: §2.1's Swift side required a local-vs-cloud distinction, so the
 > llama.cpp/llama-swap runtime (originally implied by §2.2–2.3) was pulled forward.
