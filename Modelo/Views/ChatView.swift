@@ -29,6 +29,8 @@ struct ChatView: View {
     @State private var composerFocused: Bool = false
     @State private var composerHeight: CGFloat = 22
     @State private var commandFeedback: String?
+    /// Messages typed while a reply is streaming; auto-sent in order on completion (§3.3).
+    @State private var pendingQueue: [String] = []
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
@@ -356,8 +358,10 @@ struct ChatView: View {
     }
 
     private var isStreaming: Bool { session?.isStreaming == true }
+    /// Enabled whenever there's something to send — during streaming a send is queued
+    /// (§3.3) rather than blocked.
     private var canSend: Bool {
-        (!draft.trimmingCharacters(in: .whitespaces).isEmpty || !pendingAttachments.isEmpty) && !isStreaming
+        !draft.trimmingCharacters(in: .whitespaces).isEmpty || !pendingAttachments.isEmpty
     }
     /// Amber gradient when the send/stop button is active, otherwise a flat fill.
     private var sendButtonBackground: AnyShapeStyle {
@@ -654,7 +658,15 @@ struct ChatView: View {
                                      modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
                                      sampling: effectiveSampling, contextWindow: contextWindow)
             sendTask = nil
+            drainQueue()
         }
+    }
+
+    /// Sends the next queued message once the current turn finishes (§3.3).
+    private func drainQueue() {
+        guard !isStreaming, !pendingQueue.isEmpty else { return }
+        draft = pendingQueue.removeFirst()
+        send()
     }
 
     private func send() {
@@ -663,6 +675,15 @@ struct ChatView: View {
         if let command = SlashParser.parse(draft) {
             handleSlash(command)
             draft = ""
+            return
+        }
+        // While a reply streams, queue the message instead of sending now (§3.3).
+        if isStreaming {
+            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
+            pendingQueue.append(text)
+            draft = ""
+            flash("Queued — sends when the current reply finishes.")
             return
         }
         // Bind to the header's picked model FIRST, so the resolved server and the
@@ -688,6 +709,7 @@ struct ChatView: View {
                                sampling: effectiveSampling, contextWindow: contextWindow,
                                replacing: edited)
             sendTask = nil
+            drainQueue()
         }
     }
 }
