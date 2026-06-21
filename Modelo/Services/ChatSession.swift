@@ -43,6 +43,7 @@ final class ChatSession {
               in conversation: Conversation, server: Server,
               serverOnline: Bool = true, modelSupportsTools: Bool = false,
               sampling: SamplingParams = SamplingParams(),
+              contextWindow: Int = 0,
               replacing edited: Message? = nil) async {
         errorText = nil
         guard serverOnline else {
@@ -63,6 +64,7 @@ final class ChatSession {
 
         await runTurn(in: conversation, server: server,
                       modelSupportsTools: modelSupportsTools, sampling: sampling,
+                      contextWindow: contextWindow,
                       firstAssistant: nil, titleOnFirstExchange: true)
     }
 
@@ -71,7 +73,8 @@ final class ChatSession {
     /// via the ◀ k/n ▶ control.
     func regenerate(_ target: Message, in conversation: Conversation, server: Server,
                     serverOnline: Bool = true, modelSupportsTools: Bool = false,
-                    sampling: SamplingParams = SamplingParams()) async {
+                    sampling: SamplingParams = SamplingParams(),
+                    contextWindow: Int = 0) async {
         errorText = nil
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't regenerate right now."
@@ -87,6 +90,7 @@ final class ChatSession {
 
         await runTurn(in: conversation, server: server,
                       modelSupportsTools: modelSupportsTools, sampling: sampling,
+                      contextWindow: contextWindow,
                       firstAssistant: fresh, titleOnFirstExchange: false)
     }
 
@@ -99,10 +103,14 @@ final class ChatSession {
     private func runTurn(in conversation: Conversation, server: Server,
                          modelSupportsTools: Bool,
                          sampling: SamplingParams,
+                         contextWindow: Int,
                          firstAssistant: Message?,
                          titleOnFirstExchange: Bool) async {
         isStreaming = true
         defer { isStreaming = false }
+
+        // Summarize older turns first if the chat is near the window (§1.5).
+        await compactIfNeeded(conversation, server: server, contextWindow: contextWindow)
 
         let endpoint = Endpoint(server: server, keychain: keychain)
         let toolsActive = modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
@@ -135,12 +143,14 @@ final class ChatSession {
             var toolCalls: [ToolCall] = []
             var roundCompletion = 0
             do {
+                // Active root→leaf path with any compaction applied: the system prompt
+                // carries the summary, and only post-cutoff turns are sent (§1.5). The
+                // just-appended empty assistant is dropped by wireKeep.
+                let wire = conversation.wireContext()
                 let stream = client.streamChat(
                     endpoint: endpoint, modelID: conversation.modelID,
-                    // Walk the active root→leaf path (siblings on other branches are
-                    // excluded); the just-appended empty assistant is dropped by wireKeep.
-                    messages: conversation.activePath().filter(wireKeep),
-                    systemPrompt: conversation.systemPrompt ?? "",
+                    messages: wire.messages.filter(wireKeep),
+                    systemPrompt: wire.system,
                     sampling: sampling,
                     tools: toolSpecs)
                 // Buffer incoming tokens and flush to the observable property at ~20fps
@@ -261,6 +271,58 @@ final class ChatSession {
     func cancelPendingWork() {
         titleTask?.cancel()
         titleTask = nil
+    }
+
+    /// Auto-compaction (§1.5): when enabled and the active path's estimated tokens
+    /// exceed `compactThreshold × contextWindow`, summarize everything except the most
+    /// recent `compactKeep` turns into `conversation.summary` via a separate
+    /// non-streaming model run. Best-effort and idempotent-ish — re-summarizes the
+    /// whole prefix each time it fires (simpler than incremental; fine for v1).
+    private func compactIfNeeded(_ conversation: Conversation, server: Server, contextWindow: Int) async {
+        guard conversation.autoCompact, contextWindow > 0 else { return }
+        let path = conversation.activePath().filter(wireKeep)
+        let estimate = TokenEstimator.estimate(path) + TokenEstimator.estimate(conversation.summary ?? "")
+        guard Double(estimate) > (conversation.compactThresholdPct ?? 0.85) * Double(contextWindow) else { return }
+        let toSummarize = path.dropLast(conversation.compactKeepRecent ?? 8)
+        guard let cutoff = toSummarize.last else { return }
+
+        let transcript = toSummarize
+            .map { "\($0.role.rawValue.uppercased()): \($0.content)" }
+            .joined(separator: "\n\n")
+        let system = """
+        You compress conversations. Summarize the transcript into a concise summary \
+        that preserves key facts, decisions, names, code, and unresolved questions so \
+        the assistant can continue seamlessly. Reply with only the summary.
+        """
+        let prior = conversation.summary.map { "Existing summary:\n\($0)\n\n---\n\n" } ?? ""
+        let prompt = Message(role: .user, content: prior + transcript)
+
+        var raw = ""
+        do {
+            let stream = client.streamChat(
+                endpoint: Endpoint(server: server, keychain: keychain), modelID: conversation.modelID,
+                messages: [prompt], systemPrompt: system,
+                sampling: SamplingParams(temperature: 0.3), tools: nil)
+            for try await event in stream {
+                if Task.isCancelled { return }
+                if case .delta(let t) = event { raw += t }
+            }
+        } catch {
+            return  // best-effort; leave the conversation uncompacted
+        }
+
+        let summary = ChatSession.stripReasoning(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty, conversation.modelContext != nil else { return }
+        conversation.summary = summary
+        conversation.summaryThrough = cutoff
+        try? context.save()
+    }
+
+    /// Drops a leading `<think>…</think>` reasoning block (reasoning models emit one
+    /// before the answer). Shared by titling and compaction.
+    static func stripReasoning(_ raw: String) -> String {
+        guard let r = raw.range(of: "</think>", options: .backwards) else { return raw }
+        return String(raw[r.upperBound...])
     }
 
     /// Asks the same model for a concise title based on the opening user message,

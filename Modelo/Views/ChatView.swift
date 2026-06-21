@@ -157,10 +157,22 @@ struct ChatView: View {
                                                  set: { conversation.samplingOverride = $0 }))
                 Text("Overrides the global defaults from Settings for this chat only.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+
+                Divider().overlay(Theme.line)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Auto-compact long chats").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                        Text("Summarize older turns near the context limit (§1.5).")
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    }
+                    Spacer()
+                    PillToggle(isOn: $conversation.autoCompact)
+                }
             }
             .padding(16)
             .frame(width: 320)
             .onChange(of: conversation.samplingOverride) { try? context.save() }
+            .onChange(of: conversation.autoCompact) { try? context.save() }
         }
     }
 
@@ -516,7 +528,7 @@ struct ChatView: View {
             await session.regenerate(message, in: conversation, server: server,
                                      serverOnline: registry.isOnline(server),
                                      modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
-                                     sampling: effectiveSampling)
+                                     sampling: effectiveSampling, contextWindow: contextWindow)
             sendTask = nil
         }
     }
@@ -544,7 +556,7 @@ struct ChatView: View {
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
-                               sampling: effectiveSampling,
+                               sampling: effectiveSampling, contextWindow: contextWindow,
                                replacing: edited)
             sendTask = nil
         }

@@ -32,6 +32,19 @@ final class Conversation {
     /// when the bound model advertises tool support.
     var toolsEnabled: Bool = true
 
+    /// Auto-compaction (§1.5): when on and the active path nears the model's context
+    /// window, older turns are summarized into `summary` so the chat runs indefinitely.
+    var autoCompact: Bool = false
+    /// The compaction summary text (nil = none yet).
+    var summary: String?
+    /// Encoded `PersistentIdentifier` of the last message folded into `summary`;
+    /// messages after it are sent verbatim. Same idiom as `activeLeafData`.
+    var summaryThroughData: Data?
+    /// Fraction of the context window at which to compact (nil = default 0.85).
+    var compactThresholdPct: Double?
+    /// Most recent messages kept verbatim, never summarized (nil = default 8).
+    var compactKeepRecent: Int?
+
     /// JSON-encoded `PersistentIdentifier` of the active leaf — the tail of the
     /// currently-selected root→leaf path through the branching tree (§1.2). Stored
     /// as `Data` (reusing the route-persistence idiom in `ContentView`) rather than
@@ -69,6 +82,34 @@ final class Conversation {
     func apply(_ preset: Preset) {
         if let prompt = preset.systemPrompt { systemPrompt = prompt }
         samplingOverride = preset.sampling
+    }
+
+    // MARK: Auto-compaction (§1.5)
+
+    /// The last message folded into `summary`, resolved from `summaryThroughData`.
+    var summaryThrough: Message? {
+        get {
+            guard let summaryThroughData,
+                  let pid = try? JSONDecoder().decode(PersistentIdentifier.self, from: summaryThroughData)
+            else { return nil }
+            return messages.first { $0.persistentModelID == pid }
+        }
+        set { summaryThroughData = newValue.flatMap { try? JSONEncoder().encode($0.persistentModelID) } }
+    }
+
+    /// The context to send for the next request, applying any compaction summary:
+    /// the system prompt (with the summary appended) and the messages to send — those
+    /// after the summarized cutoff, or the whole active path when there's no summary.
+    func wireContext() -> (system: String, messages: [Message]) {
+        let path = activePath()
+        let base = systemPrompt ?? ""
+        guard let summary, !summary.isEmpty, let through = summaryThrough,
+              let idx = path.firstIndex(where: { $0 === through }) else {
+            return (base, path)
+        }
+        let recent = Array(path.suffix(from: path.index(after: idx)))
+        let note = "Summary of the earlier conversation:\n\(summary)"
+        return (base.isEmpty ? note : "\(base)\n\n\(note)", recent)
     }
 
     /// Sidebar label. Once the first turn finishes, `ChatSession` fills `title` in
