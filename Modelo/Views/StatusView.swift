@@ -18,6 +18,7 @@ struct StatusView: View {
 
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
+    @Environment(GPUMonitor.self) private var gpuMonitor
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
     private var liveCount: Int { servers.filter { registry.isOnline($0) }.count }
@@ -34,7 +35,8 @@ struct StatusView: View {
                             server: server,
                             status: registry.status(for: server),
                             latency: registry.latency(for: server),
-                            snapshot: monitor.snapshot(for: server)
+                            snapshot: monitor.snapshot(for: server),
+                            gpu: gpuMonitor.snapshot(for: server)
                         )
                     }
                 }
@@ -65,13 +67,15 @@ private struct CompactServerCard: View {
     let status: ServerStatus
     let latency: Double?
     let snapshot: ModelSnapshot?
+    let gpu: GPUSnapshot?
     @Query private var records: [UsageRecord]
 
-    init(server: Server, status: ServerStatus, latency: Double?, snapshot: ModelSnapshot?) {
+    init(server: Server, status: ServerStatus, latency: Double?, snapshot: ModelSnapshot?, gpu: GPUSnapshot?) {
         self.server = server
         self.status = status
         self.latency = latency
         self.snapshot = snapshot
+        self.gpu = gpu
         let label = server.label
         _records = Query(
             filter: #Predicate<UsageRecord> { $0.serverLabel == label },
@@ -117,6 +121,30 @@ private struct CompactServerCard: View {
                 Sparkline(values: rollup.tokPerSecHistory)
                     .frame(height: 28)
                     .padding(.top, 16)
+            }
+
+            if let gpu {
+                Divider().overlay(Theme.line).padding(.vertical, 14)
+                HStack(spacing: 6) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.textFaint)
+                    Text("GPU")
+                        .font(.mono(9)).tracking(1)
+                        .foregroundStyle(Theme.textFaint)
+                }
+                Grid(horizontalSpacing: 10, verticalSpacing: 13) {
+                    GridRow {
+                        MetricTile(label: "VRAM",
+                                   value: String(format: "%.0f/%.0f GB", gpu.vramUsedGB, gpu.vramTotalGB))
+                        MetricTile(label: "GPU", value: String(format: "%.0f%%", gpu.utilPct))
+                    }
+                    GridRow {
+                        MetricTile(label: "POWER", value: String(format: "%.0f W", gpu.powerW))
+                        MetricTile(label: "TEMP",  value: String(format: "%.0f°C", gpu.tempC))
+                    }
+                }
+                .padding(.top, 10)
             }
         }
         .padding(.horizontal, 18)

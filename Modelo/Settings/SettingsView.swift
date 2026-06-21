@@ -20,7 +20,7 @@ struct SettingsView: View {
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     private let keychain = KeychainStore()
 
-    private var lmStudioServers: [Server] { servers.filter { $0.kind == .lmStudio } }
+    private var localServers: [Server] { servers.filter { $0.kind.isLocal } }
     private var cloudServers: [Server] { servers.filter { $0.kind == .cloudAPI } }
 
     var body: some View {
@@ -42,7 +42,7 @@ struct SettingsView: View {
             // MARK: Servers
             ScrollView {
                 VStack(spacing: 12) {
-                    ForEach(lmStudioServers) { server in
+                    ForEach(localServers) { server in
                         ServerSettingsRow(server: server) {
                             context.delete(server)
                             try? context.save()
@@ -171,7 +171,7 @@ struct SettingsView: View {
     }
 
     private func addServer() {
-        let nextOrder = (lmStudioServers.map(\.sortOrder).max() ?? 0) + 1
+        let nextOrder = (localServers.map(\.sortOrder).max() ?? 0) + 1
         let server = Server(label: "New Server", host: "localhost", port: 1234, sortOrder: nextOrder)
         context.insert(server)
         try? context.save()
@@ -327,7 +327,7 @@ private struct ServerSettingsRow: View {
     let onDelete: () -> Void
     @FocusState private var focus: Field?
 
-    private enum Field { case label, host, port }
+    private enum Field { case label, host, port, agent }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -338,7 +338,7 @@ private struct ServerSettingsRow: View {
                     .foregroundStyle(Theme.textHi)
                     .focused($focus, equals: .label)
                 Spacer(minLength: 8)
-                Chip(text: server.kind == .lmStudio ? "lm studio" : "cloud api")
+                runtimePicker
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
@@ -348,26 +348,40 @@ private struct ServerSettingsRow: View {
                 .help("Remove this server")
             }
 
-            if server.kind == .lmStudio {
-                HStack(alignment: .bottom, spacing: 12) {
-                    FieldGroup(caption: "Host") {
-                        TextField("hostname or IP", text: $server.host)
-                            .textFieldStyle(.plain)
-                            .focused($focus, equals: .host)
-                            .fieldChrome(focused: focus == .host)
-                            .onSubmit { server.host = Server.normalizedHost(server.host) }
-                    }
-
-                    FieldGroup(caption: "Port") {
-                        TextField("0000", value: $server.port, format: .number.grouping(.never))
-                            .textFieldStyle(.plain)
-                            .focused($focus, equals: .port)
-                            .fieldChrome(focused: focus == .port)
-                            .frame(width: 72)
-                    }
-                    .fixedSize()
+            // Local runtimes (LM Studio, llama.cpp/llama-swap) are all addressed by host:port.
+            HStack(alignment: .bottom, spacing: 12) {
+                FieldGroup(caption: "Host") {
+                    TextField("hostname or IP", text: $server.host)
+                        .textFieldStyle(.plain)
+                        .focused($focus, equals: .host)
+                        .fieldChrome(focused: focus == .host)
+                        .onSubmit { server.host = Server.normalizedHost(server.host) }
                 }
+
+                FieldGroup(caption: "Port") {
+                    TextField("0000", value: $server.port, format: .number.grouping(.never))
+                        .textFieldStyle(.plain)
+                        .focused($focus, equals: .port)
+                        .fieldChrome(focused: focus == .port)
+                        .frame(width: 72)
+                }
+                .fixedSize()
             }
+
+            FieldGroup(caption: "Agent URL") {
+                TextField("http://host:9099  ·  optional", text: Binding(
+                    get: { server.metricsAgentURL ?? "" },
+                    set: { server.metricsAgentURL = $0.isEmpty ? nil : $0 }
+                ))
+                .textFieldStyle(.plain)
+                .focused($focus, equals: .agent)
+                .fieldChrome(focused: focus == .agent)
+            }
+
+            Text("Optional — a modelo-tap GPU agent on this box. Streams VRAM/power/temp to the Status dashboard. See modelo-tap/README.md.")
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .panel(Theme.popoverBG)
@@ -378,6 +392,24 @@ private struct ServerSettingsRow: View {
                 server.host = Server.normalizedHost(server.host)
             }
         }
+    }
+
+    /// Runtime selector styled as a chip. Lists the local runtimes only
+    /// (LM Studio, llama.cpp); cloud endpoints use a separate tab.
+    private var runtimePicker: some View {
+        Menu {
+            Picker("Runtime", selection: $server.kind) {
+                ForEach(ServerKind.localCases, id: \.self) { kind in
+                    Text(kind.displayName).tag(kind)
+                }
+            }
+        } label: {
+            Chip(text: server.kind.displayName.lowercased())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Runtime")
     }
 }
 

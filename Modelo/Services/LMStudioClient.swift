@@ -39,6 +39,10 @@ final class LMStudioClient: ChatProvider {
             }
             return try await fetch(path: "/v1/models", baseURL: endpoint.baseURL)
                 .filter { !$0.isEmbeddingModel }
+        case .llamaSwap:
+            // llama.cpp / llama-swap is OpenAI-compatible but has no /api/v0.
+            return try await fetch(path: "/v1/models", baseURL: endpoint.baseURL)
+                .filter { !$0.isEmbeddingModel }
         }
     }
 
