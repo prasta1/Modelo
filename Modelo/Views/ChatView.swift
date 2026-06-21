@@ -33,6 +33,23 @@ struct ChatView: View {
     @State private var pendingQueue: [String] = []
     /// Keyboard-highlighted row in the slash-command popup (§3.1).
     @State private var slashSelection = 0
+    /// The artifact currently open in the side panel (§2.4), by id.
+    @State private var openArtifactID: String?
+    /// Last-open artifact, so the header toggle can reopen what you were viewing.
+    @State private var lastArtifactID: String?
+    /// Draggable artifact-panel width (persisted); `dragStartWidth` anchors a live drag.
+    @AppStorage("artifactPanelWidth") private var artifactPanelWidth: Double = 460
+    @State private var dragStartWidth: Double?
+    /// Console inspector state (shared with ContentView). Auto-collapsed while an
+    /// artifact is open so the two right-side panels don't crowd each other out.
+    @AppStorage("consoleInspectorOpen") private var consoleOpen = false
+    @State private var consoleWasOpen = false
+    /// Live width of the chat detail area, so the artifact panel can't shrink the chat
+    /// below `minChatWidth`. Seeded wide to avoid a first-layout squeeze.
+    @State private var detailWidth: CGFloat = 1200
+    private let minChatWidth: Double = 360
+    // Whether to teach the model the artifact syntax (opt-out in Settings ▸ Tools).
+    @AppStorage("artifactsEnabled") private var artifactsEnabled = true
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
@@ -100,15 +117,62 @@ struct ChatView: View {
         return conversation.samplingOverride.overlaying(global)
     }
 
+    /// Artifacts across the active path, grouped into versions (§2.4).
+    private var artifactGroups: [ArtifactGroup] { ArtifactCollector.groups(from: pathMessages) }
+    private var openArtifactGroup: ArtifactGroup? {
+        openArtifactID.flatMap { id in artifactGroups.first { $0.id == id } }
+    }
+
+    /// Artifact panel width clamped so the chat never shrinks below `minChatWidth`.
+    private var clampedArtifactWidth: Double {
+        min(max(artifactPanelWidth, 320), max(360, Double(detailWidth) - minChatWidth))
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            messageStream
-            footer
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    header
+                    messageStream
+                    footer
+                }
+                .frame(maxWidth: .infinity)
+
+                if let group = openArtifactGroup {
+                    artifactResizeHandle
+                    ArtifactPanel(groups: artifactGroups,
+                                  selectedID: group.id,
+                                  onSelect: { openArtifactID = $0 },
+                                  onClose: { openArtifactID = nil })
+                        .frame(width: clampedArtifactWidth)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .onAppear { detailWidth = geo.size.width }
+            .onChange(of: geo.size.width) { _, w in detailWidth = w }
         }
+        // Animate the panel sliding in/out, but not switches between artifacts.
+        .animation(.easeOut(duration: 0.18), value: openArtifactID == nil)
         .background(Theme.windowBG)
         .onAppear { ensureSession() }
         .onDisappear { cancelInFlight() }
+        .onChange(of: openArtifactID) { old, new in
+            if let new { lastArtifactID = new }
+            withAnimation(.easeOut(duration: 0.2)) {
+                if old == nil, new != nil {
+                    // Opening: tuck the console away so both panels aren't crammed.
+                    if consoleOpen { consoleWasOpen = true; consoleOpen = false }
+                } else if old != nil, new == nil {
+                    // Closing: restore the console if we collapsed it.
+                    if consoleWasOpen { consoleOpen = true }
+                    consoleWasOpen = false
+                }
+            }
+        }
+        // Auto-open the newest artifact when the model produces a new one (Claude-style).
+        .onChange(of: artifactGroups.count) { _, count in
+            if count > 0, let newest = artifactGroups.last { openArtifactID = newest.id }
+        }
     }
 
     // MARK: Header — model spec plate + live status
@@ -126,6 +190,7 @@ struct ChatView: View {
                 if let server = pickedModel?.server {
                     statusPill(for: server)
                 }
+                artifactsButton
                 samplingButton
                 benchmarkButton
                 FontSizeControl(size: $messageFontSize)
@@ -166,6 +231,56 @@ struct ChatView: View {
 
     /// Per-conversation sampling overrides (§1.4b) — a popover with the shared
     /// controls plus a one-tap "apply preset". Amber when this chat overrides defaults.
+    /// Draggable separator that resizes the artifact panel (§2.4). The 1pt line sits
+    /// inside a wider invisible hit area with a resize cursor.
+    private var artifactResizeHandle: some View {
+        // A real-width column (its own layout space) so the whole zone is grabbable,
+        // not just the 1pt line — overlapping the neighbors lost the hit-test before.
+        ZStack {
+            Color.clear
+            Rectangle().fill(Theme.line).frame(width: 1)
+        }
+        .frame(width: 10)
+        .contentShape(Rectangle())
+        .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    let base = dragStartWidth ?? artifactPanelWidth
+                    dragStartWidth = base
+                    // Cap so the chat keeps at least minChatWidth in view.
+                    let maxW = max(360, Double(detailWidth) - minChatWidth)
+                    artifactPanelWidth = min(max(base - value.translation.width, 320), maxW)
+                }
+                .onEnded { _ in dragStartWidth = nil }
+        )
+    }
+
+    /// Toggles the artifact side panel. Only shown once the chat has artifacts (§2.4).
+    @ViewBuilder private var artifactsButton: some View {
+        if !artifactGroups.isEmpty {
+            let open = openArtifactID != nil
+            Button {
+                if open {
+                    openArtifactID = nil
+                } else {
+                    let remembered = lastArtifactID.flatMap { id in
+                        artifactGroups.contains { $0.id == id } ? id : nil
+                    }
+                    openArtifactID = remembered ?? artifactGroups.last?.id
+                }
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 12))
+                    .foregroundStyle(open ? Theme.amber : Theme.Palette.inkDim)
+                    .frame(width: 30, height: 26)
+                    .panel(Theme.Palette.panel, radius: 7)
+            }
+            .buttonStyle(.plain)
+            .help(open ? "Hide artifacts (\(artifactGroups.count))" : "Show artifacts (\(artifactGroups.count))")
+        }
+    }
+
     private var samplingButton: some View {
         let overriding = conversation.samplingOverride != SamplingParams()
         return Button { showSampling.toggle() } label: {
@@ -267,7 +382,9 @@ struct ChatView: View {
                                     // rendering off until it finishes.
                                     isLiveStreaming: session?.isStreaming == true
                                         && msg.role == .assistant
-                                        && msg.id == path.last?.id
+                                        && msg.id == path.last?.id,
+                                    onOpenArtifact: { openArtifactID = $0 },
+                                    openArtifactID: openArtifactID
                                 ).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
@@ -685,7 +802,8 @@ struct ChatView: View {
         session = ChatSession(client: LMStudioClient.shared, context: context,
                               recorder: UsageRecorder(context: context),
                               keychain: keychain,
-                              registry: ToolRegistry(tools))
+                              registry: ToolRegistry(tools),
+                              systemSuffix: artifactsEnabled ? ArtifactInstructions.system : nil)
         composerFocused = true
     }
 

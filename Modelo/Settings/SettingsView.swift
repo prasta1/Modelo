@@ -103,6 +103,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     FilesystemToolsCard()
+                    ArtifactsCard()
                     KeyCard(caption: "Firecrawl API key",
                             placeholder: "fc-…",
                             hint: "Enables firecrawl_scrape and firecrawl_search for tool-capable models.",
@@ -383,6 +384,30 @@ private struct PresetsSettingsTab: View {
     private func addPreset() {
         context.insert(Preset(name: "New Preset", sortOrder: presets.count))
         try? context.save()
+    }
+}
+
+/// Toggles the artifact behavior (§2.4): when on, the model is taught to emit
+/// `<artifact>` blocks that render in the side panel instead of inline.
+private struct ArtifactsCard: View {
+    @AppStorage("artifactsEnabled") private var enabled = true
+
+    var body: some View {
+        SettingsSection("Artifacts") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: $enabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Render artifacts in a side panel").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                        Text("Substantial HTML / SVG / Mermaid / code / documents open in a viewer beside the chat, with live preview and versions.")
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    }
+                }
+                .toggleStyle(.switch)
+                Text("Adds a short instruction to the system prompt teaching the model the artifact syntax. Turn off to save context on small models. Re-open a chat after changing.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

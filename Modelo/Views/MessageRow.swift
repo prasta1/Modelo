@@ -22,6 +22,10 @@ struct MessageRow: View {
     /// body renders as plain `Text` (re-parsing Markdown on every delta is wasteful);
     /// it swaps to `MarkdownText` once the turn completes.
     var isLiveStreaming: Bool = false
+    /// Opens the tapped artifact (by id) in the side panel; nil disables artifact cards.
+    var onOpenArtifact: ((String) -> Void)? = nil
+    /// The artifact currently shown in the panel, so its card reads as active.
+    var openArtifactID: String? = nil
     // Shared with the composer and the View menu; default kept in sync across sites.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     @State private var copied = false
@@ -106,19 +110,18 @@ struct MessageRow: View {
             if message.content.isEmpty && calls.isEmpty {
                 BlinkingCursor()
             } else if !message.content.isEmpty {
-                Group {
-                    if isLiveStreaming {
-                        // Plain text while tokens are still arriving — cheap per delta.
-                        Text(message.content)
-                            .font(.system(size: messageFontSize))
-                            .lineSpacing(messageFontSize * 0.3)
-                            .foregroundStyle(Theme.textMid)
-                            .textSelection(.enabled)
-                    } else {
-                        MarkdownText(content: message.content, fontSize: messageFontSize)
-                    }
+                if isLiveStreaming {
+                    // Plain text while tokens are still arriving — cheap per delta, and
+                    // artifact markup isn't parsed until the turn completes.
+                    Text(message.content)
+                        .font(.system(size: messageFontSize))
+                        .lineSpacing(messageFontSize * 0.3)
+                        .foregroundStyle(Theme.textMid)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    renderedContent
                 }
-                .fixedSize(horizontal: false, vertical: true)
             }
 
             if !calls.isEmpty {
@@ -135,6 +138,56 @@ struct MessageRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Completed assistant body: Markdown with any `<artifact>` blocks replaced by
+    /// compact, tappable cards interleaved at their original position (§2.4).
+    @ViewBuilder private var renderedContent: some View {
+        let (artifacts, cleaned) = ArtifactParser.extract(from: message.content)
+        if artifacts.isEmpty || onOpenArtifact == nil {
+            MarkdownText(content: message.content, fontSize: messageFontSize)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            let byID = Dictionary(artifacts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(Self.segments(cleaned).enumerated()), id: \.offset) { _, seg in
+                    switch seg {
+                    case .text(let t):
+                        if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            MarkdownText(content: t, fontSize: messageFontSize)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    case .artifact(let id):
+                        if let art = byID[id] {
+                            ArtifactCard(artifact: art, isOpen: openArtifactID == id) {
+                                onOpenArtifact?(id)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private enum Segment { case text(String); case artifact(String) }
+
+    /// Split cleaned text on the parser's `\u{E000}id\u{E000}` sentinels.
+    private static func segments(_ s: String) -> [Segment] {
+        let sentinel: Character = "\u{E000}"
+        var out: [Segment] = []
+        var buf = ""
+        var inID = false
+        for ch in s {
+            if ch == sentinel {
+                if inID { out.append(.artifact(buf)) }
+                else if !buf.isEmpty { out.append(.text(buf)) }
+                buf = ""; inID.toggle()
+            } else {
+                buf.append(ch)
+            }
+        }
+        if !buf.isEmpty { out.append(inID ? .artifact(buf) : .text(buf)) }
+        return out
     }
 
     private func attachmentThumbs(_ atts: [MessageAttachment]) -> some View {
