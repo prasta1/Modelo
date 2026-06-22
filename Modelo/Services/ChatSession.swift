@@ -397,8 +397,24 @@ final class ChatSession {
         let path = conversation.activePath().filter(wireKeep)
         let estimate = TokenEstimator.estimate(path) + TokenEstimator.estimate(conversation.summary ?? "")
         guard Double(estimate) > (conversation.compactThresholdPct ?? 0.85) * Double(contextWindow) else { return }
+        _ = await performCompaction(conversation, server: server)
+    }
+
+    /// Outcome of a manual `/compact`.
+    enum CompactionOutcome: Equatable { case compacted(turns: Int), nothingToCompact, failed }
+
+    /// Force-summarize older turns now (manual `/compact`), ignoring the auto threshold.
+    func compact(_ conversation: Conversation, server: Server) async -> CompactionOutcome {
+        await performCompaction(conversation, server: server)
+    }
+
+    /// Shared summarization: fold everything except the most recent `compactKeepRecent`
+    /// turns of the active path into `conversation.summary` via a separate model run.
+    @discardableResult
+    private func performCompaction(_ conversation: Conversation, server: Server) async -> CompactionOutcome {
+        let path = conversation.activePath().filter(wireKeep)
         let toSummarize = path.dropLast(conversation.compactKeepRecent ?? 8)
-        guard let cutoff = toSummarize.last else { return }
+        guard let cutoff = toSummarize.last else { return .nothingToCompact }
 
         let transcript = toSummarize
             .map { "\($0.role.rawValue.uppercased()): \($0.content)" }
@@ -418,18 +434,19 @@ final class ChatSession {
                 messages: [prompt], systemPrompt: system,
                 sampling: SamplingParams(temperature: 0.3), tools: nil)
             for try await event in stream {
-                if Task.isCancelled { return }
+                if Task.isCancelled { return .failed }
                 if case .delta(let t) = event { raw += t }
             }
         } catch {
-            return  // best-effort; leave the conversation uncompacted
+            return .failed  // best-effort; leave the conversation uncompacted
         }
 
         let summary = ChatSession.stripReasoning(raw).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !summary.isEmpty, conversation.modelContext != nil else { return }
+        guard !summary.isEmpty, conversation.modelContext != nil else { return .failed }
         conversation.summary = summary
         conversation.summaryThrough = cutoff
         try? context.save()
+        return .compacted(turns: toSummarize.count)
     }
 
     /// Drops a leading `<think>…</think>` reasoning block (reasoning models emit one

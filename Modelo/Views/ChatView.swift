@@ -866,6 +866,17 @@ struct ChatView: View {
             flash(skills.isEmpty
                   ? "No skills found in ~/.agents/skills."
                   : "\(skills.count) skills available: \(skills.map(\.name).joined(separator: ", "))")
+        case .compact:
+            guard let session, let server = boundServer else { flash("Pick a model first."); return }
+            guard !isStreaming else { flash("Wait for the current reply to finish."); return }
+            flash("Compacting earlier turns…")
+            Task {
+                switch await session.compact(conversation, server: server) {
+                case .compacted(let n): flash("Compacted \(n) earlier turn\(n == 1 ? "" : "s") into a summary.")
+                case .nothingToCompact: flash("Nothing to compact yet — this chat is still short.")
+                case .failed:           flash("Couldn’t compact right now.")
+                }
+            }
         case .copy:
             if let last = conversation.activePath().last(where: { $0.role == .assistant && !$0.content.isEmpty }) {
                 NSPasteboard.general.clearContents()
