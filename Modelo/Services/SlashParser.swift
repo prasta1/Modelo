@@ -7,6 +7,7 @@ enum SlashCommand: Equatable {
     case copy
     case export                // write the conversation to ~/Downloads as Markdown (§3.2)
     case skills                // list available ~/.agents skills (§3.7)
+    case compact               // summarize older turns now to free context (§1.5)
     case temperature(Double)
     case system(String)        // empty string clears the per-conversation prompt
     case model(String)         // a query to match against discovered models
@@ -35,6 +36,8 @@ enum SlashParser {
             return .copy
         case "skills":
             return .skills
+        case "compact", "summarize":
+            return .compact
         case "export", "save":
             return .export
         case "temp", "temperature":
@@ -52,7 +55,7 @@ enum SlashParser {
 
     /// One-line help shown by `/help`.
     static let helpText = """
-    Commands: /model <name> · /temp <0–2> · /system <prompt> · /skills · /export · /clear · /copy · /help
+    Commands: /model <name> · /temp <0–2> · /system <prompt> · /skills · /compact · /export · /clear · /copy · /help
     """
 
     // MARK: - Autocomplete (§3.1)
@@ -72,6 +75,7 @@ enum SlashParser {
         Spec(token: "temp",   arg: "<0–2>",    summary: "Set temperature for this chat"),
         Spec(token: "system", arg: "<prompt>", summary: "Set the system prompt (empty clears)"),
         Spec(token: "skills", arg: nil,        summary: "List available ~/.agents skills"),
+        Spec(token: "compact", arg: nil,       summary: "Summarize earlier turns to free up context"),
         Spec(token: "export", arg: nil,        summary: "Save the chat to ~/Downloads as Markdown"),
         Spec(token: "copy",   arg: nil,        summary: "Copy the last response"),
         Spec(token: "clear",  arg: nil,        summary: "Clear the conversation"),

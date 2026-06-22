@@ -13,6 +13,8 @@ final class SlashParserTests: XCTestCase {
         XCTAssertEqual(SlashParser.parse("/system Be terse."), .system("Be terse."))
         XCTAssertEqual(SlashParser.parse("/model qwen"), .model("qwen"))
         XCTAssertEqual(SlashParser.parse("/m llama"), .model("llama"))
+        XCTAssertEqual(SlashParser.parse("/compact"), .compact)
+        XCTAssertEqual(SlashParser.parse("/summarize"), .compact)
     }
 
     func test_caseAndWhitespaceInsensitiveCommand() {
