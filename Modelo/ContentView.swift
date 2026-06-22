@@ -138,12 +138,21 @@ struct ContentView: View {
         )
     }
 
+    /// Context tokens used by the active chat — the last turn's server-reported total,
+    /// or a live estimate of the active path before the first turn.
+    private var inspectorContextUsed: Int {
+        guard let convo = selectedConversation else { return 0 }
+        return convo.contextTokensUsed ?? TokenEstimator.estimate(convo.activePath())
+    }
+
     @ViewBuilder
     private var inspectorContent: some View {
         if let server = pickedModel?.server {
             ConsoleInspector(server: server, activeModel: pickedModel?.model,
                              snapshot: monitor.snapshot(for: server),
-                             gpu: gpuMonitor.snapshot(for: server))
+                             gpu: gpuMonitor.snapshot(for: server),
+                             contextUsed: inspectorContextUsed,
+                             contextWindow: pickedModel?.model.maxContextLength ?? 0)
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "chart.bar.xaxis")
