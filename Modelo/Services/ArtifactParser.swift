@@ -33,13 +33,8 @@ enum ArtifactKind: String, Sendable, Equatable {
     func fileExtension(language: String?) -> String {
         switch self {
         case .html: "html"; case .svg: "svg"; case .mermaid: "mmd"; case .markdown: "md"
-        case .code: (language.flatMap(Self.codeExtensions) ?? "txt")
+        case .code: (language.map { $0.lowercased() } ?? "txt")
         }
-    }
-    private static func codeExtensions(_ lang: String) -> String? {
-        ["swift": "swift", "python": "py", "javascript": "js", "typescript": "ts",
-         "rust": "rs", "go": "go", "ruby": "rb", "bash": "sh", "shell": "sh",
-         "json": "json", "yaml": "yaml", "c": "c", "cpp": "cpp", "java": "java"][lang.lowercased()]
     }
 }
 
@@ -101,10 +96,39 @@ enum ArtifactParser {
 
     static func slug(_ s: String, fallback: String) -> String {
         let cleaned = s.lowercased()
-            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
-            .reduce(into: "") { acc, c in if !(acc.last == "-" && c == "-") { acc.append(c) } }
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
         return cleaned.isEmpty ? fallback : cleaned
+    }
+}
+
+/// A run of rendered text, or an inline artifact, in document order.
+enum ArtifactSegment: Equatable { case text(String); case artifact(Artifact) }
+
+extension ArtifactParser {
+    /// Splits a completed assistant message into ordered text/artifact segments so the
+    /// chat renders Markdown with artifact cards inline — without re-walking sentinels
+    /// itself. Returns a single `.text` when there are no artifacts.
+    static func segments(from text: String) -> [ArtifactSegment] {
+        let (artifacts, cleaned) = extract(from: text)
+        guard !artifacts.isEmpty else { return [.text(text)] }
+        let byID = Dictionary(artifacts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let mark: Character = "\u{E000}"
+        var out: [ArtifactSegment] = []
+        var buf = ""
+        var inID = false
+        for ch in cleaned {
+            if ch == mark {
+                if inID { byID[buf].map { out.append(.artifact($0)) } }
+                else if !buf.isEmpty { out.append(.text(buf)) }
+                buf = ""; inID.toggle()
+            } else {
+                buf.append(ch)
+            }
+        }
+        if !buf.isEmpty, !inID { out.append(.text(buf)) }
+        return out
     }
 }
 
@@ -124,16 +148,14 @@ enum ArtifactCollector {
     static func groups(from messages: [Message]) -> [ArtifactGroup] {
         var order: [String] = []
         var byID: [String: [Artifact]] = [:]
-        var meta: [String: Artifact] = [:]
         for message in messages where message.role == .assistant {
             for artifact in ArtifactParser.extract(from: message.content).artifacts {
                 if byID[artifact.id] == nil { order.append(artifact.id) }
                 byID[artifact.id, default: []].append(artifact)
-                meta[artifact.id] = artifact   // latest metadata wins
             }
         }
         return order.compactMap { id in
-            guard let versions = byID[id], let m = meta[id] else { return nil }
+            guard let versions = byID[id], let m = versions.last else { return nil }   // latest metadata wins
             return ArtifactGroup(id: id, title: m.title, kind: m.kind, language: m.language, versions: versions)
         }
     }

@@ -437,12 +437,8 @@ struct ChatView: View {
 
     private let bottomAnchor = "BOTTOM"
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = false) {
-        if animated {
-            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
-        } else {
-            proxy.scrollTo(bottomAnchor, anchor: .bottom)
-        }
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        proxy.scrollTo(bottomAnchor, anchor: .bottom)
     }
 
     // MARK: Footer — error, context gauge, composer

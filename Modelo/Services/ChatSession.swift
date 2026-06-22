@@ -502,11 +502,8 @@ final class ChatSession {
     /// takes the first line, strips wrapping quotes and trailing punctuation, and
     /// caps the length so the sidebar stays tidy.
     static func cleanTitle(_ raw: String) -> String {
-        var s = raw
         // Reasoning models (qwen3, deepseek-r, …) emit a think block first.
-        if let r = s.range(of: "</think>", options: .backwards) {
-            s = String(s[r.upperBound...])
-        }
+        var s = stripReasoning(raw)
         s = s.trimmingCharacters(in: .whitespacesAndNewlines)
         s = s.split(separator: "\n").first.map(String.init) ?? s
         s = s.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`"))

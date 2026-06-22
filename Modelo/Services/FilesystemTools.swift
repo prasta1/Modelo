@@ -121,12 +121,9 @@ struct ReadFileTool: Tool {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         if let size = attrs?[.size] as? Int, size > 1_000_000 { throw FSToolError.tooLarge(scope.relative(url), size) }
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { throw FSToolError.notReadable(scope.relative(url)) }
-        let lines = text.components(separatedBy: "\n")
-        let width = String(lines.count).count
-        let numbered = lines.enumerated().map { i, line in
-            String(format: "%\(width)d  %@", i + 1, line)
-        }.joined(separator: "\n")
-        return numbered
+        return text.components(separatedBy: "\n").enumerated()
+            .map { "\($0 + 1)\t\($1)" }
+            .joined(separator: "\n")
     }
 }
 

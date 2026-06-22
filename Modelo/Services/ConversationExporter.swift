@@ -4,7 +4,7 @@ import Foundation
 /// it to ~/Downloads. Reasoning (`<think>…</think>`) is stripped from assistant turns
 /// by default so the export reads cleanly.
 enum ConversationExporter {
-    static func markdown(for conversation: Conversation, stripReasoning: Bool = true) -> String {
+    static func markdown(for conversation: Conversation) -> String {
         var out = "# \(conversation.displayTitle)\n\n"
         for message in conversation.activePath() {
             switch message.role {
@@ -12,7 +12,7 @@ enum ConversationExporter {
                 let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty { out += "## User\n\n\(text)\n\n" }
             case .assistant:
-                var text = stripReasoning ? ChatSession.stripReasoning(message.content) : message.content
+                var text = ChatSession.stripReasoning(message.content)
                 text = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty { out += "## Assistant\n\n\(text)\n\n" }
             case .tool, .system:

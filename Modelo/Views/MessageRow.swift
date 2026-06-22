@@ -143,51 +143,29 @@ struct MessageRow: View {
     /// Completed assistant body: Markdown with any `<artifact>` blocks replaced by
     /// compact, tappable cards interleaved at their original position (§2.4).
     @ViewBuilder private var renderedContent: some View {
-        let (artifacts, cleaned) = ArtifactParser.extract(from: message.content)
-        if artifacts.isEmpty || onOpenArtifact == nil {
+        let segments: [ArtifactSegment] = onOpenArtifact == nil
+            ? [.text(message.content)]
+            : ArtifactParser.segments(from: message.content)
+        if segments.count == 1, case .text = segments[0] {
             MarkdownText(content: message.content, fontSize: messageFontSize)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            let byID = Dictionary(artifacts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(Self.segments(cleaned).enumerated()), id: \.offset) { _, seg in
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
                     switch seg {
                     case .text(let t):
                         if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             MarkdownText(content: t, fontSize: messageFontSize)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                    case .artifact(let id):
-                        if let art = byID[id] {
-                            ArtifactCard(artifact: art, isOpen: openArtifactID == id) {
-                                onOpenArtifact?(id)
-                            }
+                    case .artifact(let art):
+                        ArtifactCard(artifact: art, isOpen: openArtifactID == art.id) {
+                            onOpenArtifact?(art.id)
                         }
                     }
                 }
             }
         }
-    }
-
-    private enum Segment { case text(String); case artifact(String) }
-
-    /// Split cleaned text on the parser's `\u{E000}id\u{E000}` sentinels.
-    private static func segments(_ s: String) -> [Segment] {
-        let sentinel: Character = "\u{E000}"
-        var out: [Segment] = []
-        var buf = ""
-        var inID = false
-        for ch in s {
-            if ch == sentinel {
-                if inID { out.append(.artifact(buf)) }
-                else if !buf.isEmpty { out.append(.text(buf)) }
-                buf = ""; inID.toggle()
-            } else {
-                buf.append(ch)
-            }
-        }
-        if !buf.isEmpty { out.append(inID ? .artifact(buf) : .text(buf)) }
-        return out
     }
 
     private func attachmentThumbs(_ atts: [MessageAttachment]) -> some View {

@@ -81,16 +81,9 @@ struct MCPCatalogEntry: Identifiable, Sendable {
     var searchText: String { "\(name) \(summary) \(category)".lowercased() }
 }
 
-/// Source of discoverable MCP servers. Bundled today; a live registry client could
-/// conform later (loading entries over the network) and the discovery UI would not
-/// have to change.
-protocol MCPCatalogSource: Sendable {
-    func load() async -> [MCPCatalogEntry]
-}
-
 /// The built-in, hand-curated catalog of well-known MCP servers, each carrying the
 /// exact command line needed to launch it.
-struct BundledMCPCatalog: MCPCatalogSource {
+struct BundledMCPCatalog: Sendable {
     func load() async -> [MCPCatalogEntry] { Self.entries }
 
     static let entries: [MCPCatalogEntry] = [

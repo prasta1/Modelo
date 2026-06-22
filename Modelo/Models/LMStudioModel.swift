@@ -26,8 +26,6 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     var state: String?
     /// Maximum context the model can hold.
     let maxContextLength: Int?
-    /// Context the user has currently allocated for this model (when loaded).
-    let loadedContextLength: Int?
     /// Publisher / organization, e.g. `"mlx-community"`, `"lmstudio-community"`.
     let publisher: String?
     /// File size on disk in bytes, from the `size` field of `/api/v0/models`.
@@ -48,7 +46,6 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, object, type, arch, quantization, state, publisher
         case maxContextLength = "max_context_length"
-        case loadedContextLength = "loaded_context_length"
         case sizeBytes = "size"
         case keepInRam = "keep_in_ram"
     }

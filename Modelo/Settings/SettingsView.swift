@@ -340,7 +340,7 @@ private struct SamplingSettingsTab: View {
             params = (try? JSONDecoder().decode(SamplingParams.self, from: Data(json.utf8))) ?? SamplingParams()
         }
         .onChange(of: params) { _, new in
-            json = (try? JSONEncoder().encode(new)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            json = String(decoding: (try? JSONEncoder().encode(new)) ?? Data("{}".utf8), as: UTF8.self)
         }
     }
 }
@@ -1223,7 +1223,7 @@ private struct MCPDiscoverySection: View {
     let installed: [MCPServerConfig]
     let onAdd: (MCPCatalogEntry) -> Void
 
-    private let catalog: MCPCatalogSource = BundledMCPCatalog()
+    private let catalog = BundledMCPCatalog()
     @State private var entries: [MCPCatalogEntry] = []
     @State private var query = ""
     @State private var category = "All"

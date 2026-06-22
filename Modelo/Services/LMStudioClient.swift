@@ -96,17 +96,7 @@ final class LMStudioClient: ChatProvider {
     /// Returns the updated model state if successful. No-op for OpenRouter.
     @discardableResult
     func loadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
-        guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
-        let encoded = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
-        let path = "/api/v0/models/\(encoded)/load"
-        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { throw ClientError.invalidURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request, endpoint: endpoint)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ClientError.unreachable
-        }
+        let data = try await postModelAction("load", modelID: modelID, endpoint: endpoint)
         return try JSONDecoder().decode(ModelsResponse.self, from: data).data.first!
     }
 
@@ -114,36 +104,38 @@ final class LMStudioClient: ChatProvider {
     /// Returns the updated model state if successful. No-op for OpenRouter.
     @discardableResult
     func unloadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
-        guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
-        let encoded = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
-        let path = "/api/v0/models/\(encoded)/unload"
-        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { throw ClientError.invalidURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request, endpoint: endpoint)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ClientError.unreachable
-        }
+        let data = try await postModelAction("unload", modelID: modelID, endpoint: endpoint)
         return try JSONDecoder().decode(ModelsResponse.self, from: data).data.first!
     }
 
     /// Sets `keep_in_ram` on a loaded model via `POST /api/v0/models/{id}/load`.
     /// Pass `false` to unpin the model so LM Studio may evict it when loading another.
     func setKeepInRam(modelID: String, keepInRam: Bool, endpoint: Endpoint) async throws {
+        _ = try await postModelAction("load", modelID: modelID, endpoint: endpoint,
+                                      body: try JSONEncoder().encode(LoadModelBody(keep_in_ram: keepInRam)))
+    }
+
+    /// Shared `POST /api/v0/models/{id}/{verb}` for the load/unload/keep-in-ram actions
+    /// (LM Studio only). Returns the response body.
+    private func postModelAction(_ verb: String, modelID: String, endpoint: Endpoint,
+                                 body: Data? = nil) async throws -> Data {
         guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
         let encoded = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
-        let path = "/api/v0/models/\(encoded)/load"
-        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { throw ClientError.invalidURL }
+        guard let url = URL(string: "\(endpoint.baseURL)/api/v0/models/\(encoded)/\(verb)") else {
+            throw ClientError.invalidURL
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(LoadModelBody(keep_in_ram: keepInRam))
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
         applyAuth(&request, endpoint: endpoint)
-        let (_, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ClientError.unreachable
         }
+        return data
     }
 
     // MARK: Streaming chat
