@@ -129,28 +129,35 @@ struct ChatView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    header
-                    messageStream
-                    footer
-                }
-                .frame(maxWidth: .infinity)
-
-                if let group = openArtifactGroup {
-                    artifactResizeHandle
-                    ArtifactPanel(groups: artifactGroups,
-                                  selectedID: group.id,
-                                  onSelect: { openArtifactID = $0 },
-                                  onClose: { openArtifactID = nil })
-                        .frame(width: clampedArtifactWidth)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                header
+                messageStream
+                footer
             }
-            .onAppear { detailWidth = geo.size.width }
-            .onChange(of: geo.size.width) { _, w in detailWidth = w }
+            .frame(maxWidth: .infinity)
+
+            if let group = openArtifactGroup {
+                artifactResizeHandle
+                ArtifactPanel(groups: artifactGroups,
+                              selectedID: group.id,
+                              onSelect: { openArtifactID = $0 },
+                              onClose: { openArtifactID = nil })
+                    .frame(width: clampedArtifactWidth)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
+        // Measure width with a non-layout background reader. Wrapping the whole body in a
+        // GeometryReader (as before) made it the layout container and collapsed the message
+        // stream's own GeometryReader whenever the footer changed height — e.g. dismissing
+        // the tool-approval card blanked the transcript until the next reply forced a relayout.
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { detailWidth = proxy.size.width }
+                    .onChange(of: proxy.size.width) { _, w in detailWidth = w }
+            }
+        )
         // Animate the panel sliding in/out, but not switches between artifacts.
         .animation(.easeOut(duration: 0.18), value: openArtifactID == nil)
         .background(Theme.windowBG)
