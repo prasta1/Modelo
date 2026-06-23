@@ -18,7 +18,17 @@ final class LMStudioClient: ChatProvider {
 
     static func defaultSession() -> URLSession {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        // Idle/inactivity timeout, reset on every byte received — NOT a total-duration
+        // cap. It only fires during the gap before the first token, so a large value is
+        // safe for long generations and never harms an active stream. It must tolerate
+        // cold model loads: a llama-swap group with `exclusive: true` evicts the current
+        // model and loads the requested GGUF from disk on first request, which can take
+        // minutes. 300 matches the server's healthCheckTimeout; a lower value cancels the
+        // request mid-load and the POST returns HTTP 200 with a 0-byte body.
+        //
+        // "Fail fast on a dead server" is the job of probeReachable(endpoint:timeout:)
+        // (a 4s reachability probe), NOT this timeout — don't re-tighten it for that.
+        config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = .infinity
         return URLSession(configuration: config)
     }
