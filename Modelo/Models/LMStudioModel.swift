@@ -170,11 +170,29 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
         return String(format: mb >= 100 ? "%.0f MB" : "%.1f MB", mb)
     }
 
+    /// True for mixture-of-experts models (e.g. Mixtral 8x7B, Llama 4 Scout 17B-16E).
+    /// MoE IDs embed the *active* parameter count, not total weight — estimating
+    /// size from active params produces a number that's 4–8× too small.
+    private var isMixtureOfExperts: Bool {
+        let lower = id.lowercased()
+        // Sparse-expert shorthand: "8x7b", "2x22b"
+        if lower.range(of: #"\d+x\d+[bm]"#, options: .regularExpression) != nil { return true }
+        // Expert-count suffix after a separator: "-16e-", "-16e" at end of segment
+        if lower.range(of: #"[-_]\d+e(?:[-_]|$)"#, options: .regularExpression) != nil { return true }
+        return false
+    }
+
     /// Best-effort human-readable size: exact API value when available, otherwise
     /// estimated from parameter count × quantization bit-depth (prefixed with `~`).
-    /// Returns nil when neither source provides enough information.
+    /// Returns nil when neither source provides enough information, or when the model
+    /// is a mixture-of-experts (active-param estimates are off by 4–8× for MoE).
     var displaySizeFormatted: String? {
         if let exact = fileSizeFormatted { return exact }
+
+        // MoE models list active-parameter counts in their IDs, not total weight.
+        // The estimation below would show e.g. ~8.7 GB for a model that actually
+        // needs 70+ GB in RAM — suppress it rather than show a misleading number.
+        if isMixtureOfExperts { return nil }
 
         // Parse parameter count from id (e.g. "30B" → 30 × 10⁹).
         guard let paramStr = parameterSize else { return nil }

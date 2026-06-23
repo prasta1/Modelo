@@ -12,6 +12,9 @@ struct MessageRow: View {
     /// Invoked with the message text when "edit & resend" is tapped on the user's
     /// own turn; ChatView drops it back into the composer. Nil hides the action.
     var onReuse: ((String) -> Void)? = nil
+    /// When true, renders body as plain text (streaming in progress); switches to
+    /// MarkdownText on completion so Markdown isn't re-parsed on every token.
+    var isStreaming: Bool = false
     // Shared with the composer and the View menu; default kept in sync across sites.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     @State private var hovering = false
@@ -98,18 +101,22 @@ struct MessageRow: View {
             if message.content.isEmpty && calls.isEmpty {
                 BlinkingCursor()
             } else if !message.content.isEmpty {
-                Text(message.content)
-                    .font(.system(size: messageFontSize))
-                    .lineSpacing(messageFontSize * 0.3)
-                    .foregroundStyle(Theme.textMid)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                if isStreaming {
+                    Text(message.content)
+                        .font(.system(size: messageFontSize))
+                        .lineSpacing(messageFontSize * 0.3)
+                        .foregroundStyle(Theme.textMid)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    MarkdownText(content: message.content)
+                }
             }
 
             if !calls.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(calls.enumerated()), id: \.offset) { _, call in
-                        ToolCard(title: "🔧 \(call.name)(…)", detail: call.arguments)
+                        ToolCard(title: "🔧 \(call.name)(…)", detail: call.arguments, language: "json")
                     }
                 }
                 .padding(.top, message.content.isEmpty ? 0 : 12)
@@ -246,11 +253,21 @@ struct MessageRow: View {
 private struct ToolCard: View {
     let title: String
     let detail: String
+    /// Explicit language hint for syntax highlighting. Pass nil to auto-detect JSON.
+    var language: String? = nil
     @State private var expanded = false
+
+    /// Sniffs the content for JSON if no language is supplied.
+    private var effectiveLanguage: String? {
+        if let language { return language }
+        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed.hasPrefix("{") || trimmed.hasPrefix("[")) ? "json" : nil
+    }
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            Text(detail)
+            ModeloHighlighter.shared
+                .highlightCode(detail, language: effectiveLanguage)
                 .font(Theme.code(11))
                 .foregroundStyle(Theme.textDim)
                 .textSelection(.enabled)

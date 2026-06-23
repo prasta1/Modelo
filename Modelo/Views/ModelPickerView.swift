@@ -248,17 +248,25 @@ private struct ModelPickerList: View {
 
     /// Local servers list in full; cloud catalogs stay behind search
     /// so hundreds of remote models don't dump into the popover unfiltered.
+    /// Within each group, loaded models float to the top.
     private var displayGroups: [(server: Server, models: [DiscoveredModel])] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        func floatLoaded(_ models: [DiscoveredModel]) -> [DiscoveredModel] {
+            models.sorted { $0.model.isLoaded && !$1.model.isLoaded }
+        }
+
         guard !query.isEmpty else {
-            return groups.filter { $0.server.kind != .cloudAPI }
+            return groups
+                .filter { $0.server.kind != .cloudAPI }
+                .map { (server: $0.server, models: floatLoaded($0.models)) }
         }
         return groups.compactMap { group in
             let matched = group.models.filter {
                 $0.model.familyName.localizedCaseInsensitiveContains(query)
                     || $0.model.id.localizedCaseInsensitiveContains(query)
             }
-            return matched.isEmpty ? nil : (group.server, matched)
+            return matched.isEmpty ? nil : (group.server, floatLoaded(matched))
         }
     }
 

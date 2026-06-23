@@ -115,7 +115,13 @@ struct ChatView: View {
                     } else {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(sortedMessages) { msg in
-                                MessageRow(message: msg, modelName: conversation.modelID, onReuse: reuseDraft).id(msg.id)
+                                let streaming = session?.isStreaming == true && msg.id == sortedMessages.last?.id
+                                MessageRow(
+                                    message: msg,
+                                    modelName: conversation.modelID,
+                                    onReuse: reuseDraft,
+                                    isStreaming: streaming
+                                ).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
                         }

@@ -10,12 +10,22 @@ settings:
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
     DEVELOPMENT_TEAM: WXQ53X7LZ7
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.1
+  Highlightr:
+    url: https://github.com/raspu/Highlightr
+    from: 2.3.0
 targets:
   Modelo:
     type: application
     platform: macOS
     sources:
       - Modelo
+    dependencies:
+      - package: MarkdownUI
+      - package: Highlightr
     # Explicit Info.plist (not GENERATE_INFOPLIST_FILE) so we can declare an ATS
     # exception: LM Studio serves plain HTTP over Tailscale, which App Transport
     # Security blocks by default — without this, every request silently fails and

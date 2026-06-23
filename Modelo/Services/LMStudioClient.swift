@@ -18,7 +18,10 @@ final class LMStudioClient: ChatProvider {
 
     static func defaultSession() -> URLSession {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        // 90s allows for model cold-start on remote machines (e.g. Mac Studio loading
+        // a large quant) before the first token arrives. timeoutIntervalForResource
+        // stays infinite so long-running streams are never cut off.
+        config.timeoutIntervalForRequest = 90
         config.timeoutIntervalForResource = .infinity
         return URLSession(configuration: config)
     }
