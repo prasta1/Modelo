@@ -193,7 +193,6 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
         // The estimation below would show e.g. ~8.7 GB for a model that actually
         // needs 70+ GB in RAM — suppress it rather than show a misleading number.
         if isMixtureOfExperts { return nil }
-
         // Parse parameter count from id (e.g. "30B" → 30 × 10⁹).
         guard let paramStr = parameterSize else { return nil }
         let upper = paramStr.uppercased()
