@@ -109,6 +109,7 @@ private struct ModelPickerList: View {
     @State private var loadingID: String?
     @State private var ejectingID: String?
     @State private var searchText = ""
+    @Environment(FavoritesStore.self) private var favorites
 
     private var totalCount: Int { groups.reduce(0) { $0 + $1.models.count } }
 
@@ -167,36 +168,51 @@ private struct ModelPickerList: View {
         .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
     }
 
+    private var favoritesHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "star.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Theme.amber)
+            Text("FAVORITES")
+                .font(.mono(9.5)).tracking(1.2)
+                .foregroundStyle(Theme.textDim)
+            Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+            Text("\(favoriteItems.count)")
+                .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
+        }
+        .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
+    }
+
+    /// Favorited models matching the current search, loaded models floated first.
+    private var favoriteItems: [DiscoveredModel] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allModels = groups.flatMap { $0.models }
+        let favs = allModels.filter { favorites.isFavorite($0.model.id) }
+        let filtered = query.isEmpty ? favs : favs.filter {
+            $0.model.familyName.localizedCaseInsensitiveContains(query)
+                || $0.model.id.localizedCaseInsensitiveContains(query)
+        }
+        return filtered.sorted { $0.model.isLoaded && !$1.model.isLoaded }
+    }
+
     @ViewBuilder private var content: some View {
         if isEmpty {
             emptyState(icon: "cube.transparent", text: "No models on any online server")
-        } else if displayGroups.isEmpty && !cloudHintVisible {
+        } else if displayGroups.isEmpty && !cloudHintVisible && favoriteItems.isEmpty {
             emptyState(icon: "magnifyingglass", text: "No models match")
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if !favoriteItems.isEmpty {
+                        favoritesHeader
+                        ForEach(favoriteItems) { item in
+                            modelRow(for: item)
+                        }
+                    }
                     ForEach(displayGroups, id: \.server.id) { group in
                         groupHeader(group.server, count: group.models.count)
                         ForEach(group.models) { item in
-                            ModelRow(item: item,
-                                     isSelected: item.id == selection?.id,
-                                     isLoading: loadingID == item.id,
-                                     isEjecting: ejectingID == item.id,
-                                     onEject: onEject == nil ? nil : {
-                                        ejectingID = item.id
-                                        onEject!(item)
-                                        Task { @MainActor in
-                                            try? await Task.sleep(for: .seconds(5))
-                                            if ejectingID == item.id { ejectingID = nil }
-                                        }
-                                     }) {
-                                loadingID = item.id
-                                onSelect(item)
-                                Task { @MainActor in
-                                    try? await Task.sleep(for: .seconds(0.5))
-                                    if loadingID == item.id { loadingID = nil }
-                                }
-                            }
+                            modelRow(for: item)
                         }
                     }
                     if cloudHintVisible {
@@ -213,6 +229,29 @@ private struct ModelPickerList: View {
                     }
                 }
                 .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 8)
+            }
+        }
+    }
+
+    /// Builds a `ModelRow` wired to the shared loading/ejecting state.
+    private func modelRow(for item: DiscoveredModel) -> some View {
+        ModelRow(item: item,
+                 isSelected: item.id == selection?.id,
+                 isLoading: loadingID == item.id,
+                 isEjecting: ejectingID == item.id,
+                 onEject: onEject == nil ? nil : {
+                    ejectingID = item.id
+                    onEject!(item)
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(5))
+                        if ejectingID == item.id { ejectingID = nil }
+                    }
+                 }) {
+            loadingID = item.id
+            onSelect(item)
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.5))
+                if loadingID == item.id { loadingID = nil }
             }
         }
     }
@@ -289,6 +328,7 @@ private struct ModelRow: View {
     let onEject: (() -> Void)?
     let onSelect: () -> Void
     @State private var hovering = false
+    @Environment(FavoritesStore.self) private var favorites
 
     private var model: LMStudioModel { item.model }
     private var busy: Bool { isLoading || isEjecting }
@@ -316,6 +356,7 @@ private struct ModelRow: View {
                         .font(.mono(10.5))
                         .foregroundStyle(Theme.textFaint)
                 }
+                starButton
                 if model.isLoaded {
                     if let onEject {
                         Button(action: onEject) {
@@ -342,6 +383,19 @@ private struct ModelRow: View {
         .contentShape(Rectangle())
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
+    }
+
+    private var starButton: some View {
+        let isFav = favorites.isFavorite(model.id)
+        return Button {
+            favorites.toggle(model.id)
+        } label: {
+            Image(systemName: isFav ? "star.fill" : "star")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(isFav ? Theme.amber : Theme.textDim)
+        }
+        .buttonStyle(.plain)
+        .help(isFav ? "Remove from favorites" : "Add to favorites")
     }
 
     @ViewBuilder private var indicator: some View {

@@ -8,8 +8,10 @@ struct ModeloApp: App {
     @State private var reachabilityMonitor: ReachabilityMonitor
     @State private var serverMonitor = ServerMonitor()
     @State private var mcpManager = MCPServerManager()
+    @State private var favoritesStore = FavoritesStore()
     // Drives chat text size; matches the @AppStorage default used in the views.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
 
     init() {
         let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self])
@@ -58,6 +60,7 @@ struct ModeloApp: App {
                 .environment(registry)
                 .environment(serverMonitor)
                 .environment(mcpManager)
+                .environment(favoritesStore)
                 .task { await startMonitoring() }
                 .task { mcpManager.startAll() }
                 .onAppear {
@@ -97,7 +100,7 @@ struct ModeloApp: App {
             }
         }
 
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarChatView()
                 .environment(registry)
                 .environment(serverMonitor)
