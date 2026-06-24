@@ -70,6 +70,12 @@ struct ContentView: View {
             detailView
                 .inspector(isPresented: $inspectorOpen) {
                     inspectorContent
+                        .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
+                        // The console polls GPU/usage stats on a timer, re-rendering this
+                        // subtree every tick. Without clearing the animation, SwiftUI re-asserts
+                        // the column toward `ideal` on each render and the panel visibly slides
+                        // in/out once it has been manually resized away from 300.
+                        .transaction { $0.animation = nil }
                 }
         }
         .navigationTitle("")
@@ -165,7 +171,6 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.Palette.panel)
-            .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
         }
     }
 

@@ -16,9 +16,10 @@ struct ConsoleInspector: View {
     var contextWindow: Int = 0
 
     var body: some View {
+        // Column width is set once on the inspector content in ContentView so a
+        // data-driven re-render of this subtree can't re-assert (and animate) it.
         ServerRecordsConsole(server: server, activeModel: activeModel, snapshot: snapshot, gpu: gpu,
                              contextUsed: contextUsed, contextWindow: contextWindow)
-            .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
     }
 }
 
