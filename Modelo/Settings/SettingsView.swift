@@ -19,6 +19,7 @@ struct SettingsView: View {
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     private let keychain = KeychainStore()
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
 
     private var lmStudioServers: [Server] { servers.filter { $0.kind == .lmStudio } }
     private var openRouterServers: [Server] { servers.filter { $0.kind == .openRouter } }
@@ -145,6 +146,21 @@ struct SettingsView: View {
             }
             .clipped()
             .tabItem { Label("MCP Servers", systemImage: "terminal") }
+
+            // MARK: General
+            ScrollView {
+                VStack(spacing: 12) {
+                    GeneralToggleRow(
+                        icon: "menubar.rectangle",
+                        title: "Menu Bar Icon",
+                        hint: "Show Modelo in the menu bar for quick access to a lightweight chat.",
+                        isOn: $showMenuBarIcon
+                    )
+                }
+                .padding(24)
+            }
+            .clipped()
+            .tabItem { Label("General", systemImage: "gearshape") }
         }
         .background(Theme.windowBG)
         .tint(Theme.amber)
@@ -314,6 +330,39 @@ private struct PersonaSettingsRow: View {
     private var validIcon: String {
         NSImage(systemSymbolName: persona.icon, accessibilityDescription: nil) != nil
             ? persona.icon : "person"
+    }
+}
+
+// MARK: - General toggle row
+
+/// A single on/off preference row: icon, title + caption on the left,
+/// `PillToggle` on the right. Used in the General tab.
+private struct GeneralToggleRow: View {
+    let icon: String
+    let title: String
+    let hint: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.amber)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                Text(hint)
+                    .font(Theme.metric(11))
+                    .foregroundStyle(Theme.textLo)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            PillToggle(isOn: $isOn)
+        }
+        .padding(16)
+        .panel(Theme.popoverBG)
     }
 }
 

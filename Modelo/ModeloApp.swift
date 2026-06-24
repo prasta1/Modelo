@@ -11,6 +11,7 @@ struct ModeloApp: App {
     @State private var favoritesStore = FavoritesStore()
     // Drives chat text size; matches the @AppStorage default used in the views.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
 
     init() {
         let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self])
@@ -99,7 +100,7 @@ struct ModeloApp: App {
             }
         }
 
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarChatView()
                 .environment(registry)
                 .environment(serverMonitor)
