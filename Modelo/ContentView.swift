@@ -46,6 +46,9 @@ struct ContentView: View {
     /// Owns each conversation's streaming session so a turn keeps running after the
     /// user navigates to another chat — enabling concurrent chats.
     @State private var sessionStore = ChatSessionStore()
+    /// Posts reply-finished notifications for chats the user isn't watching; tracks
+    /// which conversation is on screen so the foreground chat stays quiet.
+    @State private var notifier = ChatNotifier()
     @State private var pickedModel: DiscoveredModel?
     @State private var discovered: [DiscoveredModel] = []
     @State private var endpointFilter: UUID?
@@ -85,6 +88,7 @@ struct ContentView: View {
         // Shared across the sidebar and detail so a streaming turn survives chat
         // switches and the sidebar can discard a deleted conversation's session.
         .environment(sessionStore)
+        .environment(notifier)
         .preferredColorScheme(Theme.active.scheme)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
@@ -102,8 +106,8 @@ struct ContentView: View {
             gpuMonitor.start(servers: servers)   // pick up agent-URL / macmon changes
             await refreshModels()
         }
-        .onAppear { restoreRoute() }
-        .onChange(of: route) { saveRoute(route); syncPickedModel() }
+        .onAppear { restoreRoute(); notifier.requestAuthorization(); updateForeground() }
+        .onChange(of: route) { saveRoute(route); syncPickedModel(); updateForeground() }
         .focusedSceneValue(\.modeloCommands, ModeloCommands(
             newChat: { newChat() },
             goToLauncher: { route = .launcher; selectDefaultEndpoint() },
@@ -221,6 +225,16 @@ struct ContentView: View {
             $0.server.id == convo.serverID && $0.model.id == convo.modelID
         }) {
             pickedModel = match
+        }
+    }
+
+    /// Tells the notifier which conversation is on screen, so a reply that finishes
+    /// in the chat the user is watching stays quiet (only background chats notify).
+    private func updateForeground() {
+        if case .conversation(let id) = route {
+            notifier.foreground = id
+        } else {
+            notifier.foreground = nil
         }
     }
 

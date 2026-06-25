@@ -17,6 +17,7 @@ struct ChatView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(MCPServerManager.self) private var mcpManager
     @Environment(ChatSessionStore.self) private var sessionStore
+    @Environment(ChatNotifier.self) private var notifier
     @Environment(\.modelContext) private var context
 
     @State private var draft = ""
@@ -821,6 +822,13 @@ struct ChatView: View {
                                   registry: ToolRegistry(tools),
                                   systemSuffix: artifactsEnabled ? ArtifactInstructions.system : nil,
                                   maxToolRounds: maxToolRounds)
+        // Notify when a reply finishes and the user has moved to another chat/app.
+        // `conversation` is read at completion time so the title/snippet are current.
+        let id = convoID
+        session.onTurnCompleted = { [notifier, conversation] in
+            let reply = conversation.activePath().last { $0.role == .assistant }?.content ?? ""
+            notifier.replyFinished(conversation: id, title: conversation.title ?? "", snippet: reply)
+        }
         sessionStore.setSession(session, for: convoID)
     }
 

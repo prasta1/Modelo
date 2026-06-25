@@ -9,6 +9,10 @@ import SwiftData
 final class ChatSession {
     private(set) var isStreaming = false
     var errorText: String?
+    /// Called on the main actor when a turn finishes replying normally (not after a
+    /// user stop or a transport error). The owning view uses it to post a completion
+    /// notification when the user isn't watching this chat.
+    var onTurnCompleted: (() -> Void)?
     /// Set while a mutating tool call is waiting on the user's approval; the chat view
     /// observes this and shows an approval card. `resume` continues the paused turn.
     var pendingApproval: PendingApproval?
@@ -350,6 +354,10 @@ final class ChatSession {
                 titleTask = Task { await generateTitle(for: conversation, server: server) }
             }
         }
+
+        // The reply landed — let the view surface a notification if the user has
+        // moved on to another chat or app (reached only on normal completion).
+        onTurnCompleted?()
     }
 
     /// Cancels the in-flight title run, if any. Called when the owning view goes
