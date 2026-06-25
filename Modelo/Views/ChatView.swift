@@ -108,7 +108,7 @@ struct ChatView: View {
     }
 
     private var contextWindow: Int {
-        pickedModel?.model.maxContextLength ?? 0
+        boundServer?.contextLength(for: pickedModel?.model.id ?? "") ?? pickedModel?.model.maxContextLength ?? 0
     }
 
     /// The currently-selected branch, root→leaf (§1.2). Siblings on other branches

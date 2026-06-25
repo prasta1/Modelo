@@ -29,6 +29,18 @@ final class Server {
     /// alternative to `metricsAgentURL` (which is for a remote NVIDIA box).
     var localGPU: Bool = false
 
+    // MARK: Per-model context length overrides (§7)
+
+    /// Per-model context length overrides. Lets users explicitly set the context
+    /// window when the API doesn't report it (e.g. llama-swap, /v1/models).
+    @Relationship(inverse: \ModelContextOverride.server) var contextLengthOverrides: [ModelContextOverride] = []
+
+    /// Returns the context length for `modelID`: the user-set override if present,
+    /// otherwise nil (caller falls through to API-reported `maxContextLength`).
+    func contextLength(for modelID: String) -> Int? {
+        contextLengthOverrides.first(where: { $0.modelID == modelID })?.contextLength
+    }
+
     var kind: ServerKind {
         get { ServerKind(rawValue: kindRaw) ?? .lmStudio }
         set { kindRaw = newValue.rawValue }

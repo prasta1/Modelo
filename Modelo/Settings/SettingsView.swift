@@ -645,6 +645,7 @@ private struct ServerSettingsRow: View {
     @State private var apiKey = ""
     @State private var isKeyRevealed = false
     @State private var needsAuth = false
+    @Environment(\.modelContext) private var modelContext
     private let keychain = KeychainStore()
     private var keychainAccount: String { Endpoint.keychainAccount(for: server) }
 
@@ -756,6 +757,41 @@ private struct ServerSettingsRow: View {
                 .font(Theme.metric(10))
                 .foregroundStyle(Theme.textFaint)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // MARK: - Context Window (§7)
+
+            SettingsSection("Context Window") {
+                Text("Per-model context lengths. Set when the API doesn't report `max_context_length` (e.g. llama-swap, /v1/models fallback). The chat's context bar reads these first.")
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if server.contextLengthOverrides.isEmpty {
+                    Button(action: addContextWindow) {
+                        Label("Add Context Window", systemImage: "plus")
+                            .font(Theme.metric(12))
+                            .foregroundStyle(Theme.amber)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                } else {
+                    List {
+                        ForEach(server.contextLengthOverrides) { override in
+                            contextWindowRow(override)
+                        }
+                    }
+                    .listStyle(.plain)
+                    .frame(height: CGFloat(min(server.contextLengthOverrides.count, 6) * 44 + 8))
+
+                    Button(action: addContextWindow) {
+                        Label("Add Context Window", systemImage: "plus")
+                            .font(Theme.metric(12))
+                            .foregroundStyle(Theme.amber)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                }
+            }
         }
         .padding(16)
         .panel(Theme.popoverBG)
@@ -770,6 +806,92 @@ private struct ServerSettingsRow: View {
         .onChange(of: apiKey) { _, newValue in
             keychain.set(newValue.isEmpty ? nil : newValue, account: keychainAccount)
         }
+    }
+
+    // MARK: - Context Window helpers
+
+    private func addContextWindow() {
+        // Pre-populate with the most common model ID from recent conversations on this server
+        let availableModels = modelsForServer(server.id)
+        let suggestedModelID = availableModels.first ?? ""
+        let override = ModelContextOverride(
+            modelID: suggestedModelID,
+            contextLength: suggestedModelID.isEmpty ? 32768 : 131072,
+            serverID: server.id
+        )
+        server.contextLengthOverrides.append(override)
+        try? modelContext.save()
+    }
+
+    /// Returns unique model IDs from conversations for the given server, sorted by frequency (most common first).
+    private func modelsForServer(_ serverID: UUID) -> [String] {
+        let descriptor = FetchDescriptor<Conversation>(
+            predicate: #Predicate<Conversation> { $0.serverID == serverID }
+        )
+        guard let conversations = try? modelContext.fetch(descriptor) else { return [] }
+
+        // Count occurrences of each model ID
+        var counts: [String: Int] = [:]
+        for conv in conversations {
+            guard !conv.modelID.isEmpty else { continue }
+            counts[conv.modelID, default: 0] += 1
+        }
+
+        // Sort by frequency (most common first), then alphabetically
+        return counts.sorted { $0.value > $1.value || ($0.value == $1.value && $0.key < $1.key) }
+            .map(\.key)
+    }
+
+    private func contextWindowRow(_ override: ModelContextOverride) -> some View {
+        let availableModels = modelsForServer(server.id)
+
+        return HStack(spacing: 8) {
+            if availableModels.isEmpty {
+                // Fallback to text field if no models found in conversations
+                TextField("Model ID", text: Binding<String>(
+                    get: { override.modelID },
+                    set: { override.modelID = $0 }
+                ))
+                .textFieldStyle(.plain)
+                .font(Theme.metric(11))
+                .foregroundStyle(override.modelID.isEmpty ? Theme.textFaint : Theme.textHi)
+                .frame(maxWidth: 180)
+            } else {
+                Picker("", selection: Binding<String>(
+                    get: { override.modelID },
+                    set: { override.modelID = $0 }
+                )) {
+                    ForEach(availableModels, id: \.self) { modelID in
+                        Text(modelID).tag(modelID)
+                    }
+                }
+                .frame(maxWidth: 220, alignment: .leading)
+                .labelsHidden()
+            }
+
+            TextField("Tokens", value: Binding<Int>(
+                get: { override.contextLength },
+                set: { override.contextLength = $0 }
+            ), format: .number.grouping(.never))
+            .textFieldStyle(.plain)
+            .font(Theme.mono(11))
+            .foregroundStyle(Theme.amber)
+            .frame(width: 90)
+
+            Spacer(minLength: 0)
+
+            Button(action: {
+                server.contextLengthOverrides.removeAll(where: { $0.id == override.id })
+                try? modelContext.save()
+            }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.Palette.alert.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Remove context window")
+        }
+        .padding(.vertical, 4)
     }
 
     /// Runtime selector styled as a chip. Lists the local runtimes only
