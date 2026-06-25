@@ -103,6 +103,8 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     FilesystemToolsCard()
+                    // Tool call limit configuration
+                    ToolCallLimitCard()
                     ArtifactsCard()
                     KeyCard(caption: "Firecrawl API key",
                             placeholder: "fc-…",
@@ -1380,5 +1382,122 @@ private struct CatalogEntryRow: View {
         case .needsPath: return "folder"
         case .needsKey:  return "key.fill"
         }
+    }
+}
+
+/// Card for configuring the global tool call limit per round
+private struct ToolCallLimitCard: View {
+    @AppStorage("globalMaxToolRounds") private var globalMaxToolRounds: Int = 5
+    @State private var showingAlert = false
+    @State private var tempValue: Int = 5
+    @State private var pendingValue: Int? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "doc.richtext")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.amber)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Tool call limit per round")
+                        .font(Theme.metric(12))
+                        .foregroundStyle(Theme.textHi)
+                    Text("Maximum number of tool calls per streaming turn (5-20). Higher values allow more complex reasoning but increase processing time.")
+                        .font(Theme.metric(10))
+                        .foregroundStyle(Theme.textFaint)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("Current: \(globalMaxToolRounds)")
+                        .font(Theme.code(11))
+                        .foregroundStyle(Theme.textDim)
+                    Button(action: startEditing) {
+                        Text("Edit")
+                            .font(Theme.metric(11))
+                            .foregroundStyle(Theme.amber)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(showingAlert)
+                }
+            }
+            .padding(16)
+            .panel(Theme.popoverBG)
+
+            if showingAlert {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Tool call limit per round")
+                        .font(Theme.metric(12))
+                        .foregroundStyle(Theme.textHi)
+
+                    HStack {
+                        TextField("5", text: Binding(
+                            get: { String(tempValue) },
+                            set: { if let value = Int($0), value >= 5 { tempValue = value } }
+                        ))
+                        .textFieldStyle(.plain)
+                        .frame(width: 60)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Theme.windowBG, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+
+                        VStack(spacing: 4) {
+                            Button { applyValue(20) } label: { Text("20").font(.system(size: 11)) }
+                                .buttonStyle(.plain).frame(width: 30, height: 20)
+                            Button { applyValue(10) } label: { Text("10").font(.system(size: 11)) }
+                                .buttonStyle(.plain).frame(width: 30, height: 20)
+                            Button { applyValue(5) } label: { Text("5").font(.system(size: 11)) }
+                                .buttonStyle(.plain).frame(width: 30, height: 20)
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        Spacer()
+                        Button("Cancel", action: cancelEditing)
+                            .buttonStyle(.plain)
+                            .font(Theme.metric(11))
+                            .foregroundStyle(Theme.textLo)
+                        Button("Apply", action: applyEditing)
+                            .buttonStyle(.plain)
+                            .font(Theme.metric(11).weight(.semibold))
+                            .foregroundStyle(Theme.amber)
+                    }
+                }
+                .padding(12)
+                .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(Theme.amberBorder, lineWidth: 1))
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            Text("When changed, the new limit applies to new chats. Existing chats will use their current limit until reset.")
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func startEditing() {
+        tempValue = globalMaxToolRounds
+        showingAlert = true
+    }
+
+    private func applyValue(_ value: Int) {
+        tempValue = value
+    }
+
+    private func applyEditing() {
+        guard tempValue != globalMaxToolRounds else { showingAlert = false; return }
+        globalMaxToolRounds = tempValue
+        pendingValue = tempValue
+        showingAlert = false
+        // Notify ChatSession instances of the change
+        NotificationCenter.default.post(name: .toolCallLimitChanged, object: nil)
+    }
+
+    private func cancelEditing() {
+        showingAlert = false
     }
 }

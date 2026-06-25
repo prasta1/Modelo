@@ -54,14 +54,53 @@ struct ChatView: View {
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
     @AppStorage("globalSamplingJSON") private var globalSamplingJSON = "{}"
+    // Tool call limit per round — configurable globally and per chat.
+    @AppStorage("globalMaxToolRounds") private var globalMaxToolRounds: Int = 5
     // First-party filesystem/shell tools — opt-in, off by default (Settings ▸ Tools).
     @AppStorage(FSToolSettings.enabledKey) private var fsToolsEnabled = false
     @AppStorage(FSToolSettings.shellKey)   private var shellToolEnabled = false
     @AppStorage(FSToolSettings.rootKey)    private var fsToolsRoot = ""
+    
+    /// Use EnhancedChatSession for additional features
+    private var sessionType: EnhancedChatSession.Type {
+        EnhancedChatSession.self
+    }
+    
+    /// Sync global tool call limit to EnhancedChatSession's global default
+    private func syncToolCallLimit() {
+        EnhancedChatSession.globalMaxToolRounds = globalMaxToolRounds
+    }
+    // Tool call limit for this chat (can be overridden from settings)
+    @State private var toolCallLimit: Int = 5
+    // Listener for global tool call limit changes
+    private var toolCallLimitListener: NSObjectProtocol?
     @Query(sort: \Preset.sortOrder) private var presets: [Preset]
     @State private var showSampling = false
     @State private var showBenchmark = false
-
+    @State private var toolCallLimit: Int = 5
+    @State private var globalMaxToolRounds: Int = 5
+    private var toolCallLimitListener: NSObjectProtocol?
+    
+    /// Use ChatSession for the base functionality
+    @State private var session: ChatSession?
+    
+    /// Sync global tool call limit to ChatSession's global default
+    private func syncToolCallLimit() {
+        ChatSession.globalMaxToolRounds = globalMaxToolRounds
+    }
+    
+    private func setupToolCallLimitListener() {
+        toolCallLimitListener = NotificationCenter.default.addObserver(
+            forName: .toolCallLimitChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.toolCallLimit = ChatSession.globalMaxToolRounds
+            if let session = self?.session {
+                session.updateToolCallLimit(ChatSession.globalMaxToolRounds)
+            }
+        }
+    }
 
     /// The server to send to. Prefer the header's picked model — it's the user's live
     /// selection — so a send always goes where the header says, not a stale persisted
@@ -69,6 +108,16 @@ struct ChatView: View {
     private var boundServer: Server? {
         pickedModel?.server
             ?? discovered.first { $0.server.id == conversation.serverID }?.server
+    }
+    
+    /// Update tool call limit when global setting changes
+    private func setupToolCallLimitListener() {
+        NotificationCenter.default.addObserver(forName: .toolCallLimitChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.toolCallLimit = ChatSession.globalMaxToolRounds
+            if let session = self?.session {
+                session.updateToolCallLimit(ChatSession.globalMaxToolRounds)
+            }
+        }
     }
 
     /// Sync the conversation's model/server to the header selection so the resolved
@@ -802,12 +851,16 @@ struct ChatView: View {
         // Expose ~/.agents skills via a use_skill tool (§3.7).
         let skills = AgentsLoader.loadSkills()
         if !skills.isEmpty { tools.append(UseSkillTool(skills: skills)) }
+        // Sync global tool call limit to ChatSession's global default
+        syncToolCallLimit()
+        toolCallLimit = globalMaxToolRounds
         session = ChatSession(client: LMStudioClient.shared, context: context,
                               recorder: UsageRecorder(context: context),
                               keychain: keychain,
                               registry: ToolRegistry(tools),
                               systemSuffix: artifactsEnabled ? ArtifactInstructions.system : nil)
         composerFocused = true
+        setupToolCallLimitListener()
     }
 
     /// Cancels any in-flight streaming + titling when this view goes away (the
