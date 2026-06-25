@@ -48,15 +48,27 @@ xcodebuild -project Modelo2.xcodeproj -scheme Modelo2 \
   CODE_SIGNING_ALLOWED=NO test
 ```
 
-**Build a signed Release and install to /Applications** (on Heath's laptop the
-"Apple Development" identity for team `WXQ53X7LZ7` signs automatically — drop the
-`CODE_SIGNING_*` overrides so signing runs):
+**Build a signed Release and install to /Applications.** `project.yml` pins
+`DEVELOPMENT_TEAM` to `WXQ53X7LZ7`, which does *not* match the dev certificate on
+this machine, so automatic signing fails from the CLI (`No signing certificate
+"Mac Development" found`). Sign manually against the local "Apple Development"
+identity instead — a non-sandboxed Mac app needs no provisioning profile. The
+snippet below finds the identity's SHA-1 and builds + installs with it:
 
 ```bash
+xcodegen generate   # only needed if files were added/removed
+# Resolve the local code-signing identity (see all with: security find-identity -v -p codesigning)
+SIGN_ID=$(security find-identity -v -p codesigning | awk '/Apple Development/{print $2; exit}')
 xcodebuild -project Modelo2.xcodeproj -scheme Modelo2 -configuration Release \
-  -destination 'platform=macOS' -derivedDataPath build-release build
+  -destination 'platform=macOS' -derivedDataPath build-release build \
+  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$SIGN_ID" PROVISIONING_PROFILE_SPECIFIER=""
+osascript -e 'tell application "ModeloDos" to quit' 2>/dev/null   # free the running copy
+rm -rf /Applications/ModeloDos.app
 cp -R build-release/Build/Products/Release/ModeloDos.app /Applications/
+open /Applications/ModeloDos.app
 ```
 
-The installed app is `/Applications/ModeloDos.app`. Keep `build/` and `build-release/`
-gitignored. Quit a running copy before overwriting it in `/Applications`.
+The installed app is `/Applications/ModeloDos.app`; `codesign --verify --verbose
+/Applications/ModeloDos.app` should report it valid. Keep `build/` and
+`build-release/` gitignored. The keychain must be unlocked, so run this in an
+interactive shell (the `!` prefix in Claude Code works).
