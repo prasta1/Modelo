@@ -43,6 +43,9 @@ struct ContentView: View {
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @State private var route: SidebarRoute?
+    /// Owns each conversation's streaming session so a turn keeps running after the
+    /// user navigates to another chat — enabling concurrent chats.
+    @State private var sessionStore = ChatSessionStore()
     @State private var pickedModel: DiscoveredModel?
     @State private var discovered: [DiscoveredModel] = []
     @State private var endpointFilter: UUID?
@@ -79,6 +82,9 @@ struct ContentView: View {
                 }
         }
         .navigationTitle("")
+        // Shared across the sidebar and detail so a streaming turn survives chat
+        // switches and the sidebar can discard a deleted conversation's session.
+        .environment(sessionStore)
         .preferredColorScheme(Theme.active.scheme)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
