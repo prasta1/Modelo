@@ -9,11 +9,21 @@ import SwiftData
 final class ChatSession {
     private(set) var isStreaming = false
     var errorText: String?
+    /// Called on the main actor when a turn finishes replying normally (not after a
+    /// user stop or a transport error). The owning view uses it to post a completion
+    /// notification when the user isn't watching this chat.
+    var onTurnCompleted: (() -> Void)?
     /// Set while a mutating tool call is waiting on the user's approval; the chat view
     /// observes this and shows an approval card. `resume` continues the paused turn.
     var pendingApproval: PendingApproval?
 
-    static let maxToolRounds = 5
+    /// Default cap on agentic tool rounds per turn, used when a session doesn't
+    /// specify one. Mirrors the `globalMaxToolRounds` UserDefaults default.
+    static let defaultMaxToolRounds = 5
+    /// Max agentic tool rounds this turn may run before the loop stops with a
+    /// notice. Configurable per session and seeded from the global default
+    /// (Settings ▸ Tools); the owning view keeps it in sync with the setting.
+    var maxToolRounds: Int
     /// Above this many registered tools, switch to progressive disclosure.
     static let progressiveThreshold = 8
     /// How many relevant tools to pre-select for the model each turn (progressive mode).
@@ -68,13 +78,15 @@ final class ChatSession {
     init(client: any ChatProvider, context: ModelContext, recorder: UsageRecorder,
          keychain: KeychainStore = KeychainStore(),
          registry: ToolRegistry = ToolRegistry([]),
-         systemSuffix: String? = nil) {
+         systemSuffix: String? = nil,
+         maxToolRounds: Int = defaultMaxToolRounds) {
         self.client = client
         self.context = context
         self.recorder = recorder
         self.keychain = keychain
         self.registry = registry
         self.systemSuffix = systemSuffix
+        self.maxToolRounds = maxToolRounds
     }
 
     /// Sends `text` in `conversation`, routed to `server`. Runs the agentic loop:
@@ -293,8 +305,8 @@ final class ChatSession {
             try? context.save()
 
             round += 1
-            if round >= Self.maxToolRounds {
-                errorText = "Reached the tool-call limit (\(Self.maxToolRounds)) for this turn."
+            if round >= maxToolRounds {
+                errorText = "Reached the tool-call limit (\(maxToolRounds)) for this turn."
                 break
             }
         }
@@ -342,6 +354,10 @@ final class ChatSession {
                 titleTask = Task { await generateTitle(for: conversation, server: server) }
             }
         }
+
+        // The reply landed — let the view surface a notification if the user has
+        // moved on to another chat or app (reached only on normal completion).
+        onTurnCompleted?()
     }
 
     /// Cancels the in-flight title run, if any. Called when the owning view goes

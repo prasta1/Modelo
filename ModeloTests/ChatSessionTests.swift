@@ -160,7 +160,33 @@ final class ChatSessionTests: XCTestCase {
 
         await session.send("loop", in: convo, server: server, modelSupportsTools: true)
 
-        XCTAssertEqual(provider.callCount, ChatSession.maxToolRounds)
+        XCTAssertEqual(provider.callCount, session.maxToolRounds)
         XCTAssertNotNil(session.errorText)
+    }
+
+    func test_send_respectsConfiguredToolRoundLimit() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c", name: "echo", arguments: "{}")])]   // never stops asking
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([EchoTool(reply: "x")]),
+                                  maxToolRounds: 2)
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("loop", in: convo, server: server, modelSupportsTools: true)
+
+        // Stops after exactly the configured number of rounds, not the default.
+        XCTAssertEqual(provider.callCount, 2)
+        XCTAssertNotNil(session.errorText)
+    }
+
+    func test_init_defaultsToolRoundsToGlobalDefault() {
+        let context = try! makeContext()
+        let session = ChatSession(client: FakeProvider(events: []), context: context,
+                                  recorder: UsageRecorder(context: context))
+        XCTAssertEqual(session.maxToolRounds, ChatSession.defaultMaxToolRounds)
     }
 }

@@ -11,6 +11,7 @@ import SwiftData
 /// Selection is driven manually by writing `route` / `endpointFilter` on tap.
 struct SidebarView: View {
     @Environment(ServerRegistry.self) private var registry
+    @Environment(ChatSessionStore.self) private var sessionStore
     @Environment(\.modelContext) private var context
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
@@ -547,6 +548,9 @@ struct SidebarView: View {
         if case .conversation(let id) = route, id == convo.persistentModelID {
             route = nil
         }
+        // Cancel and drop any streaming session so it can't keep writing to the
+        // now-deleted conversation (it no longer gets torn down by leaving the chat).
+        sessionStore.discard(convo.persistentModelID)
         context.delete(convo)
         try? context.save()
     }

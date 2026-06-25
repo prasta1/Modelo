@@ -103,6 +103,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     FilesystemToolsCard()
+                    ToolRoundsCard()
                     ArtifactsCard()
                     KeyCard(caption: "Firecrawl API key",
                             placeholder: "fc-…",
@@ -389,6 +390,33 @@ private struct PresetsSettingsTab: View {
 
 /// Toggles the artifact behavior (§2.4): when on, the model is taught to emit
 /// `<artifact>` blocks that render in the side panel instead of inline.
+/// Global cap on agentic tool rounds per turn. Seeds every new `ChatSession` and
+/// updates open chats live (`ChatView` observes the same key).
+private struct ToolRoundsCard: View {
+    @AppStorage("globalMaxToolRounds") private var maxRounds = ChatSession.defaultMaxToolRounds
+
+    var body: some View {
+        SettingsSection("Tool-call limit") {
+            VStack(alignment: .leading, spacing: 8) {
+                Stepper(value: $maxRounds, in: 1...20) {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                            Text("How many tool rounds a model may run before the turn stops with a notice.")
+                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                        }
+                        Spacer(minLength: 8)
+                        Text("\(maxRounds)").font(.mono(13)).foregroundStyle(Theme.amber).monospacedDigit()
+                    }
+                }
+                Text("Higher allows more complex multi-step tool use but can run longer. Applies to new chats immediately; open chats update live.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 private struct ArtifactsCard: View {
     @AppStorage("artifactsEnabled") private var enabled = true
 

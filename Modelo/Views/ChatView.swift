@@ -16,10 +16,10 @@ struct ChatView: View {
     let onModelEject: ((DiscoveredModel) async -> Void)?
     @Environment(ServerRegistry.self) private var registry
     @Environment(MCPServerManager.self) private var mcpManager
+    @Environment(ChatSessionStore.self) private var sessionStore
+    @Environment(ChatNotifier.self) private var notifier
     @Environment(\.modelContext) private var context
 
-    @State private var session: ChatSession?
-    @State private var sendTask: Task<Void, Never>?
     @State private var draft = ""
     @State private var pendingAttachments: [MessageAttachment] = []
     @State private var isDragTarget = false
@@ -54,6 +54,9 @@ struct ChatView: View {
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Global sampling defaults (JSON-encoded SamplingParams), edited in Settings ▸ Sampling.
     @AppStorage("globalSamplingJSON") private var globalSamplingJSON = "{}"
+    // Max agentic tool rounds per turn — configurable in Settings ▸ Tools, applied to
+    // the session at creation and kept in sync while the chat is open.
+    @AppStorage("globalMaxToolRounds") private var maxToolRounds = ChatSession.defaultMaxToolRounds
     // First-party filesystem/shell tools — opt-in, off by default (Settings ▸ Tools).
     @AppStorage(FSToolSettings.enabledKey) private var fsToolsEnabled = false
     @AppStorage(FSToolSettings.shellKey)   private var shellToolEnabled = false
@@ -62,6 +65,11 @@ struct ChatView: View {
     @State private var showSampling = false
     @State private var showBenchmark = false
 
+    /// Identity key for this conversation's session/task in the shared store.
+    private var convoID: PersistentIdentifier { conversation.persistentModelID }
+    /// The streaming session for this conversation, owned by the store so a turn
+    /// survives this view being torn down when the user switches chats (concurrency).
+    private var session: ChatSession? { sessionStore.session(for: convoID) }
 
     /// The server to send to. Prefer the header's picked model — it's the user's live
     /// selection — so a send always goes where the header says, not a stale persisted
@@ -162,7 +170,10 @@ struct ChatView: View {
         .animation(.easeOut(duration: 0.18), value: openArtifactID == nil)
         .background(Theme.windowBG)
         .onAppear { ensureSession() }
-        .onDisappear { cancelInFlight() }
+        // No .onDisappear cancel: a turn keeps streaming after the user leaves the
+        // chat, so multiple conversations can run at once (the store owns it).
+        // Keep an open chat's tool-call cap in sync with the Settings ▸ Tools value.
+        .onChange(of: maxToolRounds) { session?.maxToolRounds = maxToolRounds }
         .onChange(of: openArtifactID) { old, new in
             if let new { lastArtifactID = new }
             withAnimation(.easeOut(duration: 0.2)) {
@@ -788,6 +799,9 @@ struct ChatView: View {
     // MARK: Session plumbing (unchanged behavior)
 
     private func ensureSession() {
+        composerFocused = true
+        // Reuse a session already streaming for this conversation (the user came back
+        // to a chat whose turn kept running while they were away).
         guard session == nil else { return }
         let keychain = KeychainStore()
         var tools: [any Tool] = []
@@ -802,24 +816,25 @@ struct ChatView: View {
         // Expose ~/.agents skills via a use_skill tool (§3.7).
         let skills = AgentsLoader.loadSkills()
         if !skills.isEmpty { tools.append(UseSkillTool(skills: skills)) }
-        session = ChatSession(client: LMStudioClient.shared, context: context,
-                              recorder: UsageRecorder(context: context),
-                              keychain: keychain,
-                              registry: ToolRegistry(tools),
-                              systemSuffix: artifactsEnabled ? ArtifactInstructions.system : nil)
-        composerFocused = true
-    }
-
-    /// Cancels any in-flight streaming + titling when this view goes away (the
-    /// user switched conversations), so abandoned work doesn't run to completion.
-    private func cancelInFlight() {
-        sendTask?.cancel()
-        session?.cancelPendingWork()
+        let session = ChatSession(client: LMStudioClient.shared, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  keychain: keychain,
+                                  registry: ToolRegistry(tools),
+                                  systemSuffix: artifactsEnabled ? ArtifactInstructions.system : nil,
+                                  maxToolRounds: maxToolRounds)
+        // Notify when a reply finishes and the user has moved to another chat/app.
+        // `conversation` is read at completion time so the title/snippet are current.
+        let id = convoID
+        session.onTurnCompleted = { [notifier, conversation] in
+            let reply = conversation.activePath().last { $0.role == .assistant }?.content ?? ""
+            notifier.replyFinished(conversation: id, title: conversation.title ?? "", snippet: reply)
+        }
+        sessionStore.setSession(session, for: convoID)
     }
 
     /// Stops the current streaming turn on demand (the composer's stop button).
     private func stop() {
-        sendTask?.cancel()
+        sessionStore.cancelTask(for: convoID)
     }
 
     /// Drops a past user turn back into the composer (focused) so it can be edited
@@ -924,14 +939,15 @@ struct ChatView: View {
             session.errorText = "Pick a model before regenerating."
             return
         }
-        sendTask = Task {
+        let id = convoID
+        sessionStore.setTask(Task {
             await session.regenerate(message, in: conversation, server: server,
                                      serverOnline: registry.isOnline(server),
                                      modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
                                      sampling: effectiveSampling, contextWindow: contextWindow)
-            sendTask = nil
+            sessionStore.setTask(nil, for: id)
             drainQueue()
-        }
+        }, for: id)
     }
 
     /// Sends the next queued message once the current turn finishes (§3.3).
@@ -974,15 +990,16 @@ struct ChatView: View {
         draft = ""
         pendingAttachments = []
         editingSource = nil
-        sendTask = Task {
+        let id = convoID
+        sessionStore.setTask(Task {
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
                                sampling: effectiveSampling, contextWindow: contextWindow,
                                replacing: edited)
-            sendTask = nil
+            sessionStore.setTask(nil, for: id)
             drainQueue()
-        }
+        }, for: id)
     }
 }
 
