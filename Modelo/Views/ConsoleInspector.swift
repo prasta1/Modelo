@@ -10,10 +10,16 @@ struct ConsoleInspector: View {
     let server: Server
     let activeModel: LMStudioModel?
     let snapshot: ModelSnapshot?
+    var gpu: GPUSnapshot? = nil
+    /// Active conversation's context usage, for the context meter (0 hides it).
+    var contextUsed: Int = 0
+    var contextWindow: Int = 0
 
     var body: some View {
-        ServerRecordsConsole(server: server, activeModel: activeModel, snapshot: snapshot)
-            .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
+        // Column width is set once on the inspector content in ContentView so a
+        // data-driven re-render of this subtree can't re-assert (and animate) it.
+        ServerRecordsConsole(server: server, activeModel: activeModel, snapshot: snapshot, gpu: gpu,
+                             contextUsed: contextUsed, contextWindow: contextWindow)
     }
 }
 
@@ -23,12 +29,19 @@ private struct ServerRecordsConsole: View {
     let server: Server
     let activeModel: LMStudioModel?
     let snapshot: ModelSnapshot?
+    let gpu: GPUSnapshot?
+    let contextUsed: Int
+    let contextWindow: Int
     @Query private var records: [UsageRecord]
 
-    init(server: Server, activeModel: LMStudioModel?, snapshot: ModelSnapshot?) {
+    init(server: Server, activeModel: LMStudioModel?, snapshot: ModelSnapshot?, gpu: GPUSnapshot?,
+         contextUsed: Int, contextWindow: Int) {
         self.server = server
         self.activeModel = activeModel
         self.snapshot = snapshot
+        self.gpu = gpu
+        self.contextUsed = contextUsed
+        self.contextWindow = contextWindow
         let label = server.label
         _records = Query(
             filter: #Predicate<UsageRecord> { $0.serverLabel == label },
@@ -38,7 +51,8 @@ private struct ServerRecordsConsole: View {
 
     var body: some View {
         let rollup = InferenceRollup.compute(from: Array(records.prefix(20)).reversed())
-        ConsolePanel(server: server, activeModel: activeModel, snapshot: snapshot, rollup: rollup)
+        ConsolePanel(server: server, activeModel: activeModel, snapshot: snapshot, gpu: gpu,
+                     rollup: rollup, contextUsed: contextUsed, contextWindow: contextWindow)
     }
 }
 
@@ -48,7 +62,10 @@ struct ConsolePanel: View {
     let server: Server
     let activeModel: LMStudioModel?
     let snapshot: ModelSnapshot?
+    var gpu: GPUSnapshot? = nil
     let rollup: InferenceRollup
+    var contextUsed: Int = 0
+    var contextWindow: Int = 0
 
     /// The model to display — prefer the one the user actually picked in the
     /// chat header over whatever LM Studio happened to report as loaded.
@@ -65,6 +82,26 @@ struct ConsolePanel: View {
                     LoadedModelRow(model: model)
                 } else {
                     NoModelRow()
+                }
+            }
+
+            // Context window usage for the active chat.
+            if contextWindow > 0 {
+                Divider().overlay(Theme.Palette.strokeStrong)
+                ContextBar(used: contextUsed, window: contextWindow)
+            }
+
+            // Live GPU telemetry for the active server (modelo-tap agent or macmon).
+            if let gpu {
+                Divider().overlay(Theme.Palette.strokeStrong)
+                Eyebrow("GPU")
+                HStack(spacing: 20) {
+                    miniStat("VRAM", value: String(format: "%.0f/%.0f GB", gpu.vramUsedGB, gpu.vramTotalGB))
+                    miniStat("Util", value: String(format: "%.0f%%", gpu.utilPct))
+                }
+                HStack(spacing: 20) {
+                    miniStat("Power", value: String(format: "%.0f W", gpu.powerW))
+                    miniStat("Temp", value: String(format: "%.0f°C", gpu.tempC))
                 }
             }
 
@@ -94,10 +131,10 @@ struct ConsolePanel: View {
 
                 // TTFT
                 MetricStat(
-                    label: "Time to First Token · ms",
-                    last: rollup.lastTTFTms.map { "\($0)" },
-                    avg:  rollup.avgTTFTms.map  { String(format: "%.0f", $0) },
-                    peak: rollup.peakTTFTms.map { "\($0)" }
+                    label: "Time to First Token · s",
+                    last: rollup.lastTTFTms.map { String(format: "%.2f", Double($0) / 1000) },
+                    avg:  rollup.avgTTFTms.map  { String(format: "%.2f", $0 / 1000) },
+                    peak: rollup.peakTTFTms.map { String(format: "%.2f", Double($0) / 1000) }
                 )
                 if !rollup.ttftHistory.isEmpty {
                     TTFTChart(values: rollup.ttftHistory)

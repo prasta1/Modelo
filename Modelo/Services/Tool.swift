@@ -7,9 +7,29 @@ protocol Tool: Sendable {
     var name: String { get }
     var description: String { get }
     var parameters: JSONSchema { get }
+    /// Whether running this tool changes state (writes a file, runs a command). Mutating
+    /// tools are gated behind a user confirmation before they execute.
+    var isMutating: Bool { get }
+    /// A human-readable preview of what running the tool will do, shown in the
+    /// confirmation card. Non-mutating tools return nil and run without a prompt.
+    func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview?
     /// `argumentsJSON` is the raw JSON the model produced for the call.
     /// Returns content for the model (markdown/text). Throwing is caught by the registry.
     func execute(argumentsJSON: String) async throws -> String
+}
+
+extension Tool {
+    var isMutating: Bool { false }
+    func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview? { nil }
+}
+
+/// A preview of a pending mutating tool call, surfaced in the in-chat approval card.
+struct ToolApprovalPreview: Sendable, Equatable, Identifiable {
+    enum Kind: Sendable, Equatable { case write, edit, shell }
+    let id = UUID()
+    let kind: Kind
+    let title: String    // e.g. "Write src/notes.md" or "Run command"
+    let detail: String   // file content, a diff, or the shell command — shown monospaced
 }
 
 /// Minimal JSON-Schema object description — enough for the built-in tools.

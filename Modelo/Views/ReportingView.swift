@@ -6,6 +6,8 @@ import Charts
 /// charts, and per-model / per-server tables, aggregated over a selectable window.
 struct ReportingView: View {
     @Query(sort: \UsageRecord.timestamp, order: .reverse) private var all: [UsageRecord]
+    @Environment(\.modelContext) private var context
+    @AppStorage(UsageRetention.key) private var retentionDays = 0
     @State private var timeRange: ReportCalculator.TimeRange = .week
 
     private var records: [UsageRecord]             { timeRange.filter(all) }
@@ -28,6 +30,15 @@ struct ReportingView: View {
         )
     }
 
+    /// Prunes on the next runloop tick so the delete+save never mutates the backing
+    /// `@Query` synchronously inside a tap/onChange, which would flash the UI.
+    private func prune() {
+        let days = retentionDays
+        Task { @MainActor in
+            UsageRetention.prune(in: context, retentionDays: days)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -42,7 +53,7 @@ struct ReportingView: View {
                         statTile("Tokens",     tokenString(summary.totalTokens))
                         statTile("Avg tok/s",  summary.avgTokPerSec.map  { String(format: "%.0f", $0) } ?? "—")
                         statTile("Peak tok/s", summary.peakTokPerSec.map { String(format: "%.0f", $0) } ?? "—")
-                        statTile("Avg TTFT",   summary.avgTTFTms.map     { String(format: "%.0f ms", $0) } ?? "—")
+                        statTile("Avg TTFT",   summary.avgTTFTms.map     { String(format: "%.2f s", $0 / 1000) } ?? "—")
                     }
                     if days.count > 1 {
                         chartSection("Requests / day", trailing: "\(summary.totalRequests)") { RequestsChart(buckets: days) }
@@ -57,6 +68,8 @@ struct ReportingView: View {
             .padding(.vertical, 24)
         }
         .background(Theme.windowBG)
+        .onAppear(perform: prune)
+        .onChange(of: retentionDays) { prune() }
     }
 
     // MARK: - Header
@@ -67,10 +80,42 @@ struct ReportingView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Theme.textHi)
             Spacer()
+            retentionControl
             SegmentedPills(options: ReportCalculator.TimeRange.allCases.map(\.rawValue),
                            selection: rangeSelection,
                            boxed: true)
         }
+    }
+
+    /// Usage-retention options (§3.4); `days == 0` keeps everything forever.
+    private static let retentionOptions: [(label: String, days: Int)] =
+        [("∞", 0), ("7d", 7), ("14d", 14), ("30d", 30), ("60d", 60), ("90d", 90)]
+
+    /// Always-visible retention selector. Uses `SegmentedPills` (not a `Menu`) so a
+    /// re-render — e.g. the prune mutating the `@Query` that backs this page — can't
+    /// dismiss an open popover mid-selection.
+    private var retentionControl: some View {
+        HStack(spacing: 7) {
+            Text("KEEP")
+                .font(.mono(9.5)).tracking(1.2)
+                .foregroundStyle(Theme.textDim)
+            SegmentedPills(options: Self.retentionOptions.map(\.label),
+                           selection: retentionSelection,
+                           boxed: true)
+        }
+        .help("How long to keep usage records before pruning them. ∞ = keep forever.")
+    }
+
+    /// Bridges the `Int` retention days to the string-based `SegmentedPills`.
+    private var retentionSelection: Binding<String> {
+        Binding(
+            get: { Self.retentionOptions.first { $0.days == retentionDays }?.label ?? "∞" },
+            set: { new in
+                if let match = Self.retentionOptions.first(where: { $0.label == new }) {
+                    retentionDays = match.days
+                }
+            }
+        )
     }
 
     // MARK: - Stat tiles

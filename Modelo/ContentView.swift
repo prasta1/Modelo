@@ -39,11 +39,18 @@ extension FocusedValues {
 struct ContentView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
+    @Environment(GPUMonitor.self) private var gpuMonitor
     @Environment(\.modelContext) private var context
     @Environment(ProjectStore.self) private var projectStore
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @State private var route: SidebarRoute?
+    /// Owns each conversation's streaming session so a turn keeps running after the
+    /// user navigates to another chat — enabling concurrent chats.
+    @State private var sessionStore = ChatSessionStore()
+    /// Posts reply-finished notifications for chats the user isn't watching; tracks
+    /// which conversation is on screen so the foreground chat stays quiet.
+    @State private var notifier = ChatNotifier()
     @State private var pickedModel: DiscoveredModel?
     @State private var discovered: [DiscoveredModel] = []
     @State private var endpointFilter: UUID?
@@ -71,10 +78,20 @@ struct ContentView: View {
             detailView
                 .inspector(isPresented: $inspectorOpen) {
                     inspectorContent
+                        .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
+                        // The console polls GPU/usage stats on a timer, re-rendering this
+                        // subtree every tick. Without clearing the animation, SwiftUI re-asserts
+                        // the column toward `ideal` on each render and the panel visibly slides
+                        // in/out once it has been manually resized away from 300.
+                        .transaction { $0.animation = nil }
                 }
         }
         .navigationTitle("")
-        .preferredColorScheme(.dark)
+        // Shared across the sidebar and detail so a streaming turn survives chat
+        // switches and the sidebar can discard a deleted conversation's session.
+        .environment(sessionStore)
+        .environment(notifier)
+        .preferredColorScheme(Theme.active.scheme)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
             ToolbarItem {
@@ -86,9 +103,13 @@ struct ContentView: View {
                 .help("Toggle inference console (⌘I)")
             }
         }
-        .task(id: onlineServerIDs) { selectDefaultEndpoint(); await refreshModels() }
-        .onAppear { restoreRoute() }
-        .onChange(of: route) { saveRoute(route); syncPickedModel() }
+        .task(id: serverDiscoveryKey) {
+            selectDefaultEndpoint()
+            gpuMonitor.start(servers: servers)   // pick up agent-URL / macmon changes
+            await refreshModels()
+        }
+        .onAppear { restoreRoute(); notifier.requestAuthorization(); updateForeground() }
+        .onChange(of: route) { saveRoute(route); syncPickedModel(); updateForeground() }
         .focusedSceneValue(\.modeloCommands, ModeloCommands(
             newChat: { newChat() },
             goToLauncher: { route = .launcher; selectDefaultEndpoint() },
@@ -133,14 +154,26 @@ struct ContentView: View {
             onLaunch: { model, persona in Task { await launch(model: model, persona: persona) } },
             onUnload: handleModelEject,
             onPin: { item in await handleModelPin(server: item.server, modelID: item.model.id) },
-            onUnpin: { item in await handleModelUnpin(server: item.server, modelID: item.model.id) }
+            onUnpin: { item in await handleModelUnpin(server: item.server, modelID: item.model.id) },
+            onRefresh: { await refreshModels() }
         )
+    }
+
+    /// Context tokens used by the active chat — the last turn's server-reported total,
+    /// or a live estimate of the active path before the first turn.
+    private var inspectorContextUsed: Int {
+        guard let convo = selectedConversation else { return 0 }
+        return convo.contextTokensUsed ?? TokenEstimator.estimate(convo.activePath())
     }
 
     @ViewBuilder
     private var inspectorContent: some View {
         if let server = pickedModel?.server {
-            ConsoleInspector(server: server, activeModel: pickedModel?.model, snapshot: monitor.snapshot(for: server))
+            ConsoleInspector(server: server, activeModel: pickedModel?.model,
+                             snapshot: monitor.snapshot(for: server),
+                             gpu: gpuMonitor.snapshot(for: server),
+                             contextUsed: inspectorContextUsed,
+                             contextWindow: pickedModel?.model.maxContextLength ?? 0)
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "chart.bar.xaxis")
@@ -153,7 +186,6 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.Palette.panel)
-            .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
         }
     }
 
@@ -198,6 +230,16 @@ struct ContentView: View {
             $0.server.id == convo.serverID && $0.model.id == convo.modelID
         }) {
             pickedModel = match
+        }
+    }
+
+    /// Tells the notifier which conversation is on screen, so a reply that finishes
+    /// in the chat the user is watching stays quiet (only background chats notify).
+    private func updateForeground() {
+        if case .conversation(let id) = route {
+            notifier.foreground = id
+        } else {
+            notifier.foreground = nil
         }
     }
 
@@ -272,7 +314,7 @@ struct ContentView: View {
                 endpoint: Endpoint(server: server, keychain: keychain),
                 modelID: convo.modelID,
                 messages: [prompt], systemPrompt: system,
-                temperature: 0.3, tools: nil
+                sampling: SamplingParams(temperature: 0.3), tools: nil
             )
             for try await event in stream {
                 if case .delta(let t) = event { raw += t }
@@ -285,6 +327,13 @@ struct ContentView: View {
         try? context.save()
     }
 
+    /// Re-discover when a server is added/edited/removed (or comes online), not just
+    /// when the online set changes — so a newly-configured server's models appear.
+    private var serverDiscoveryKey: String {
+        servers.map { "\($0.id)|\($0.host)|\($0.port)|\($0.kindRaw)|\(registry.isOnline($0))|\($0.metricsAgentURL ?? "")|\($0.localGPU)" }
+            .joined(separator: ",")
+    }
+
     /// Creates a new conversation scoped to a project directory. The project path
     /// is stored on the conversation so filesystem tools can be registered, and a
     /// system prompt tells the model which tools are available and how to use them.
@@ -295,13 +344,13 @@ struct ContentView: View {
         Project root: \(project.path)
 
         You have the following filesystem tools available. All paths are relative to the project root.
-        - list_directory(path?) — list directory contents
         - read_file(path) — read a file's text content
-        - search_files(query, path?, case_sensitive?) — grep files for a string or regex
         - write_file(path, content) — create or overwrite a file
-        - edit_file(path, old_string, new_string) — replace an exact string in a file (must match exactly once)
+        - edit_file(path, old_string, new_string, replace_all?) — replace an exact string in a file
+        - grep(pattern, path?) — search file contents for a regular expression
+        - glob(pattern) — list files matching a glob (e.g. "**/*.swift")
 
-        Start by listing the project root to orient yourself before answering questions about the code.
+        Start with glob("**/*") or read a specific file to orient yourself before answering questions about the code.
         """
         let convo = Conversation(modelID: pickedModel?.model.id ?? "", serverID: pickedModel?.server.id)
         convo.systemPrompt = systemPrompt
@@ -343,8 +392,11 @@ struct ContentView: View {
     }
 
     private func refreshModels() async {
-        let targets = servers.filter { registry.isOnline($0) }
-            .map { (server: $0, endpoint: Endpoint(server: $0, keychain: keychain)) }
+        // Query every server, not just ones the reachability monitor has already
+        // flagged online — a freshly-added/edited server (or one that came up after
+        // launch) is "unknown" until its next probe, and we shouldn't hide its models
+        // in the meantime. fetchModels fails fast for genuinely-offline servers.
+        let targets = servers.map { (server: $0, endpoint: Endpoint(server: $0, keychain: keychain)) }
 
         var modelsByIndex: [Int: [LMStudioModel]] = [:]
         await withTaskGroup(of: (Int, [LMStudioModel]).self) { group in
@@ -355,6 +407,12 @@ struct ContentView: View {
                 }
             }
             for await (index, models) in group { modelsByIndex[index] = models }
+        }
+
+        // A server that just returned a model list is, by definition, reachable —
+        // mark it online so its dot turns green without waiting for the next probe.
+        for (index, target) in targets.enumerated() where !(modelsByIndex[index] ?? []).isEmpty {
+            registry.setStatus(.online, for: target.server)
         }
 
         discovered = targets.enumerated().flatMap { index, target in

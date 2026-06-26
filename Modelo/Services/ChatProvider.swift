@@ -110,16 +110,45 @@ struct WireToolCall: Encodable, Equatable {
 enum ClientError: LocalizedError, Equatable {
     case invalidURL
     case unreachable
+    /// The server is up but rejected the request for lack of (valid) auth (401/403).
+    case authRequired
     case unsupported
     case serverError(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidURL:         "The server URL is invalid. Check the address in Settings."
-        case .unreachable:        "Could not reach LM Studio over Tailscale. Is it running?"
+        case .unreachable:        "Couldn't reach the server. Check the host and port, and that it's running."
+        case .authRequired:       "This server requires an API key."
         case .unsupported:        "This operation is only supported on LM Studio servers."
         case .serverError(let m): m
         }
+    }
+}
+
+/// Generation controls sent with a chat request (§1.4). Every field is optional:
+/// `nil` means "don't send it", so a server that rejects an unknown sampling param
+/// never sees it. Resolved per turn by overlaying a conversation's overrides on the
+/// global defaults; `temperature` falls back to 0.7 at the wire if still unset.
+struct SamplingParams: Codable, Sendable, Equatable {
+    var temperature: Double?
+    var topP: Double?
+    var maxTokens: Int?
+    var frequencyPenalty: Double?
+    var presencePenalty: Double?
+    var stop: [String]?
+
+    /// This params' non-nil fields take precedence; everything else falls through
+    /// to `base`. Used as `conversationOverride.overlaying(globalDefaults)`.
+    func overlaying(_ base: SamplingParams) -> SamplingParams {
+        SamplingParams(
+            temperature:      temperature      ?? base.temperature,
+            topP:             topP             ?? base.topP,
+            maxTokens:        maxTokens        ?? base.maxTokens,
+            frequencyPenalty: frequencyPenalty ?? base.frequencyPenalty,
+            presencePenalty:  presencePenalty  ?? base.presencePenalty,
+            stop:             stop             ?? base.stop
+        )
     }
 }
 
@@ -132,7 +161,7 @@ protocol ChatProvider: AnyObject {
         modelID: String,
         messages: [Message],
         systemPrompt: String,
-        temperature: Double,
+        sampling: SamplingParams,
         tools: [ToolSpec]?
     ) -> AsyncThrowingStream<StreamEvent, Error>
 }

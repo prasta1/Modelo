@@ -18,6 +18,8 @@ struct StatusView: View {
 
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
+    @Environment(GPUMonitor.self) private var gpuMonitor
+    @Environment(PrometheusMonitor.self) private var prometheusMonitor
     @Environment(ReachabilityMonitor.self) private var reachabilityMonitor
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
@@ -35,7 +37,9 @@ struct StatusView: View {
                             server: server,
                             status: registry.status(for: server),
                             latency: registry.latency(for: server),
-                            snapshot: monitor.snapshot(for: server)
+                            snapshot: monitor.snapshot(for: server),
+                            gpu: gpuMonitor.snapshot(for: server),
+                            prometheus: prometheusMonitor.snapshot(for: server)
                         )
                     }
                 }
@@ -77,14 +81,18 @@ private struct CompactServerCard: View {
     let status: ServerStatus
     let latency: Double?
     let snapshot: ModelSnapshot?
+    let gpu: GPUSnapshot?
+    let prometheus: PrometheusSnapshot?
     @Query private var records: [UsageRecord]
     @Environment(ReachabilityMonitor.self) private var reachabilityMonitor
 
-    init(server: Server, status: ServerStatus, latency: Double?, snapshot: ModelSnapshot?) {
+    init(server: Server, status: ServerStatus, latency: Double?, snapshot: ModelSnapshot?, gpu: GPUSnapshot?, prometheus: PrometheusSnapshot?) {
         self.server = server
         self.status = status
         self.latency = latency
         self.snapshot = snapshot
+        self.prometheus = prometheus
+        self.gpu = gpu
         let label = server.label
         _records = Query(
             filter: #Predicate<UsageRecord> { $0.serverLabel == label },
@@ -130,6 +138,58 @@ private struct CompactServerCard: View {
                 Sparkline(values: rollup.tokPerSecHistory)
                     .frame(height: 28)
                     .padding(.top, 16)
+            }
+
+            if let gpu {
+                Divider().overlay(Theme.line).padding(.vertical, 14)
+                HStack(spacing: 6) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.textFaint)
+                    Text("GPU")
+                        .font(.mono(9)).tracking(1)
+                        .foregroundStyle(Theme.textFaint)
+                }
+                Grid(horizontalSpacing: 10, verticalSpacing: 13) {
+                    GridRow {
+                        MetricTile(label: "VRAM",
+                                   value: String(format: "%.0f/%.0f GB", gpu.vramUsedGB, gpu.vramTotalGB))
+                        MetricTile(label: "GPU", value: String(format: "%.0f%%", gpu.utilPct))
+                    }
+                    GridRow {
+                        MetricTile(label: "POWER", value: String(format: "%.0f W", gpu.powerW))
+                        MetricTile(label: "TEMP",  value: String(format: "%.0f°C", gpu.tempC))
+                    }
+                }
+                .padding(.top, 10)
+            }
+
+            if let prometheus, !prometheus.isEmpty {
+                Divider().overlay(Theme.line).padding(.vertical, 14)
+                HStack(spacing: 6) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.textFaint)
+                    Text("SERVER")
+                        .font(.mono(9)).tracking(1)
+                        .foregroundStyle(Theme.textFaint)
+                }
+                Grid(horizontalSpacing: 10, verticalSpacing: 13) {
+                    GridRow {
+                        if let r = prometheus.requestsRunning {
+                            MetricTile(label: "RUNNING", value: String(format: "%.0f", r))
+                        }
+                        if let w = prometheus.requestsWaiting {
+                            MetricTile(label: "QUEUED", value: String(format: "%.0f", w))
+                        }
+                    }
+                    if let kv = prometheus.kvCachePct {
+                        GridRow {
+                            MetricTile(label: "KV CACHE", value: String(format: "%.0f%%", kv))
+                        }
+                    }
+                }
+                .padding(.top, 10)
             }
         }
         .padding(.horizontal, 18)

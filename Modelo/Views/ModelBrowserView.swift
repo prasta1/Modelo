@@ -43,12 +43,16 @@ struct ModelBrowserView: View {
                 Text("Cloud models").font(.headline)
                 Spacer()
                 Button("Done") { dismiss() }
+                    .help("Close")
             }
             .padding(12)
             HStack(spacing: 12) {
                 Toggle("Free", isOn: $freeOnly)
+                    .help("Show only free models")
                 Toggle("Tools", isOn: $toolsOnly)
+                    .help("Show only tool-capable models")
                 Toggle("Vision", isOn: $visionOnly)
+                    .help("Show only vision-capable models")
                 Spacer()
                 Text("\(filtered.count) of \(models.count)")
                     .font(.caption).foregroundStyle(.secondary)

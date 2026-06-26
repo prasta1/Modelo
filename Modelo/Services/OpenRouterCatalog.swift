@@ -21,7 +21,8 @@ enum OpenRouterCatalog {
             type: vision ? "vlm" : "llm",
             arch: nil, quantization: nil, state: nil,
             maxContextLength: e.context_length,
-            loadedContextLength: nil, publisher: nil, sizeBytes: nil,
+            publisher: nil,
+            loadedContextLength: nil, sizeBytes: nil, sizeBytesAlt: nil,
             keepInRam: nil, isFree: free, toolUseSupported: tools
         )
     }

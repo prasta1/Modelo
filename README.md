@@ -4,155 +4,53 @@
 
 A native macOS client for running inference against local and cloud LLMs.
 
-Connects to **LM Studio** over your local network or Tailscale, **OpenRouter** via a dedicated endpoint, and any other **OpenAI-compatible cloud API** (Together, Mistral, etc.). Built with SwiftUI, SwiftData, and Swift Charts — no third-party packages.
+Connects to **LM Studio** over your local network or Tailscale, and to any **OpenAI-compatible cloud API** (OpenRouter, Together, Mistral, etc.). Built with SwiftUI and SwiftData.
 
 > The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
 
-## Highlights
+## Features
 
-- Streaming chat with token metrics, TTFT, vision attachments, and agentic tool use
-- Built-in **Firecrawl** scrape + search tools, plus full **MCP** (Model Context Protocol) tool forwarding over stdio
-- LM Studio model load / unload / keep-in-RAM from the picker; live reachability and throughput monitoring
-- Conversation folders, pinning, per-conversation system prompt, temperature, and tool toggle
-- Reports view with throughput, TTFT, per-model and per-server breakdowns over 7 / 30 / all-time windows
-- Menu-bar mini chat for quick one-off exchanges
+- **Chat** — streaming responses, Markdown rendering with syntax-highlighted and copyable code blocks, per-message token metrics, slash commands (`/model`, `/temp`, `/system`, `/export`, `/skills`, …) with an autocomplete popup, queue messages while a reply streams, branch & regenerate any turn, adjustable text size
+- **Artifacts** — substantial model output (HTML, SVG, Mermaid, code, documents) opens in a Claude-style side panel with live preview — see [below](#artifacts)
+- **Tools & agents** — opt-in first-party filesystem + shell tools, MCP servers, `~/.agents` skills, with reliability tuned for local models — see [below](#tools--agents)
+- **Model Picker** — grouped by server with per-model load state (selected / loaded / idle / cloud)
+- **Server Status** — live latency, throughput, and request sparklines with a streaming console
+- **Reports** — throughput and TTFT charts (Swift Charts), a per-model usage table, and configurable usage retention
+- **Themes** — Dark (default), Light, and Catppuccin Latte / Frappé / Macchiato / Mocha, switchable live in Settings ▸ Appearance
+- **Settings** — LM Studio endpoints, cloud API endpoints (any OpenAI-compatible base URL), personas, filesystem/shell tools, Firecrawl key, MCP servers
+- **Personas** — system prompt presets with icons and taglines
+- **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
+- **Menu bar mini chat** — quick-access popover from the menu bar
 
-## Providers
+## Tools & agents
 
-Three server kinds are first-class (`Services/Endpoint.swift`, `Models/Server.swift`):
+Modelo gives models a layered tool stack, designed so that even small/quantized **local** models can find and use tools reliably:
 
-| Kind | Base URL | Auth | Reach polling | Load state |
-|---|---|---|---|---|
-| **LM Studio** | `http://host:port` (default `1234`) | none | 10 s online / 30 s offline | yes — live loaded/idle dot |
-| **OpenRouter** | `https://openrouter.ai/api/v1` (fixed) | API key (Keychain) | 30 s | n/a |
-| **Cloud API** | user-supplied OpenAI-compatible base URL | bearer token (Keychain) | 30 s | n/a |
+- **First-party filesystem & shell tools** — `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`. **Opt-in and off by default**: enable them in **Settings ▸ Tools** and pick a workspace folder (defaults to an auto-created `~/.modelo` sandbox) that all file access is confined to — path traversal is blocked. `bash` is behind its own separate toggle. Read-only tools run automatically; **writes, edits, and shell commands pause for an in-chat approval card** (Deny / Approve once / Approve for session) showing the content, diff, or command first.
+- **MCP servers** — the standard way to add external/custom tools; managed in Settings.
+- **`~/.agents` skills** — the portable, cross-tool `~/.agents/skills/<name>/SKILL.md` convention (shared with other agents on the machine), surfaced via a `use_skill` tool.
+- **Local-model reliability** — a tolerant parser recovers tool calls a model emits as text (`<tool_call>…</tool_call>`, fenced JSON) when the server doesn't produce native `tool_calls`, and **progressive disclosure** shows only the most relevant tools per request plus a `find_tools` meta-tool, so a large tool set doesn't overwhelm the model.
 
-Reachability probes hit `/v1/models` (or `/models`) with a 4 s timeout and record latency. LM Studio servers are additionally polled every 3 s by `ServerMonitor` to surface the currently loaded model in the picker.
+Tools are also gated by each chat's **Tools** toggle and the model's tool-use capability.
 
-API keys are never persisted in SwiftData — they live in the Keychain under service `com.peregrine.modelo` (`Services/KeychainStore.swift`).
+## Artifacts
 
-## Tools
+Like Claude Desktop — and deliberately **not** one artifact per code block. When a model produces substantial, self-contained content, it wraps it in an `<artifact>` block (taught by a short system instruction; opt-out in **Settings ▸ Tools ▸ Artifacts**); ordinary snippets stay inline.
 
-Modelo runs a real agentic loop in `Services/ChatSession.swift`. When the model returns `finish_reason: "tool_calls"`, each call is dispatched through `ToolRegistry`, results are streamed back as `tool`-role messages, and the model is re-prompted — up to **5 rounds per turn**. The per-conversation `toolsEnabled` toggle disables this entirely.
+- In the chat the artifact collapses to a compact, tappable **card**.
+- Opening it shows a **split panel** beside the chat (the console inspector tucks away to make room) with a **live preview** for HTML / SVG / Mermaid (mermaid.js is bundled, so diagrams work offline), a **Preview ⇄ Source** toggle, highlighted source for code, and rendered Markdown for documents.
+- **Versions** — re-emitting the same identifier adds a revision with `◀ v/n ▶` navigation; a **picker** in the header switches between multiple artifacts.
+- A header button toggles the panel (shown once a chat has artifacts); the panel is **resizable** and its width persists. Copy + download included.
 
-### Built-in: Firecrawl
+## Remote GPU telemetry (`modelo-tap`)
 
-Two tools are exposed when a Firecrawl API key is configured (Settings → Tools):
+When your inference runs on a remote NVIDIA box (a DGX Spark, vLLM host, etc.), the
+[`modelo-tap`](modelo-tap/README.md) agent exports that machine's VRAM, power, temperature,
+and utilization over HTTP so Modelo can display it on the Status dashboard. It's a single
+zero-dependency Rust binary that reads `nvidia-smi` *and* `/proc/meminfo` (the latter is the
+only way to get correct VRAM on unified-memory boxes like the GB10).
 
-- **`firecrawl_scrape`** — `POST https://api.firecrawl.dev/v1/scrape` with `formats: ["markdown"]`; returns the rendered page as markdown.
-- **`firecrawl_search`** — `POST https://api.firecrawl.dev/v1/search`; returns title / URL / snippet results.
-
-Implementation: `Services/FirecrawlClient.swift`, `Services/FirecrawlTools.swift`. The key is stored in Keychain under account `firecrawl`.
-
-### MCP (Model Context Protocol)
-
-Modelo speaks MCP over **stdio** as a client (`Services/MCPClient.swift`, `MCPServerManager.swift`):
-
-- Each enabled MCP server is spawned as a subprocess at app start with its configured command, arguments, and env vars (e.g. `GITHUB_PERSONAL_ACCESS_TOKEN`).
-- Handshake follows the JSON-RPC 2.0 spec: `initialize` → `notifications/initialized` → `tools/list`.
-- Discovered tool definitions are wrapped as `MCPTool` and merged into the same `ToolRegistry` the built-in tools use, so the model sees them in the OpenAI-compatible `tools` array.
-- Tool invocations route through `MCPClient.callTool(name:argumentsJSON:)`, which issues `tools/call` and reconstructs text from the response's `content` array.
-- A discovery catalog in Settings provides one-click adds for common servers; you can also configure any arbitrary command.
-
-Stderr from MCP processes is drained but ignored; stdout carries the JSON-RPC stream.
-
-## Chat
-
-`Views/ChatView.swift` + `Services/ChatProvider.swift` + `Services/SSELineParser.swift`.
-
-- **Streaming** via SSE; deltas are buffered and flushed to the UI at ~20 fps to avoid layout thrash.
-- **TTFT** captured on the first token; **tok/s** computed from completion tokens ÷ elapsed since first token.
-- **Usage frames** parsed for prompt + completion token counts and shown per message.
-- **Vision attachments** — user messages can include images, serialized as `data:image/...;base64,...` and sent in OpenAI multimodal format (`type: "image_url"`).
-- **Tool-call rendering** — assistant tool calls are persisted in `Message.toolCallsJSON` and rendered inline; tool responses are persisted as `tool`-role messages with `toolCallID` + `toolName`.
-- **Composer** — Return sends, Shift+Return inserts a newline.
-- **Adjustable text size** — ⌘+ / ⌘- / ⌘0 (15–25 pt).
-
-## Models
-
-The model picker (`Views/ModelPickerView.swift`) groups by server with live state: **selected / loaded / idle / cloud**. The loaded dot reflects the 3 s `ServerMonitor` poll, not a stale fetch.
-
-The **spec strip** (`Models/LMStudioModel.swift`) displays:
-
-- `familyName`, `arch`, `quantization`
-- Context window (`maxContextLength` / `loadedContextLength`)
-- On-disk size — exact from LM Studio's `size_bytes` when available, otherwise estimated from parameter count × quantization bit-depth (shown with `~` prefix)
-- Publisher (e.g. `lmstudio-community`)
-
-Derived capabilities (used for filtering and badges):
-
-- `supportsVision` — from API `type: "vlm"` or name heuristics (`-vl`, `llava`, `pixtral`, …)
-- `supportsToolUse` — authoritative from OpenRouter's `supported_parameters`; assumed for non-embedding LM Studio models
-- `supportsThinking` — heuristic match for reasoning models (`deepseek-r`, `qwq`, `qwen3`, …)
-- `isEmbeddingModel` — filtered out of chat lists
-- `isFree` — set from OpenRouter pricing data
-
-**Model browser** (`Views/ModelBrowserView.swift`) — searchable list for cloud endpoints with Free / Tools / Vision filter chips. The "free" chip is suppressed for LM Studio.
-
-**LM Studio model control** (`Services/LMStudioClient.swift`):
-
-- `POST /api/v0/models/{id}/load` — load
-- `POST /api/v0/models/{id}/unload` — eject (button shows a spinner until the call returns)
-- `POST /api/v0/models/{id}/load` with `{ "keep_in_ram": bool }` — pin / unpin
-
-## Status & Reports
-
-**Status** (`Views/StatusView.swift`) — grid of server cards showing a status LED (LIVE / OFFLINE / PROBING), name, latency, loaded model count, request count, throughput, and a throughput sparkline computed from the last 20 usage records via `InferenceRollup`.
-
-**Console inspector** — right-side panel toggled by ⌘I, streaming live metrics for the active conversation's server.
-
-**Reports** (`Views/ReportingView.swift`, `Services/ReportCalculator.swift`) — per-turn `UsageRecord`s (`Models/UsageRecord.swift`) drive:
-
-- Time-window filter: **7 days / 30 days / all time**
-- Summary tiles: Requests, Tokens, Avg tok/s, Peak tok/s, Avg TTFT
-- Daily line charts (Swift Charts): Requests, Tokens, Avg tok/s
-- Per-model and per-server tables with token-share bars
-
-## Conversations
-
-`Models/Conversation.swift`, `Folder.swift`, `Message.swift`.
-
-- **Folders** — group conversations; `.nullify` delete rule keeps conversations when a folder is removed
-- **Pinning** — `isPinned` floats conversations to the top of the sidebar
-- **Sidebar grouping** (`Services/ConversationGrouping.swift`) — Pinned → Folder → Date buckets
-- **Per-conversation overrides** — `systemPrompt`, `temperature` (default 0.7), `toolsEnabled` (default on), `contextTokensUsed`
-- **Title** — auto-generated on first turn, manually editable
-
-## Personas
-
-System-prompt presets (`Models/Persona.swift`) with name, SF Symbol icon, tagline, and prompt. Five seeded on first launch: **Assistant, Customer Support, Coding, Researcher, Investor**. Selecting a persona from the launcher applies it as the new conversation's `systemPrompt`. Reorderable from Settings → Personas.
-
-## Menu bar mini chat
-
-`Views/MenuBarChatView.swift` — 380 × 480 popover from the menu bar (bottle icon). Shares `LMStudioClient` and `ServerRegistry` with the main window but messages are **ephemeral** (in-memory only, no SwiftData) and **tools are disabled**. Includes a model picker, clear button, and "open in Modelo" handoff.
-
-## Settings
-
-Tabs in `Settings/SettingsView.swift`:
-
-- **Servers** — LM Studio hosts / ports
-- **Cloud APIs** — OpenRouter and generic OpenAI-compatible endpoints
-- **Personas** — manage prompt presets, drag to reorder
-- **Tools** — Firecrawl API key
-- **MCP Servers** — configure subprocesses (command, args, env), enable/disable, optional discovery catalog
-
-The Settings window is resizable; secrets are written to the Keychain, never to the SwiftData store.
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-|---|---|
-| ⌘N | New chat |
-| ⌘I | Toggle console inspector |
-| ⌘+ / ⌘- / ⌘0 | Message text size |
-| Return | Send |
-| Shift+Return | Newline |
-
-Plus a **Go** command menu for jumping to Launcher / Status / Reports.
-
-## Storage
-
-SwiftData store: `~/Library/Application Support/Modelo/Modelo.store`. On first launch the app migrates the legacy `ModeloDos.store` to this location. Schema: `Server`, `Conversation`, `Message`, `UsageRecord`, `Persona`, `Folder`.
+Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**.
 
 ## Requirements
 
@@ -166,30 +64,47 @@ xcodegen generate   # regenerates Modelo.xcodeproj from project.yml
 open Modelo.xcodeproj
 ```
 
-Build the **Modelo** scheme. No dependencies to install.
+Build the **Modelo** scheme. Swift Package Manager resolves dependencies automatically on first build.
 
 ## Layout
 
 ```
 Modelo/
-├── Theme.swift                  # design tokens, shared controls, Color(hex:)
-├── ModeloApp.swift              # @main entry point, scenes, SwiftData container
+├── ModeloApp.swift              # @main entry point
 ├── ContentView.swift            # NavigationSplitView shell + routing + toolbar
-├── Models/                      # Server, LMStudioModel, Message, Conversation,
-│                                # Persona, Folder, UsageRecord
-├── Services/                    # LMStudioClient, ChatSession, ChatProvider,
-│                                # SSELineParser, Endpoint, OpenRouterCatalog,
-│                                # Tool / ToolRegistry, FirecrawlClient + Tools,
-│                                # MCPClient + ServerManager + ServerConfig,
-│                                # ReachabilityMonitor, ServerMonitor, ServerRegistry,
-│                                # MetricsRollup, ReportCalculator, UsageRecorder,
-│                                # UsageMath, ConversationGrouping, KeychainStore
-├── Settings/                    # SettingsView + row components per tab
-└── Views/                       # Sidebar, Chat, ModelPicker, ModelBrowser,
-                                 # Status, Reporting, Launcher, MenuBarChat,
-                                 # ConsoleInspector, ContextBar, charts, rows
+├── Theme.swift / ThemePalette.swift  # design tokens + selectable theme palettes
+├── Models/                      # SwiftData models
+│   ├── Conversation, Message, Server, LMStudioModel
+│   ├── Persona, Preset, Folder, UsageRecord
+│   ├── GPUSnapshot, ModelContextOverride
+├── Services/                    # Core logic
+│   ├── ChatSession, ChatSessionStore, ChatProvider, ChatNotifier
+│   ├── LMStudioClient, SSELineParser, Endpoint, ReachabilityMonitor
+│   ├── ServerRegistry, ServerMonitor
+│   ├── ToolRegistry, Tool, ToolCallParser, ToolSelector, FilesystemTools
+│   ├── AgentsLoader, MCPClient, MCPServerManager, MCPServerConfig
+│   ├── FirecrawlClient, FirecrawlTools
+│   ├── ArtifactParser, SlashParser, TokenEstimator
+│   ├── ConversationExporter, ConversationGrouping, BranchingMigration
+│   ├── UsageRecorder, UsageMath, UsageRetention, ReportCalculator, MetricsRollup
+│   ├── Benchmark
+│   ├── GPUMonitor, PrometheusMonitor, PrometheusScrape
+│   ├── OpenRouterCatalog, KeychainStore, Macmon
+├── Resources/                   # bundled assets (e.g. mermaid.min.js for diagram previews)
+├── Settings/                    # SettingsView, SamplingControls
+└── Views/                       # UI layers
+    ├── SidebarView, ChatView, ModelPickerView, StatusView
+    ├── ReportingView, BenchmarkView, LauncherView, ModelBrowserView
+    ├── ArtifactPanel, ArtifactWebView
+    ├── MenuBarChatView
+    ├── MessageRow, ServerRow, LoadedModelRow
+    ├── ConsoleInspector, ContextBar, ComposerField
+    ├── MarkdownText, MetricStat
+    ├── ThroughputChart, TTFTChart
+
+modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the NVIDIA box)
 ```
 
 ## Target
 
-macOS 14+, SwiftUI + SwiftData + Swift Charts + Observation framework. No third-party packages.
+macOS 14+, SwiftUI + Swift Charts + Observation framework. Dependencies (SPM): [swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui), [Highlightr](https://github.com/raspu/Highlightr).

@@ -26,12 +26,18 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     var state: String?
     /// Maximum context the model can hold.
     let maxContextLength: Int?
-    /// Context the user has currently allocated for this model (when loaded).
-    let loadedContextLength: Int?
     /// Publisher / organization, e.g. `"mlx-community"`, `"lmstudio-community"`.
     let publisher: String?
-    /// File size on disk in bytes, from the `size_bytes` field of `/api/v0/models`.
+    /// Context length the model is currently loaded with (`loaded_context_length`), when reported.
+    let loadedContextLength: Int?
+    /// File size on disk in bytes. LM Studio's `/api/v0/models` reports this as `size_bytes`;
+    /// some OpenAI-compatible backends (llama-swap, MLX) use `size`. Decode whichever is present
+    /// and read through `fileSizeBytes`.
     let sizeBytes: Int?
+    /// Legacy `size` field, used as a fallback when `size_bytes` is absent.
+    let sizeBytesAlt: Int?
+    /// File size preferring the canonical `size_bytes`, falling back to the legacy `size`.
+    var fileSizeBytes: Int? { sizeBytes ?? sizeBytesAlt }
     /// When true, LM Studio will not evict this model from RAM when another is loaded.
     var keepInRam: Bool?
 
@@ -50,6 +56,7 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
         case maxContextLength = "max_context_length"
         case loadedContextLength = "loaded_context_length"
         case sizeBytes = "size_bytes"
+        case sizeBytesAlt = "size"
         case keepInRam = "keep_in_ram"
     }
 
@@ -176,7 +183,7 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
 
     /// Human-readable file size, e.g. `"4.2 GB"`, `"512 MB"`. nil when unknown.
     var fileSizeFormatted: String? {
-        guard let bytes = sizeBytes, bytes > 0 else { return nil }
+        guard let bytes = fileSizeBytes, bytes > 0 else { return nil }
         let gb = Double(bytes) / 1_073_741_824
         if gb >= 1 {
             return String(format: gb >= 10 ? "%.0f GB" : "%.1f GB", gb)

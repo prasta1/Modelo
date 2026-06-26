@@ -62,6 +62,21 @@ final class Message {
     /// On a `.user` message: JSON-encoded `[MessageAttachment]` for image attachments.
     var attachmentsJSON: String?
 
+    // MARK: Branching tree (§1.2)
+    //
+    // Messages form a tree rather than a flat list: regenerating or editing a turn
+    // forks a sibling branch under the same parent. The conversation tracks which
+    // leaf (and therefore which root→leaf path) is currently selected. Legacy flat
+    // conversations are chained into a single linear branch by `BranchingMigration`.
+
+    /// Parent turn in the conversation tree; nil for a root message. `.nullify` so
+    /// deleting a parent doesn't fault its (separately owned) children.
+    @Relationship(deleteRule: .nullify) var parent: Message?
+    /// Child turns. Deleting a message removes its whole subtree.
+    @Relationship(deleteRule: .cascade, inverse: \Message.parent) var children: [Message] = []
+    /// Position among siblings sharing the same parent (0-based, in creation order).
+    var branchIndex: Int = 0
+
     var role: MessageRole {
         get { MessageRole(rawValue: roleRaw) ?? .assistant }
         set { roleRaw = newValue.rawValue }
@@ -70,5 +85,30 @@ final class Message {
     init(role: MessageRole, content: String) {
         self.roleRaw = role.rawValue
         self.content = content
+    }
+}
+
+extension Message {
+    /// Messages sharing this one's parent (including self), ordered by branch index.
+    /// Root messages (no parent) report only themselves — v1 doesn't branch roots.
+    var siblings: [Message] {
+        guard let parent else { return [self] }
+        return parent.children.sorted { $0.branchIndex < $1.branchIndex }
+    }
+
+    /// This message's position among its siblings (0-based).
+    var siblingIndex: Int {
+        siblings.firstIndex { $0 === self } ?? 0
+    }
+
+    /// Descends to the tail of this message's subtree, following the most recent
+    /// branch (highest `branchIndex`) at each step — the leaf to make active when
+    /// the user navigates onto this branch.
+    var subtreeLeaf: Message {
+        var node = self
+        while let next = node.children.max(by: { $0.branchIndex < $1.branchIndex }) {
+            node = next
+        }
+        return node
     }
 }

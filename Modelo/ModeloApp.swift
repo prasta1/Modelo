@@ -7,24 +7,35 @@ struct ModeloApp: App {
     @State private var registry = ServerRegistry()
     @State private var reachabilityMonitor: ReachabilityMonitor
     @State private var serverMonitor = ServerMonitor()
+    @State private var gpuMonitor = GPUMonitor()
+    @State private var prometheusMonitor = PrometheusMonitor()
     @State private var mcpManager = MCPServerManager()
     @State private var favoritesStore = FavoritesStore()
     @State private var projectStore = ProjectStore()
     // Drives chat text size; matches the @AppStorage default used in the views.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+    // Selected color theme (§3.5). Reading this in a scene body makes that scene
+    // rebuild when the theme changes; `palette` applies it to `Theme.active`.
+    @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
+    // Show the menu-bar icon (General settings toggle).
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
 
+    /// Applies the stored theme to `Theme.active` and returns it. Called in each scene
+    /// body (before its `.id(themeID)` subtree builds) so colors repaint on change.
+    private var palette: ThemePalette { Theme.applyStored(themeID) }
+
     init() {
-        let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self])
-        // Pin to a dedicated subfolder to avoid colliding with SwiftData's default.store.
+        let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self, Preset.self])
+        // Pin to a dedicated subfolder so SwiftData doesn't land in the shared
+        // ~/Library/Application Support/default.store.
         let storeFolder = URL.applicationSupportDirectory.appending(path: "Modelo", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: storeFolder, withIntermediateDirectories: true)
 
-        // One-time migration: move the ModeloDos store to the new Modelo location.
-        let oldFolder = URL.applicationSupportDirectory.appending(path: "ModeloDos", directoryHint: .isDirectory)
-        let oldStore = oldFolder.appending(path: "ModeloDos.store")
+        // One-time migration: move the old ModeloDos store to the new Modelo location
+        // (and its SQLite -wal/-shm sidecars) so existing data carries over.
         let newStore = storeFolder.appending(path: "Modelo.store")
-        if FileManager.default.fileExists(atPath: oldStore.path) &&
+        let oldFolder = URL.applicationSupportDirectory.appending(path: "ModeloDos", directoryHint: .isDirectory)
+        if FileManager.default.fileExists(atPath: oldFolder.appending(path: "ModeloDos.store").path),
            !FileManager.default.fileExists(atPath: newStore.path) {
             for suffix in ["", "-wal", "-shm"] {
                 let src = oldFolder.appending(path: "ModeloDos.store\(suffix)")
@@ -43,6 +54,12 @@ struct ModeloApp: App {
         let registry = ServerRegistry()
         registry.seedIfNeeded(in: ctx)
         Persona.seedDefaults(in: ctx)
+        // Backfill the branching tree (§1.2) for pre-existing flat conversations.
+        BranchingMigration.runIfNeeded(in: ctx)
+        // Prune old usage records per the retention setting (§3.4; 0 = keep forever).
+        UsageRetention.prune(in: ctx, retentionDays: UserDefaults.standard.integer(forKey: UsageRetention.key))
+        // Apply the saved theme before the first frame (§3.5).
+        Theme.applyStored(UserDefaults.standard.string(forKey: "themeID") ?? ThemeID.dark.rawValue)
         _registry = State(initialValue: registry)
 
         // Reachability probe: single-shot short-timeout check (NOT fetchModels —
@@ -60,12 +77,16 @@ struct ModeloApp: App {
             ContentView()
                 .environment(registry)
                 .environment(serverMonitor)
+                .environment(gpuMonitor)
+                .environment(prometheusMonitor)
                 .environment(mcpManager)
                 .environment(favoritesStore)
                 .environment(projectStore)
                 .environment(reachabilityMonitor)
                 .task { await startMonitoring() }
                 .task { mcpManager.startAll() }
+                .preferredColorScheme(palette.scheme)
+                .id(themeID)   // rebuild the tree so static Theme.* reads repaint (§3.5)
                 .onAppear {
                     DispatchQueue.main.async {
                         if let window = NSApp.keyWindow {
@@ -112,6 +133,8 @@ struct ModeloApp: App {
                 .environment(serverMonitor)
                 .environment(mcpManager)
                 .modelContainer(container)
+                .preferredColorScheme(palette.scheme)
+                .id(themeID)
         } label: {
             Image(nsImage: Self.bottleMenuBarIcon)
         }
@@ -123,6 +146,8 @@ struct ModeloApp: App {
                 .environment(mcpManager)
                 .toolbarBackground(.hidden, for: .windowToolbar)
                 .navigationTitle("")
+                .preferredColorScheme(palette.scheme)
+                .id(themeID)
         }
         .windowResizability(.contentSize)
     }
@@ -131,6 +156,8 @@ struct ModeloApp: App {
         let servers = (try? ModelContext(container).fetch(FetchDescriptor<Server>())) ?? []
         reachabilityMonitor.start(servers: servers)
         serverMonitor.start(servers: servers, registry: registry)
+        gpuMonitor.start(servers: servers)
+        prometheusMonitor.start(servers: servers)
     }
 
     // Template image lets macOS tint it automatically for light/dark menu bar.

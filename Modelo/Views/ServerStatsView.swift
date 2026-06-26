@@ -203,7 +203,7 @@ private struct ServerStatsDashboardPanel: View {
 
     private var hostSubtitle: String {
         switch server.kind {
-        case .lmStudio:   return "\(server.host):\(server.port)"
+        case .lmStudio, .llamaSwap: return "\(server.host):\(server.port)"
         case .cloudAPI:   return URL(string: server.host)?.host ?? server.host
         case .openRouter: return "openrouter.ai"
         }
@@ -303,7 +303,7 @@ private struct ServerStatsDashboardPanel: View {
                 ForEach(models, id: \.id) { model in
                     LoadedModelRow(model: model)
                 }
-            } else if server.kind == .lmStudio {
+            } else if server.kind.isLocal {
                 NoModelRow()
             } else {
                 Text("Cloud endpoint — no live model snapshot")

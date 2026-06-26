@@ -1,8 +1,8 @@
 import SwiftUI
 import SwiftData
 
-/// Left column: brand wordmark, primary nav (Models / Inference / Reports), and
-/// the conversation list. Conversations are organized as a
+/// Left column: brand wordmark, primary nav (Models / Status / Reports), server
+/// reachability, and the conversation list. Conversations are organized as a
 /// Pinned section, then user folders, then automatic date buckets (Today /
 /// Yesterday / …) for everything unfiled.
 ///
@@ -10,8 +10,9 @@ import SwiftData
 /// rather than a `List`, since the system sidebar style can't reach this look.
 /// Selection is driven manually by writing `route` / `endpointFilter` on tap.
 struct SidebarView: View {
-    @Environment(\.modelContext) private var context
+    @Environment(ChatSessionStore.self) private var sessionStore
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(\.modelContext) private var context
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @Query(sort: \Folder.sortOrder) private var folders: [Folder]
     @Binding var route: SidebarRoute?
@@ -46,14 +47,13 @@ struct SidebarView: View {
                     .padding(.bottom, 8)
 
                 VStack(spacing: 2) {
-                    navRow("Inference", icon: "chart.bar",                 to: .status)
-                    navRow("Models",    icon: "square.grid.2x2",           to: .launcher)
+                    navRow("Models",   icon: "square.grid.2x2",           to: .launcher)
+                    navRow("Status",   icon: "chart.bar",                 to: .status)
                     navRow("Reports",  icon: "chart.line.uptrend.xyaxis", to: .reports)
                     navRow("Settings", icon: "gearshape",                 to: .settings)
                 }
 
                 projectsSection
-
                 conversationsSection
             }
             .padding(.horizontal, 16)
@@ -147,6 +147,7 @@ struct SidebarView: View {
                     in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         .contentShape(Rectangle())
         .onTapGesture { route = dest }
+        .help("Go to \(title)")
     }
 
     // MARK: - Projects
@@ -304,6 +305,7 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(sectionExpanded(id) ? "Collapse section" : "Expand section")
         .padding(.horizontal, 8)
         .padding(.top, 14)
         .padding(.bottom, 6)
@@ -342,6 +344,7 @@ struct SidebarView: View {
                     in: RoundedRectangle(cornerRadius: 7))
         .contentShape(Rectangle())
         .onTapGesture { route = .conversation(convo.persistentModelID) }
+        .help("Open conversation")
     }
 
     private var searchField: some View {
@@ -532,6 +535,9 @@ struct SidebarView: View {
         if case .conversation(let id) = route, id == convo.persistentModelID {
             route = nil
         }
+        // Cancel and drop any streaming session so it can't keep writing to the
+        // now-deleted conversation (it no longer gets torn down by leaving the chat).
+        sessionStore.discard(convo.persistentModelID)
         context.delete(convo)
         try? context.save()
     }

@@ -12,7 +12,7 @@ final class FakeProvider: ChatProvider {
 
     func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] { [] }
     func streamChat(endpoint: Endpoint, modelID: String, messages: [Message],
-                    systemPrompt: String, temperature: Double,
+                    systemPrompt: String, sampling: SamplingParams,
                     tools: [ToolSpec]?) -> AsyncThrowingStream<StreamEvent, Error> {
         let events = scripts[min(callCount, scripts.count - 1)]
         callCount += 1
@@ -67,6 +67,32 @@ final class ChatSessionTests: XCTestCase {
 
         XCTAssertEqual(convo.contextTokensUsed, 12)
         XCTAssertFalse(session.isStreaming)
+    }
+
+    func test_regenerate_forksSiblingAssistantBranch() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.delta("First"), .usage(promptTokens: 10, completionTokens: 1)],
+            [.delta("Second"), .usage(promptTokens: 10, completionTokens: 1)],
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("Hi", in: convo, server: server)
+        let firstAssistant = try XCTUnwrap(convo.activePath().last)
+        XCTAssertEqual(firstAssistant.content, "First")
+
+        await session.regenerate(firstAssistant, in: convo, server: server)
+
+        // A new assistant sibling under the same user parent; the active path now
+        // shows it, and the original turn is preserved on its own branch.
+        XCTAssertEqual(convo.activePath().map(\.content), ["Hi", "Second"])
+        XCTAssertEqual(firstAssistant.content, "First")
+        XCTAssertEqual(firstAssistant.siblings.count, 2)
+        XCTAssertTrue(firstAssistant.parent === convo.activePath().last?.parent)
+        XCTAssertEqual(convo.messages.count, 3)   // user + two assistant branches
     }
 
     func test_cleanTitle_normalizesModelOutput() {
@@ -134,7 +160,33 @@ final class ChatSessionTests: XCTestCase {
 
         await session.send("loop", in: convo, server: server, modelSupportsTools: true)
 
-        XCTAssertEqual(provider.callCount, ChatSession.maxToolRounds)
+        XCTAssertEqual(provider.callCount, session.maxToolRounds)
         XCTAssertNotNil(session.errorText)
+    }
+
+    func test_send_respectsConfiguredToolRoundLimit() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c", name: "echo", arguments: "{}")])]   // never stops asking
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([EchoTool(reply: "x")]),
+                                  maxToolRounds: 2)
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("loop", in: convo, server: server, modelSupportsTools: true)
+
+        // Stops after exactly the configured number of rounds, not the default.
+        XCTAssertEqual(provider.callCount, 2)
+        XCTAssertNotNil(session.errorText)
+    }
+
+    func test_init_defaultsToolRoundsToGlobalDefault() {
+        let context = try! makeContext()
+        let session = ChatSession(client: FakeProvider(events: []), context: context,
+                                  recorder: UsageRecorder(context: context))
+        XCTAssertEqual(session.maxToolRounds, ChatSession.defaultMaxToolRounds)
     }
 }

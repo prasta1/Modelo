@@ -4,7 +4,6 @@ import SwiftData
 /// A point-in-time view of the models an LM Studio server currently has loaded.
 struct ModelSnapshot: Equatable {
     let models: [LMStudioModel]
-    let polledAt: Date
 }
 
 /// Polls each online LM Studio server's `/api/v0/models` every 3 seconds and
@@ -64,6 +63,6 @@ final class ServerMonitor {
         let anyHasState = models.contains { $0.state != nil }
         let toStore = (!anyHasState && loaded.isEmpty) ? [models.first].compactMap { $0 } : loaded
         // Always write the snapshot — even when empty — so unloaded models are cleared promptly.
-        snapshots[server.persistentModelID] = ModelSnapshot(models: toStore, polledAt: Date())
+        snapshots[server.id] = ModelSnapshot(models: toStore)
     }
 }

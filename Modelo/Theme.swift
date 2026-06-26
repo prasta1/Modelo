@@ -10,26 +10,37 @@ enum Theme {
     // Near-black panels lifted by a single warm "signal" accent. Status hues
     // (live / idle / offline) are deliberately kept distinct from the brand so a
     // green dot never reads as a tappable amber control.
+    /// The active palette (§3.5). Swapped when the user changes the theme; all the
+    /// token accessors below read through it. Set this *before* the root `.id(themeID)`
+    /// subtree rebuilds so views pick up the new colors. Defaults to the dark look.
+    static var active: ThemePalette = .dark
+
+    /// Apply the stored theme to `active` (called at launch and on each scene build).
+    @discardableResult
+    static func applyStored(_ raw: String) -> ThemePalette {
+        active = ThemeID.current(raw).palette
+        return active
+    }
+
     enum Palette {
-        static let bg          = Color(hex: 0x0B0C0F) // window base
-        static let panel       = Color(hex: 0x141519) // raised surface (sidebar, composer)
-        static let panelHigh   = Color(hex: 0x1C1E25) // hover / selected / tracks
-        static let ink         = Color(hex: 0xECEDF0) // primary text
-        static let inkDim       = Color(hex: 0x9A9DA6) // secondary text
-        static let inkFaint    = Color(hex: 0x5E626B) // tertiary / metadata
+        static var bg: Color          { active.bg }
+        static var panel: Color       { active.panel }
+        static var panelHigh: Color   { active.panelHigh }
+        static var ink: Color         { active.ink }
+        static var inkDim: Color      { active.inkDim }
+        static var inkFaint: Color    { active.inkFaint }
 
-        static let signal      = Color(hex: 0xFFB23D) // brand accent (amber)
-        static let live        = Color(hex: 0x46DE83) // online
-        static let idle        = Color(hex: 0xE8B84B) // unknown (pulses)
-        static let offline     = Color(hex: 0x565A63) // offline
-        static let alert       = Color(hex: 0xFF6A45) // errors / over-budget
+        static var signal: Color      { active.signal }
+        static var live: Color        { active.live }
+        static var idle: Color        { active.idle }
+        static var offline: Color     { active.offline }
+        static var alert: Color       { active.alert }
 
-        // Capability tints
-        static let vision      = Color(hex: 0x5AC8FA)
-        static let think       = Color(hex: 0xB98CFF)
+        static var vision: Color      { active.vision }
+        static var think: Color       { active.think }
 
-        static let stroke       = Color.white.opacity(0.07)
-        static let strokeStrong = Color.white.opacity(0.13)
+        static var stroke: Color       { active.stroke }
+        static var strokeStrong: Color { active.strokeStrong }
     }
 
     // MARK: Type
@@ -98,7 +109,7 @@ struct InstrumentBackground: View {
     var body: some View {
         Theme.Palette.bg
             .overlay(alignment: .top) {
-                LinearGradient(colors: [Color.white.opacity(0.045), .clear],
+                LinearGradient(colors: [Theme.active.glow, .clear],
                                startPoint: .top, endPoint: .center)
             }
             .ignoresSafeArea()
@@ -295,45 +306,46 @@ struct BlinkingCursor: View {
 // these as it is reworked; `Palette` stays until every screen has migrated, then
 // it can be retired.
 extension Theme {
+    // All tokens read through the active palette (§3.5); see `ThemePalette`.
     // Surfaces
-    static let windowBG  = Color(hex: 0x15151A)   // main content panels
-    static let sidebarBG = Color(hex: 0x101014)   // sidebar
-    static let popoverBG = Color(hex: 0x1B1B22)   // menu-bar + picker popovers
-    static let consoleBG = Color(hex: 0x0D0D11)   // console / code surfaces
+    static var windowBG: Color  { active.windowBG }   // main content panels
+    static var sidebarBG: Color { active.sidebarBG }  // sidebar
+    static var popoverBG: Color { active.popoverBG }  // menu-bar + picker popovers
+    static var consoleBG: Color { active.consoleBG }  // console / code surfaces
 
     // Text
-    static let textHi     = Color(hex: 0xEDECEF)
-    static let textMid    = Color(hex: 0xD5D2DC)
-    static let textLo     = Color(hex: 0x9A96A4)
-    static let textDim    = Color(hex: 0x615D68)
-    static let textFaint  = Color(hex: 0x56535D)
-    static let textBright = Color(hex: 0xE7E5EC)   // sidebar names / wordmark
-    static let textSoft   = Color(hex: 0xC9C5D0)   // conversation titles
-    static let textMute   = Color(hex: 0x8A8692)   // inactive nav / chevrons
+    static var textHi: Color     { active.textHi }
+    static var textMid: Color    { active.textMid }
+    static var textLo: Color     { active.textLo }
+    static var textDim: Color    { active.textDim }
+    static var textFaint: Color  { active.textFaint }
+    static var textBright: Color { active.textBright }  // sidebar names / wordmark
+    static var textSoft: Color   { active.textSoft }    // conversation titles
+    static var textMute: Color   { active.textMute }    // inactive nav / chevrons
 
     // Accent + status
-    static let amber     = Color(hex: 0xE0A04B)    // brand accent
-    static let amberName = Color(hex: 0xE8B86A)    // selected model name in picker
-    static let green     = Color(hex: 0x5BBF8A)    // live / loaded
-    static let blue      = Color(hex: 0x7C93C9)    // POST log lines
-    static let purple    = Color(hex: 0xAC9FD6)    // MCP log lines
+    static var amber: Color     { active.amber }      // brand accent
+    static var amberName: Color { active.amberName }  // selected model name in picker
+    static var green: Color     { active.green }      // live / loaded
+    static var blue: Color      { active.blue }       // POST log lines
+    static var purple: Color    { active.purple }     // MCP log lines
 
-    // Hairlines / fills (white at low alpha)
-    static let line   = Color.white.opacity(0.06)
-    static let fill   = Color.white.opacity(0.025)
-    static let fillHi = Color.white.opacity(0.055)
+    // Hairlines / fills (foreground tint at low alpha)
+    static var line: Color   { active.line }
+    static var fill: Color   { active.fill }
+    static var fillHi: Color { active.fillHi }
 
-    // Amber tints reused for chips / active rows
-    static let amberFill   = Color(hex: 0xE0A04B, alpha: 0.14)
-    static let amberFillLo = Color(hex: 0xE0A04B, alpha: 0.10)
-    static let amberBorder = Color(hex: 0xE0A04B, alpha: 0.22)
-    static let greenGlow   = Color(hex: 0x5BBF8A, alpha: 0.12)
+    // Accent tints reused for chips / active rows
+    static var amberFill: Color   { active.amberFill }
+    static var amberFillLo: Color { active.amberFillLo }
+    static var amberBorder: Color { active.amberBorder }
+    static var greenGlow: Color   { active.greenGlow }
 
-    // Send-button gradient (#e7ac57 → #bd7a2c).
-    static let sendGradient = LinearGradient(
-        colors: [Color(hex: 0xE7AC57), Color(hex: 0xBD7A2C)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
+    // Send-button gradient (accent → deep accent).
+    static var sendGradient: LinearGradient {
+        LinearGradient(colors: [active.gradStart, active.gradEnd],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
 
     enum Radius {
         static let card: CGFloat    = 12

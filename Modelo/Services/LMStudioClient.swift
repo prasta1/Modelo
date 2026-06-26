@@ -28,10 +28,17 @@ final class LMStudioClient: ChatProvider {
 
     static func defaultSession() -> URLSession {
         let config = URLSessionConfiguration.default
-        // 90s allows for model cold-start on remote machines (e.g. Mac Studio loading
-        // a large quant) before the first token arrives. timeoutIntervalForResource
-        // stays infinite so long-running streams are never cut off.
-        config.timeoutIntervalForRequest = 90
+        // Idle/inactivity timeout, reset on every byte received — NOT a total-duration
+        // cap. It only fires during the gap before the first token, so a large value is
+        // safe for long generations and never harms an active stream. It must tolerate
+        // cold model loads: a llama-swap group with `exclusive: true` evicts the current
+        // model and loads the requested GGUF from disk on first request, which can take
+        // minutes. 300 matches the server's healthCheckTimeout; a lower value cancels the
+        // request mid-load and the POST returns HTTP 200 with a 0-byte body.
+        //
+        // "Fail fast on a dead server" is the job of probeReachable(endpoint:timeout:)
+        // (a 4s reachability probe), NOT this timeout — don't re-tighten it for that.
+        config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = .infinity
         return URLSession(configuration: config)
     }
@@ -51,10 +58,14 @@ final class LMStudioClient: ChatProvider {
             return try JSONDecoder().decode(ModelsResponse.self, from: data).data
                 .filter { !$0.isEmbeddingModel }
         case .lmStudio:
-            if let rich = try? await fetch(path: "/api/v0/models", baseURL: endpoint.baseURL) {
+            if let rich = try? await fetch(path: "/api/v0/models", endpoint: endpoint) {
                 return rich.filter { !$0.isEmbeddingModel }
             }
-            return try await fetch(path: "/v1/models", baseURL: endpoint.baseURL)
+            return try await fetch(path: "/v1/models", endpoint: endpoint)
+                .filter { !$0.isEmbeddingModel }
+        case .llamaSwap:
+            // llama.cpp / llama-swap is OpenAI-compatible but has no /api/v0.
+            return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
         }
     }
@@ -65,24 +76,25 @@ final class LMStudioClient: ChatProvider {
         var request = URLRequest(url: url)
         applyAuth(&request, endpoint: endpoint)
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ClientError.unreachable
+        guard let http = response as? HTTPURLResponse else { throw ClientError.unreachable }
+        // A 401/403 means the server is up but wants (a different) API key — surface
+        // that distinctly so the UI can reveal a key field, rather than "unreachable".
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw ClientError.authRequired
         }
+        guard (200..<300).contains(http.statusCode) else { throw ClientError.unreachable }
         return data
     }
 
-    /// Adds bearer auth for cloud API endpoints; no-op for LM Studio.
+    /// Adds bearer auth whenever the endpoint carries a key — cloud APIs always, and
+    /// local OpenAI-compatible servers (e.g. an MLX server) that require one.
     private func applyAuth(_ request: inout URLRequest, endpoint: Endpoint) {
-        guard endpoint.kind != .lmStudio, let key = endpoint.apiKey else { return }
+        guard let key = endpoint.apiKey, !key.isEmpty else { return }
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
     }
 
-    private func fetch(path: String, baseURL: String) async throws -> [LMStudioModel] {
-        guard let url = URL(string: "\(baseURL)\(path)") else { throw ClientError.invalidURL }
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ClientError.unreachable
-        }
+    private func fetch(path: String, endpoint: Endpoint) async throws -> [LMStudioModel] {
+        let data = try await authedGet(path: path, endpoint: endpoint)
         return try JSONDecoder().decode(ModelsResponse.self, from: data).data
     }
 
@@ -135,17 +147,7 @@ final class LMStudioClient: ChatProvider {
     /// Returns the updated model state if successful. No-op for OpenRouter.
     @discardableResult
     func loadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
-        guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
-        let encoded = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
-        let path = "/api/v0/models/\(encoded)/load"
-        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { throw ClientError.invalidURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request, endpoint: endpoint)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ClientError.unreachable
-        }
+        let data = try await postModelAction("load", modelID: modelID, endpoint: endpoint)
         return try JSONDecoder().decode(ModelsResponse.self, from: data).data.first!
     }
 
@@ -153,36 +155,38 @@ final class LMStudioClient: ChatProvider {
     /// Returns the updated model state if successful. No-op for OpenRouter.
     @discardableResult
     func unloadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
-        guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
-        let encoded = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
-        let path = "/api/v0/models/\(encoded)/unload"
-        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { throw ClientError.invalidURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        applyAuth(&request, endpoint: endpoint)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ClientError.unreachable
-        }
+        let data = try await postModelAction("unload", modelID: modelID, endpoint: endpoint)
         return try JSONDecoder().decode(ModelsResponse.self, from: data).data.first!
     }
 
     /// Sets `keep_in_ram` on a loaded model via `POST /api/v0/models/{id}/load`.
     /// Pass `false` to unpin the model so LM Studio may evict it when loading another.
     func setKeepInRam(modelID: String, keepInRam: Bool, endpoint: Endpoint) async throws {
+        _ = try await postModelAction("load", modelID: modelID, endpoint: endpoint,
+                                      body: try JSONEncoder().encode(LoadModelBody(keep_in_ram: keepInRam)))
+    }
+
+    /// Shared `POST /api/v0/models/{id}/{verb}` for the load/unload/keep-in-ram actions
+    /// (LM Studio only). Returns the response body.
+    private func postModelAction(_ verb: String, modelID: String, endpoint: Endpoint,
+                                 body: Data? = nil) async throws -> Data {
         guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
         let encoded = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
-        let path = "/api/v0/models/\(encoded)/load"
-        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { throw ClientError.invalidURL }
+        guard let url = URL(string: "\(endpoint.baseURL)/api/v0/models/\(encoded)/\(verb)") else {
+            throw ClientError.invalidURL
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(LoadModelBody(keep_in_ram: keepInRam))
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
         applyAuth(&request, endpoint: endpoint)
-        let (_, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ClientError.unreachable
         }
+        return data
     }
 
     // MARK: Streaming chat
@@ -192,7 +196,7 @@ final class LMStudioClient: ChatProvider {
         modelID: String,
         messages: [Message],
         systemPrompt: String,
-        temperature: Double,
+        sampling: SamplingParams,
         tools: [ToolSpec]?
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         // Snapshot the SwiftData-backed messages into Sendable value types on the
@@ -241,7 +245,13 @@ final class LMStudioClient: ChatProvider {
                 // succeeds, just without token-count telemetry for that turn.
                 for includeUsage in [true, false] {
                     let body = ChatRequest(
-                        model: modelID, messages: wire, tools: tools, temperature: temperature,
+                        model: modelID, messages: wire, tools: tools,
+                        temperature: sampling.temperature ?? 0.7,
+                        top_p: sampling.topP,
+                        max_tokens: sampling.maxTokens,
+                        frequency_penalty: sampling.frequencyPenalty,
+                        presence_penalty: sampling.presencePenalty,
+                        stop: sampling.stop,
                         stream: true,
                         stream_options: includeUsage ? StreamOptions(include_usage: true) : nil
                     )
@@ -360,6 +370,13 @@ final class LMStudioClient: ChatProvider {
         let messages: [WireMessage]
         let tools: [ToolSpec]?
         let temperature: Double
+        // Optional sampling controls (§1.4); nil → omitted from JSON, so servers
+        // that reject an unknown param never receive it.
+        let top_p: Double?
+        let max_tokens: Int?
+        let frequency_penalty: Double?
+        let presence_penalty: Double?
+        let stop: [String]?
         let stream: Bool
         let stream_options: StreamOptions?   // nil → omitted from JSON
     }

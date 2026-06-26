@@ -72,10 +72,17 @@ final class EndpointTests: XCTestCase {
     }
 
     @MainActor
-    func test_endpoint_fromCloudAPIServer_readsKeyFromKeychain() {
+    func test_endpoint_fromCloudAPIServer_readsKeyFromKeychain() throws {
+        // Server is a @Model — its `id` is only stable once inserted into a ModelContext.
+        // Without a context, repeated accesses to `id` can return different UUIDs, causing
+        // the keychain write and read to use mismatched account keys.
+        let schema = Schema([Server.self, ModelContextOverride.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
         let s = Server(label: "Groq", host: "https://api.groq.com/openai/v1", port: 0, kind: .cloudAPI)
+        context.insert(s)
         let kc = KeychainStore(service: "com.peregrine.modelo.tests.\(UUID().uuidString)")
-        kc.set("gsk-123", account: "openrouter:\(s.id)")
+        kc.set("gsk-123", account: Endpoint.keychainAccount(for: s))
         let ep = Endpoint(server: s, keychain: kc)
         XCTAssertEqual(ep.baseURL, "https://api.groq.com/openai/v1")
         XCTAssertEqual(ep.kind, .cloudAPI)

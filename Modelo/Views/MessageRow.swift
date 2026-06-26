@@ -9,15 +9,25 @@ struct MessageRow: View {
     let message: Message
     /// Model label shown in the assistant header (the conversation's model id).
     var modelName: String = ""
-    /// Invoked with the message text when "edit & resend" is tapped on the user's
-    /// own turn; ChatView drops it back into the composer. Nil hides the action.
-    var onReuse: ((String) -> Void)? = nil
-    /// When true, renders body as plain text (streaming in progress); switches to
-    /// MarkdownText on completion so Markdown isn't re-parsed on every token.
-    var isStreaming: Bool = false
+    /// Invoked with the message when "edit & resend" is tapped on the user's own
+    /// turn; ChatView drops it into the composer and forks a branch. Nil hides it.
+    var onReuse: ((Message) -> Void)? = nil
+    /// Invoked with the leaf of a sibling branch when the ◀ k/n ▶ control is used,
+    /// so ChatView can re-select the active path. Nil hides the control.
+    var onSelectBranch: ((Message) -> Void)? = nil
+    /// Invoked to re-run an assistant turn as a new sibling branch (§1.3). Nil hides
+    /// the regenerate action.
+    var onRegenerate: ((Message) -> Void)? = nil
+    /// True only for the assistant turn that is actively streaming. While set, the
+    /// body renders as plain `Text` (re-parsing Markdown on every delta is wasteful);
+    /// it swaps to `MarkdownText` once the turn completes.
+    var isLiveStreaming: Bool = false
+    /// Opens the tapped artifact (by id) in the side panel; nil disables artifact cards.
+    var onOpenArtifact: ((String) -> Void)? = nil
+    /// The artifact currently shown in the panel, so its card reads as active.
+    var openArtifactID: String? = nil
     // Shared with the composer and the View menu; default kept in sync across sites.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
-    @State private var hovering = false
     @State private var copied = false
 
     private var isUser: Bool { message.role == .user }
@@ -43,7 +53,6 @@ struct MessageRow: View {
                 hoverBar
             }
         }
-        .onHover { hovering = $0 }
     }
 
     private var userBubble: some View {
@@ -101,7 +110,9 @@ struct MessageRow: View {
             if message.content.isEmpty && calls.isEmpty {
                 BlinkingCursor()
             } else if !message.content.isEmpty {
-                if isStreaming {
+                if isLiveStreaming {
+                    // Plain text while tokens are still arriving — cheap per delta, and
+                    // artifact markup isn't parsed until the turn completes.
                     Text(message.content)
                         .font(.system(size: messageFontSize))
                         .lineSpacing(messageFontSize * 0.3)
@@ -109,7 +120,7 @@ struct MessageRow: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    MarkdownText(content: message.content)
+                    renderedContent
                 }
             }
 
@@ -127,6 +138,34 @@ struct MessageRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Completed assistant body: Markdown with any `<artifact>` blocks replaced by
+    /// compact, tappable cards interleaved at their original position (§2.4).
+    @ViewBuilder private var renderedContent: some View {
+        let segments: [ArtifactSegment] = onOpenArtifact == nil
+            ? [.text(message.content)]
+            : ArtifactParser.segments(from: message.content)
+        if segments.count == 1, case .text = segments[0] {
+            MarkdownText(content: message.content, fontSize: messageFontSize)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
+                    switch seg {
+                    case .text(let t):
+                        if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            MarkdownText(content: t, fontSize: messageFontSize)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    case .artifact(let art):
+                        ArtifactCard(artifact: art, isOpen: openArtifactID == art.id) {
+                            onOpenArtifact?(art.id)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func attachmentThumbs(_ atts: [MessageAttachment]) -> some View {
@@ -153,20 +192,68 @@ struct MessageRow: View {
             if let tokens = message.tokenCount {
                 Text("\(tokens) tok")
             }
+            branchNav
             Spacer(minLength: 0)
+            // Regenerate is hidden on the actively-streaming turn (nothing to re-run yet).
+            if let onRegenerate, !isLiveStreaming {
+                Button { onRegenerate(message) } label: {
+                    Text("Regenerate").foregroundStyle(Theme.textDim)
+                }
+                .buttonStyle(.plain)
+                .help("Regenerate this response on a new branch")
+            }
             Button(action: copy) {
                 Text(copied ? "Copied" : "Copy")
                     .foregroundStyle(copied ? Theme.green : Theme.textDim)
             }
             .buttonStyle(.plain)
+            .help("Copy response")
             ShareLink(item: message.content) {
                 Text("Share").foregroundStyle(Theme.textDim)
             }
             .buttonStyle(.plain)
+            .help("Share")
         }
         .font(.mono(10))
         .monospacedDigit()
         .foregroundStyle(Theme.textFaint)
+    }
+
+    // MARK: Branch navigation — ◀ k/n ▶ across sibling turns (§1.2)
+
+    /// Sibling switcher, shown only when this turn has more than one branch. Tapping
+    /// an arrow re-selects the conversation's active leaf onto the chosen sibling.
+    @ViewBuilder private var branchNav: some View {
+        let sibs = message.siblings
+        if sibs.count > 1, let onSelectBranch {
+            let idx = message.siblingIndex
+            HStack(spacing: 3) {
+                branchArrow("chevron.left", enabled: idx > 0) {
+                    onSelectBranch(sibs[idx - 1].subtreeLeaf)
+                }
+                Text("\(idx + 1)/\(sibs.count)")
+                    .font(.mono(9))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textDim)
+                branchArrow("chevron.right", enabled: idx < sibs.count - 1) {
+                    onSelectBranch(sibs[idx + 1].subtreeLeaf)
+                }
+            }
+        }
+    }
+
+    private func branchArrow(_ symbol: String, enabled: Bool,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(enabled ? Theme.textMute : Theme.textFaint.opacity(0.4))
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(symbol == "chevron.left" ? "Previous response" : "Next response")
     }
 
     // MARK: User hover row — actions + telemetry
@@ -177,12 +264,10 @@ struct MessageRow: View {
                 .font(.mono(9))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
+            branchNav
             if !message.content.isEmpty { actionCluster }
         }
         .padding(.horizontal, 2)
-        .opacity(hovering ? 1 : 0)
-        .allowsHitTesting(hovering)
-        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     /// "142 tok/s · 13:05" — shown on hover only.
@@ -201,7 +286,7 @@ struct MessageRow: View {
                        action: copy)
             shareButton
             if let onReuse {
-                iconButton("arrow.uturn.up", help: "Edit & resend") { onReuse(message.content) }
+                iconButton("arrow.uturn.up", help: "Edit & resend") { onReuse(message) }
             }
         }
         .padding(.horizontal, 4)
@@ -266,7 +351,7 @@ private struct ToolCard: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ModeloHighlighter.shared
+            ModeloSyntaxHighlighter.shared
                 .highlightCode(detail, language: effectiveLanguage)
                 .font(Theme.code(11))
                 .foregroundStyle(Theme.textDim)
