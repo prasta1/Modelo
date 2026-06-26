@@ -9,6 +9,7 @@ struct ModeloApp: App {
     @State private var serverMonitor = ServerMonitor()
     @State private var mcpManager = MCPServerManager()
     @State private var favoritesStore = FavoritesStore()
+    @State private var projectStore = ProjectStore()
     // Drives chat text size; matches the @AppStorage default used in the views.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
@@ -61,6 +62,7 @@ struct ModeloApp: App {
                 .environment(serverMonitor)
                 .environment(mcpManager)
                 .environment(favoritesStore)
+                .environment(projectStore)
                 .environment(reachabilityMonitor)
                 .task { await startMonitoring() }
                 .task { mcpManager.startAll() }

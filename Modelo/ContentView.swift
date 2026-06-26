@@ -8,6 +8,7 @@ enum SidebarRoute: Hashable {
     case reports
     case settings
     case conversation(PersistentIdentifier)
+    case project(UUID)
 }
 
 /// Actions the focused main window exposes to the menu bar.
@@ -39,6 +40,7 @@ struct ContentView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
     @Environment(\.modelContext) private var context
+    @Environment(ProjectStore.self) private var projectStore
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @State private var route: SidebarRoute?
@@ -108,6 +110,12 @@ struct ContentView: View {
             ReportingView()
         case .settings:
             SettingsView(isInline: true)
+        case .project(let id):
+            if let project = projectStore.projects.first(where: { $0.id == id }) {
+                ProjectLandingView(project: project) { proj in newChatInProject(proj) }
+            } else {
+                launcher
+            }
         case .conversation:
             if let convo = selectedConversation {
                 ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
@@ -199,6 +207,7 @@ struct ContentView: View {
         case .status:                storedRoute = "status"
         case .reports:               storedRoute = "reports"
         case .settings:              storedRoute = "settings"
+        case .project(let id):       storedRoute = "proj:" + id.uuidString
         case .conversation(let id):
             if let data = try? JSONEncoder().encode(id) {
                 storedRoute = "conv:" + data.base64EncodedString()
@@ -208,13 +217,24 @@ struct ContentView: View {
     }
 
     private func restoreRoute() {
-        guard route == nil, !storedRoute.isEmpty else { return }
+        guard route == nil else { return }
+        if storedRoute.isEmpty {
+            route = .status
+            return
+        }
         switch storedRoute {
         case "launcher":  route = .launcher
         case "status":    route = .status
         case "reports":   route = .reports
         case "settings":  route = .settings
         default:
+            if storedRoute.hasPrefix("proj:") {
+                let uuidStr = String(storedRoute.dropFirst(5))
+                if let uuid = UUID(uuidString: uuidStr) {
+                    route = .project(uuid)
+                    return
+                }
+            }
             guard storedRoute.hasPrefix("conv:") else { return }
             let b64 = String(storedRoute.dropFirst(5))
             guard let data = Data(base64Encoded: b64),
@@ -263,6 +283,26 @@ struct ContentView: View {
         guard !title.isEmpty, convo.modelContext != nil else { return }
         convo.title = title
         try? context.save()
+    }
+
+    /// Creates a new conversation with the project directory path and top-level file listing
+    /// injected as the system prompt, then navigates to it.
+    private func newChatInProject(_ project: Project) {
+        let raw = (try? FileManager.default.contentsOfDirectory(atPath: project.path)) ?? []
+        let listing = raw.filter { !$0.hasPrefix(".") }.sorted().prefix(40).joined(separator: "\n")
+        let systemPrompt = """
+        You are working in the project directory "\(project.name)".
+
+        Path: \(project.path)
+
+        Top-level contents:
+        \(listing.isEmpty ? "(empty or unreadable)" : listing)
+        """
+        let convo = Conversation(modelID: pickedModel?.model.id ?? "", serverID: pickedModel?.server.id)
+        convo.systemPrompt = systemPrompt
+        context.insert(convo)
+        try? context.save()
+        route = .conversation(convo.persistentModelID)
     }
 
     /// `discovered` overlaid with live loaded/keepInRam state from the 3-second monitor poll.
