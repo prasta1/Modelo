@@ -70,19 +70,37 @@ Build the **Modelo2** scheme. Swift Package Manager resolves dependencies automa
 
 ```
 Modelo/
-├── Theme.swift / ThemePalette.swift  # design tokens + selectable theme palettes
 ├── ModeloApp.swift              # @main entry point
 ├── ContentView.swift            # NavigationSplitView shell + routing + toolbar
-├── Models/                      # Server, LMStudioModel, Message, Conversation, Persona,
-│                                # Folder, UsageRecord, Preset
-├── Services/                    # LMStudioClient, ReachabilityMonitor, ServerRegistry,
-│                                # ChatSession, ToolRegistry, FilesystemTools, ToolSelector,
-│                                # ToolCallParser, ArtifactParser, MCPClient, AgentsLoader,
-│                                # FirecrawlClient, KeychainStore, Endpoint, UsageRetention
+├── Theme.swift / ThemePalette.swift  # design tokens + selectable theme palettes
+├── Models/                      # SwiftData models
+│   ├── Conversation, Message, Server, LMStudioModel
+│   ├── Persona, Preset, Folder, UsageRecord
+│   ├── GPUSnapshot, ModelContextOverride
+├── Services/                    # Core logic
+│   ├── ChatSession, ChatSessionStore, ChatProvider, ChatNotifier
+│   ├── LMStudioClient, SSELineParser, Endpoint, ReachabilityMonitor
+│   ├── ServerRegistry, ServerMonitor
+│   ├── ToolRegistry, Tool, ToolCallParser, ToolSelector, FilesystemTools
+│   ├── AgentsLoader, MCPClient, MCPServerManager, MCPServerConfig
+│   ├── FirecrawlClient, FirecrawlTools
+│   ├── ArtifactParser, SlashParser, TokenEstimator
+│   ├── ConversationExporter, ConversationGrouping, BranchingMigration
+│   ├── UsageRecorder, UsageMath, UsageRetention, ReportCalculator, MetricsRollup
+│   ├── Benchmark
+│   ├── GPUMonitor, PrometheusMonitor, PrometheusScrape
+│   ├── OpenRouterCatalog, KeychainStore, Macmon
 ├── Resources/                   # bundled assets (e.g. mermaid.min.js for diagram previews)
-├── Settings/                    # SettingsView + row components
-└── Views/                       # Sidebar, Chat, ModelPicker, Status, Reports, ArtifactPanel,
-                                 # ArtifactWebView, LauncherView, MenuBarChat, ModelBrowser
+├── Settings/                    # SettingsView, SamplingControls
+└── Views/                       # UI layers
+    ├── SidebarView, ChatView, ModelPickerView, StatusView
+    ├── ReportingView, BenchmarkView, LauncherView, ModelBrowserView
+    ├── ArtifactPanel, ArtifactWebView
+    ├── MenuBarChatView
+    ├── MessageRow, ServerRow, LoadedModelRow
+    ├── ConsoleInspector, ContextBar, ComposerField
+    ├── MarkdownText, MetricStat
+    ├── ThroughputChart, TTFTChart
 
 modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the NVIDIA box)
 ```
