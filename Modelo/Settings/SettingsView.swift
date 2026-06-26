@@ -20,6 +20,8 @@ struct SettingsView: View {
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     private let keychain = KeychainStore()
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
+    @AppStorage("toolsGloballyEnabled") private var toolsGloballyEnabled: Bool = true
+    @AppStorage("maxToolRounds") private var maxToolRounds: Int = 20
     @State private var selectedTab: Int = 0
 
     private var lmStudioServers: [Server] { servers.filter { $0.kind == .lmStudio } }
@@ -62,6 +64,22 @@ struct SettingsView: View {
                 // MARK: Tools
                 ScrollView {
                     VStack(spacing: 12) {
+                        GeneralToggleRow(
+                            icon: "wrench.and.screwdriver",
+                            title: "Enable Tools",
+                            hint: "Allow models to call tools (file access, web search, MCP). Can also be toggled per conversation.",
+                            isOn: $toolsGloballyEnabled
+                        )
+
+                        ToolRoundsRow(
+                            value: $maxToolRounds,
+                            isEnabled: toolsGloballyEnabled
+                        )
+
+                        Divider()
+                            .overlay(Theme.line)
+                            .padding(.vertical, 4)
+
                         KeyCard(caption: "Firecrawl API key",
                                 placeholder: "fc-…",
                                 hint: "Enables firecrawl_scrape and firecrawl_search for tool-capable models.",
@@ -382,6 +400,70 @@ private struct GeneralToggleRow: View {
         }
         .padding(16)
         .panel(Theme.popoverBG)
+    }
+}
+
+// MARK: - Tool rounds row
+
+/// Icon + title/hint on the left, minus/count/plus stepper on the right.
+/// Dims when tools are globally disabled.
+private struct ToolRoundsRow: View {
+    @Binding var value: Int
+    var isEnabled: Bool = true
+
+    private let range = 1...50
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 15))
+                .foregroundStyle(isEnabled ? Theme.amber : Theme.textFaint)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Max Tool Rounds")
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(isEnabled ? Theme.textHi : Theme.textFaint)
+                Text("Maximum agentic loop iterations per turn. Higher values let the model do more work; lower values limit runaway loops.")
+                    .font(Theme.metric(11))
+                    .foregroundStyle(Theme.textLo)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            HStack(spacing: 0) {
+                Button {
+                    if value > range.lowerBound { value -= 1 }
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(value > range.lowerBound && isEnabled ? Theme.amber : Theme.textFaint)
+                .disabled(!isEnabled || value <= range.lowerBound)
+
+                Text("\(value)")
+                    .font(Theme.mono(14, weight: .semibold))
+                    .foregroundStyle(isEnabled ? Theme.textHi : Theme.textFaint)
+                    .frame(minWidth: 32, alignment: .center)
+                    .monospacedDigit()
+
+                Button {
+                    if value < range.upperBound { value += 1 }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(value < range.upperBound && isEnabled ? Theme.amber : Theme.textFaint)
+                .disabled(!isEnabled || value >= range.upperBound)
+            }
+        }
+        .padding(16)
+        .panel(Theme.popoverBG)
+        .opacity(isEnabled ? 1 : 0.5)
     }
 }
 

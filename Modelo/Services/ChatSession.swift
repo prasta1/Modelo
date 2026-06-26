@@ -10,7 +10,10 @@ final class ChatSession {
     private(set) var isStreaming = false
     var errorText: String?
 
-    static let maxToolRounds = 5
+    static var maxToolRounds: Int {
+        let stored = UserDefaults.standard.integer(forKey: "maxToolRounds")
+        return stored > 0 ? stored : 20
+    }
 
     private let client: any ChatProvider
     private let context: ModelContext
@@ -55,7 +58,8 @@ final class ChatSession {
         defer { isStreaming = false }
 
         let endpoint = Endpoint(server: server, keychain: keychain)
-        let toolsActive = modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
+        let globalToolsEnabled = UserDefaults.standard.object(forKey: "toolsGloballyEnabled") as? Bool ?? true
+        let toolsActive = globalToolsEnabled && modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
         let toolSpecs = toolsActive ? registry.specs() : nil
 
         let start = Date()
