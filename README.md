@@ -60,11 +60,11 @@ Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**
 ## Building
 
 ```bash
-xcodegen generate   # regenerates Modelo2.xcodeproj from project.yml
-open Modelo2.xcodeproj
+xcodegen generate   # regenerates Modelo.xcodeproj from project.yml
+open Modelo.xcodeproj
 ```
 
-Build the **Modelo2** scheme. Swift Package Manager resolves dependencies automatically on first build.
+Build the **Modelo** scheme. Swift Package Manager resolves dependencies automatically on first build.
 
 ## Layout
 

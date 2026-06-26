@@ -12,20 +12,33 @@ import Security
 struct KeychainStore {
     let service: String
 
-    // Fork-local service name keeps this app's secrets separate from the original
-    // Modelo app's keychain items (mirrors the ModeloDos store-folder separation).
-    init(service: String = "com.peregrine.modelodos") {
+    /// Pre-rename service name (`ModeloDos`). Items found here are migrated to the
+    /// current service on first read so existing API keys survive the rename.
+    private static let legacyService = "com.peregrine.modelodos"
+
+    init(service: String = "com.peregrine.modelo") {
         self.service = service
     }
 
-    /// Returns the stored string for `account`, or nil if absent.
-    /// Migrates legacy-keychain items to the data-protection keychain on first read.
+    /// Returns the stored string for `account`, or nil if absent. On a miss in the
+    /// current service, falls back to the legacy keychain and the legacy service name,
+    /// migrating any hit to the current service + data-protection keychain.
     func get(account: String) -> String? {
-        if let value = readItem(account: account, dataProtection: true) { return value }
-        // Legacy fallback: migrate to data-protection keychain on success.
-        if let value = readItem(account: account, dataProtection: false) {
-            set(value, account: account)
-            return value
+        if let value = readItem(account: account, service: service, dataProtection: true) { return value }
+        // Fallbacks, in priority order — migrate on first success:
+        //   1. current service, legacy keychain
+        //   2. legacy service (ModeloDos), data-protection keychain
+        //   3. legacy service (ModeloDos), legacy keychain
+        let fallbacks: [(String, Bool)] = [
+            (service, false),
+            (Self.legacyService, true),
+            (Self.legacyService, false)
+        ]
+        for (svc, dataProtection) in fallbacks {
+            if let value = readItem(account: account, service: svc, dataProtection: dataProtection) {
+                set(value, account: account)
+                return value
+            }
         }
         return nil
     }
@@ -37,7 +50,7 @@ struct KeychainStore {
             delete(account: account)
             return
         }
-        var query = baseQuery(account: account, dataProtection: true)
+        var query = baseQuery(account: account, service: service, dataProtection: true)
         let attrs = [kSecValueData as String: data] as CFDictionary
         let status = SecItemUpdate(query as CFDictionary, attrs)
         if status == errSecItemNotFound {
@@ -49,12 +62,12 @@ struct KeychainStore {
     }
 
     private func delete(account: String) {
-        SecItemDelete(baseQuery(account: account, dataProtection: true) as CFDictionary)
-        SecItemDelete(baseQuery(account: account, dataProtection: false) as CFDictionary)
+        SecItemDelete(baseQuery(account: account, service: service, dataProtection: true) as CFDictionary)
+        SecItemDelete(baseQuery(account: account, service: service, dataProtection: false) as CFDictionary)
     }
 
-    private func readItem(account: String, dataProtection: Bool) -> String? {
-        var query = baseQuery(account: account, dataProtection: dataProtection)
+    private func readItem(account: String, service: String, dataProtection: Bool) -> String? {
+        var query = baseQuery(account: account, service: service, dataProtection: dataProtection)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
@@ -63,7 +76,7 @@ struct KeychainStore {
         return String(data: data, encoding: .utf8)
     }
 
-    private func baseQuery(account: String, dataProtection: Bool) -> [String: Any] {
+    private func baseQuery(account: String, service: String, dataProtection: Bool) -> [String: Any] {
         var q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

@@ -17,7 +17,7 @@ The app is a native macOS SwiftUI target. The Xcode project is **generated** by
 XcodeGen from `project.yml` and is never committed (`.gitignore`d), so regenerate
 it before building if `project.yml` changed or the project is missing.
 
-- **Project:** `Modelo2.xcodeproj` · **Scheme:** `Modelo2` · **Product:** `ModeloDos.app`
+- **Project:** `Modelo.xcodeproj` · **Scheme:** `Modelo` · **Product:** `Modelo.app`
   (Swift module is named `Modelo`, so tests `@testable import Modelo`).
 - **Tooling:** `xcodegen` (Homebrew) + `xcodebuild` (Xcode 26+). Deps (MarkdownUI,
   Highlightr) resolve via SPM on first build.
@@ -30,7 +30,7 @@ xcodegen generate
 **Validate a change compiles** (CI-style; no signing needed, output to gitignored `build/`):
 
 ```bash
-xcodebuild -project Modelo2.xcodeproj -scheme Modelo2 -configuration Debug \
+xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Debug \
   -destination 'platform=macOS' -derivedDataPath build \
   CODE_SIGNING_ALLOWED=NO build
 ```
@@ -43,7 +43,7 @@ be trusted as validation.
 **Run the test suite** (`ModeloTests`, in-memory SwiftData):
 
 ```bash
-xcodebuild -project Modelo2.xcodeproj -scheme Modelo2 \
+xcodebuild -project Modelo.xcodeproj -scheme Modelo \
   -destination 'platform=macOS' -derivedDataPath build \
   CODE_SIGNING_ALLOWED=NO test
 ```
@@ -59,16 +59,16 @@ snippet below finds the identity's SHA-1 and builds + installs with it:
 xcodegen generate   # only needed if files were added/removed
 # Resolve the local code-signing identity (see all with: security find-identity -v -p codesigning)
 SIGN_ID=$(security find-identity -v -p codesigning | awk '/Apple Development/{print $2; exit}')
-xcodebuild -project Modelo2.xcodeproj -scheme Modelo2 -configuration Release \
+xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Release \
   -destination 'platform=macOS' -derivedDataPath build-release build \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$SIGN_ID" PROVISIONING_PROFILE_SPECIFIER=""
-osascript -e 'tell application "ModeloDos" to quit' 2>/dev/null   # free the running copy
-rm -rf /Applications/ModeloDos.app
-cp -R build-release/Build/Products/Release/ModeloDos.app /Applications/
-open /Applications/ModeloDos.app
+osascript -e 'tell application "Modelo" to quit' 2>/dev/null   # free the running copy
+rm -rf /Applications/Modelo.app
+cp -R build-release/Build/Products/Release/Modelo.app /Applications/
+open /Applications/Modelo.app
 ```
 
-The installed app is `/Applications/ModeloDos.app`; `codesign --verify --verbose
-/Applications/ModeloDos.app` should report it valid. Keep `build/` and
+The installed app is `/Applications/Modelo.app`; `codesign --verify --verbose
+/Applications/Modelo.app` should report it valid. Keep `build/` and
 `build-release/` gitignored. The keychain must be unlocked, so run this in an
 interactive shell (the `!` prefix in Claude Code works).
