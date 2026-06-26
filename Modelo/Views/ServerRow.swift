@@ -23,7 +23,7 @@ struct ServerRow: View {
         switch server.kind {
         case .openRouter:
             return "via API"
-        case .lmStudio, .llamaSwap:
+        case .lmStudio, .llamaCpp, .oMLX:
             return isTailscaleHost(server.host) ? "via Tailscale" : "\(server.host):\(server.port)"
         case .cloudAPI:
             return server.host

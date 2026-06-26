@@ -723,7 +723,7 @@ private struct ServerSettingsRow: View {
                 .help("Remove this server")
             }
 
-            // Local runtimes (LM Studio, llama.cpp/llama-swap) are all addressed by host:port.
+            // Local runtimes (LM Studio, llama.cpp/llama-swap, oMLX) are all addressed by host:port.
             HStack(alignment: .bottom, spacing: 12) {
                 FieldGroup(caption: "Host") {
                     TextField("hostname or IP", text: $server.host)
@@ -955,7 +955,7 @@ private struct ServerSettingsRow: View {
     }
 
     /// Runtime selector styled as a chip. Lists the local runtimes only
-    /// (LM Studio, llama.cpp); cloud endpoints use a separate tab.
+    /// (LM Studio, llama.cpp, oMLX); cloud endpoints use a separate tab.
     private var runtimePicker: some View {
         Menu {
             Picker("Runtime", selection: $server.kind) {
@@ -970,6 +970,21 @@ private struct ServerSettingsRow: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Runtime")
+        .onChange(of: server.kind) { _, newKind in reseedDefaults(for: newKind) }
+    }
+
+    /// When the user switches runtimes, re-seed the port and label to the new kind's
+    /// defaults — but only while they still hold a recognized default, so a hand-typed
+    /// port or a renamed server is never clobbered. Keeps a fresh server's host:port and
+    /// pill label honest (e.g. picking oMLX lands on :8000 labelled "oMLX").
+    private func reseedDefaults(for kind: ServerKind) {
+        if ServerKind.isDefaultLocalPort(server.port) {
+            server.port = kind.defaultPort
+        }
+        let defaultLabels = Set(ServerKind.localCases.map(\.displayName) + ["New Server"])
+        if defaultLabels.contains(server.label) {
+            server.label = kind.displayName
+        }
     }
 }
 

@@ -63,8 +63,8 @@ final class LMStudioClient: ChatProvider {
             }
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
-        case .llamaSwap:
-            // llama.cpp / llama-swap is OpenAI-compatible but has no /api/v0.
+        case .llamaCpp, .oMLX:
+            // Generic local OpenAI-compatible servers (llama.cpp/llama-swap, oMLX): no /api/v0.
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
         }
@@ -104,7 +104,11 @@ final class LMStudioClient: ChatProvider {
     /// present on all versions and compatible servers) rather than `/api/v0/models`
     /// (LM Studio-specific, absent on older builds and other local servers).
     func probeReachable(endpoint: Endpoint, timeout: TimeInterval = 4) async -> Bool {
-        let path = endpoint.kind != .lmStudio ? "/models" : "/v1/models"
+        let path: String
+        switch endpoint.kind {
+        case .lmStudio, .llamaCpp, .oMLX: path = "/v1/models"
+        case .cloudAPI, .openRouter: path = "/models"
+        }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
@@ -118,7 +122,11 @@ final class LMStudioClient: ChatProvider {
     /// mode so the settings UI can show an actionable hint (e.g. "hostname not
     /// found" versus "LM Studio not running on this port").
     func probeDetailed(endpoint: Endpoint, timeout: TimeInterval = 4) async -> ProbeResult {
-        let path = endpoint.kind != .lmStudio ? "/models" : "/v1/models"
+        let path: String
+        switch endpoint.kind {
+        case .lmStudio, .llamaCpp, .oMLX: path = "/v1/models"
+        case .cloudAPI, .openRouter: path = "/models"
+        }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
@@ -277,8 +285,13 @@ final class LMStudioClient: ChatProvider {
         allowRetry: Bool
     ) async -> Bool {
         do {
-            // LM Studio's base is host:port (needs /v1); cloud API bases already end in /v1.
-            let chatPath = endpoint.kind != .lmStudio ? "/chat/completions" : "/v1/chat/completions"
+            // LM Studio's base is host:port (needs /v1); llama.cpp/llama-swap and oMLX also need /v1.
+            // Cloud API bases already end in /v1.
+            let chatPath: String
+            switch endpoint.kind {
+            case .lmStudio, .llamaCpp, .oMLX: chatPath = "/v1/chat/completions"
+            case .cloudAPI, .openRouter: chatPath = "/chat/completions"
+            }
             guard let url = URL(string: "\(endpoint.baseURL)\(chatPath)") else {
                 throw ClientError.invalidURL
             }

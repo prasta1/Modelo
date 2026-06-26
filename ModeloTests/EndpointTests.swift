@@ -15,6 +15,39 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(s.baseURL, "https://api.together.xyz/v1")
     }
 
+    // MARK: - ServerKind (rename back-compat + new oMLX runtime)
+
+    /// Servers saved before the `llamaSwap` → `llamaCpp` rename persisted the raw
+    /// string "llamaSwap"; they must still decode to the renamed case.
+    func test_serverKind_llamaSwapRawValue_decodesToLlamaCpp() {
+        XCTAssertEqual(ServerKind(rawValue: "llamaSwap"), .llamaCpp)
+        XCTAssertEqual(ServerKind.llamaCpp.rawValue, "llamaSwap")
+    }
+
+    /// The cloud cases keep their historically-inverted raw values for back-compat.
+    func test_serverKind_cloudRawValues_unchanged() {
+        XCTAssertEqual(ServerKind.cloudAPI.rawValue, "openRouter")
+        XCTAssertEqual(ServerKind.openRouter.rawValue, "openRouterFixed")
+    }
+
+    func test_serverKind_localCases_areThreeRuntimes() {
+        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .oMLX])
+        XCTAssertTrue(ServerKind.oMLX.isLocal)
+        XCTAssertFalse(ServerKind.cloudAPI.isLocal)
+    }
+
+    func test_baseURL_oMLX_usesHostPort() {
+        let s = Server(label: "oMLX", host: "mac-studio", port: 8000, kind: .oMLX)
+        XCTAssertEqual(s.baseURL, "http://mac-studio:8000")
+    }
+
+    func test_serverKind_defaultPorts() {
+        XCTAssertEqual(ServerKind.oMLX.defaultPort, 8000)
+        XCTAssertEqual(ServerKind.llamaCpp.defaultPort, 8080)
+        XCTAssertTrue(ServerKind.isDefaultLocalPort(8000))
+        XCTAssertFalse(ServerKind.isDefaultLocalPort(31337))
+    }
+
     // MARK: - Host normalization (regression: doubled-up scheme made the probe fail)
 
     func test_baseURL_stripsHttpScheme() {
