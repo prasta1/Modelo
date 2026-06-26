@@ -110,19 +110,42 @@ private struct ModelPickerList: View {
     @State private var ejectingID: String?
     @State private var searchText = ""
     @State private var selectedFamily: String? = nil
+    @State private var selectedServer: Server? = nil
     @Environment(FavoritesStore.self) private var favorites
 
     private var totalCount: Int { groups.reduce(0) { $0 + $1.models.count } }
 
     /// Unique family tags from local servers only, sorted by model count.
+    /// Scoped to the selected server when one is active.
     private var families: [String] {
         var counts: [String: Int] = [:]
-        for group in groups where group.server.kind != .cloudAPI {
+        let source = selectedServer.map { srv in groups.filter { $0.server.id == srv.id } } ?? groups
+        for group in source where group.server.kind != .cloudAPI {
             for item in group.models {
                 if let tag = item.model.familyTag { counts[tag, default: 0] += 1 }
             }
         }
         return counts.keys.sorted { counts[$0]! > counts[$1]! }
+    }
+
+    private var serverPillStrip: some View {
+        HStack(spacing: 6) {
+            FilterPill(label: "All", isActive: selectedServer == nil) {
+                selectedServer = nil
+            }
+            // Cap at 5 — server names tend to be longer than family tags.
+            ForEach(Array(groups.prefix(5)), id: \.server.id) { group in
+                FilterPill(
+                    label: group.server.label,
+                    isActive: selectedServer?.id == group.server.id
+                ) {
+                    selectedServer = selectedServer?.id == group.server.id ? nil : group.server
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 13)
+        .frame(height: 34)
     }
 
     private var familyPillStrip: some View {
@@ -169,6 +192,10 @@ private struct ModelPickerList: View {
         VStack(spacing: 0) {
             searchField
             Divider().overlay(Theme.line)
+            if groups.count > 1 {
+                serverPillStrip
+                Divider().overlay(Theme.line)
+            }
             if !families.isEmpty {
                 familyPillStrip
                 Divider().overlay(Theme.line)
@@ -178,8 +205,11 @@ private struct ModelPickerList: View {
             footer
         }
         .frame(width: 418)
-        .frame(maxHeight: 520)
+        .frame(maxHeight: 560)
         .background(Theme.popoverBG)
+        .onChange(of: selectedServer?.id) { _, _ in
+            selectedFamily = nil
+        }
     }
 
     private var searchField: some View {
@@ -244,6 +274,7 @@ private struct ModelPickerList: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let allModels = groups.flatMap { $0.models }
         var favs = allModels.filter { favorites.isFavorite($0.model.id) }
+        if let srv = selectedServer { favs = favs.filter { $0.server.id == srv.id } }
         if let fam = selectedFamily { favs = favs.filter { $0.model.familyTag == fam } }
         let filtered = query.isEmpty ? favs : favs.filter {
             $0.model.familyName.localizedCaseInsensitiveContains(query)
@@ -362,23 +393,32 @@ private struct ModelPickerList: View {
             return item.model.familyTag == fam
         }
 
+        func matchesServer(_ group: (server: Server, models: [DiscoveredModel])) -> Bool {
+            guard let srv = selectedServer else { return true }
+            return group.server.id == srv.id
+        }
+
         guard !query.isEmpty else {
             return groups
-                .filter { $0.server.kind != .cloudAPI }
+                // When a specific server is selected, show its models even if it's a cloud server.
+                .filter { selectedServer != nil || $0.server.kind != .cloudAPI }
+                .filter { matchesServer($0) }
                 .compactMap { group in
                     let matched = group.models.filter { matchesFamily($0) }
                     return matched.isEmpty ? nil : (group.server, floatLoaded(matched))
                 }
         }
-        return groups.compactMap { group in
-            let matched = group.models.filter {
-                matchesFamily($0) && (
-                    $0.model.familyName.localizedCaseInsensitiveContains(query)
-                        || $0.model.id.localizedCaseInsensitiveContains(query)
-                )
+        return groups
+            .filter { matchesServer($0) }
+            .compactMap { group in
+                let matched = group.models.filter {
+                    matchesFamily($0) && (
+                        $0.model.familyName.localizedCaseInsensitiveContains(query)
+                            || $0.model.id.localizedCaseInsensitiveContains(query)
+                    )
+                }
+                return matched.isEmpty ? nil : (group.server, floatLoaded(matched))
             }
-            return matched.isEmpty ? nil : (group.server, floatLoaded(matched))
-        }
     }
 
     private var cloudModelCount: Int {
@@ -386,7 +426,9 @@ private struct ModelPickerList: View {
     }
 
     private var cloudHintVisible: Bool {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && cloudModelCount > 0
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && cloudModelCount > 0
+            && selectedServer == nil
     }
 }
 
