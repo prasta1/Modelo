@@ -22,16 +22,15 @@ struct LauncherView: View {
     @Environment(FavoritesStore.self) private var favorites
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
-    /// Models for the selected endpoint after capability filters, with favorites
-    /// sorted to the top. Never shows more than one server — `endpointFilter`
-    /// falls back to the first server.
+    /// Models after capability filters, with favorites sorted to the top.
+    /// When `endpointFilter` is set, shows only that server's models; otherwise
+    /// shows all servers' models.
     private var filteredModels: [DiscoveredModel] {
-        let serverID = endpointFilter ?? servers.first?.id
         let filtered = discovered.filter { item in
-            if let serverID, item.server.id != serverID { return false }
+            if let serverID = endpointFilter, item.server.id != serverID { return false }
             let m = item.model
             // Free filter only applies to cloud endpoints — local models are always shown.
-            if activeFilters.contains("free") && item.server.kind != .lmStudio && !m.isFree { return false }
+            if activeFilters.contains("free") && !item.server.kind.isLocal && !m.isFree { return false }
             if activeFilters.contains("vision") && !m.supportsVision   { return false }
             if activeFilters.contains("tools")  && !m.supportsToolUse  { return false }
             if activeFilters.contains("reason") && !m.supportsThinking { return false }
@@ -40,10 +39,20 @@ struct LauncherView: View {
         return filtered.sorted { favorites.isFavorite($0.model.id) && !favorites.isFavorite($1.model.id) }
     }
 
-    /// The endpoint currently in view. The launcher shows one server at a time;
-    /// falls back to the first configured server until auto-selection runs.
+    /// The endpoint currently in view, if the user has filtered to one.
+    /// Without a filter, the launcher shows all servers' models.
     private var selectedServer: Server? {
-        servers.first { $0.id == endpointFilter } ?? servers.first
+        servers.first { $0.id == endpointFilter }
+    }
+
+    /// `filteredModels` grouped by server, in `servers` sort order — drives the
+    /// per-server sections shown in "All" mode. Servers with no matching models
+    /// are dropped so empty sections never appear.
+    private var groupedModels: [(server: Server, models: [DiscoveredModel])] {
+        servers.compactMap { server in
+            let models = filteredModels.filter { $0.server.id == server.id }
+            return models.isEmpty ? nil : (server, models)
+        }
     }
 
     var body: some View {
@@ -84,51 +93,45 @@ struct LauncherView: View {
 
     private var modelSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            serverTabs
+            pillStripRow
             // Capability filters — left-aligned
             if !discovered.isEmpty {
                 capabilityFilterRow
             }
-            // One endpoint's models, or a contextual empty state.
+            // A contextual empty state, one server's grid, or — in "All" mode —
+            // a labelled section per server.
             if filteredModels.isEmpty {
                 emptyHint
+            } else if let server = selectedServer {
+                serverSection(server: server, models: filteredModels, showHeader: false)
             } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 260), spacing: 12)],
-                    spacing: 12
-                ) {
-                    ForEach(filteredModels) { item in
-                        ModelTile(item: item, persona: selectedPersona,
-                                  onTap: { onLaunch(item, selectedPersona) },
-                                  onUnload: onUnload.map { fn in { await fn(item) } },
-                                  onPin: onPin.map { fn in { Task<Void, Never> { await fn(item) } } },
-                                  onUnpin: onUnpin.map { fn in { Task<Void, Never> { await fn(item) } } })
-                    }
+                ForEach(groupedModels, id: \.server.id) { group in
+                    serverSection(server: group.server, models: group.models, showHeader: true)
                 }
             }
         }
     }
 
-    /// A tab per configured server — tap one to switch which server's models the
-    /// grid shows. Each tab carries a live status dot and that server's loaded-model
-    /// count; the refresh button (re-query every server's /models) sits at the right.
-    @ViewBuilder private var serverTabs: some View {
+    /// A horizontal server-pill strip (`All` + one pill per server) with the global
+    /// "Fetch models" button pinned on the right. Mirrors the Status page's switcher;
+    /// selecting a pill drives `endpointFilter` (nil = show every server).
+    private var pillStripRow: some View {
         HStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    LauncherPill(label: "All", status: nil, isActive: endpointFilter == nil) {
+                        endpointFilter = nil
+                    }
                     ForEach(servers) { server in
-                        ServerTab(
-                            label: server.label,
-                            status: registry.status(for: server),
-                            loadedCount: discovered.filter { $0.server.id == server.id && $0.model.isLoaded }.count,
-                            isSelected: (endpointFilter ?? servers.first?.id) == server.id
-                        ) {
+                        LauncherPill(label: server.label,
+                                     status: registry.status(for: server),
+                                     isActive: endpointFilter == server.id) {
                             endpointFilter = server.id
                         }
                     }
                 }
-                .padding(.vertical, 1)   // room for the selected chip's border
             }
+            Spacer(minLength: 8)
             if let onRefresh {
                 Button {
                     isRefreshing = true
@@ -148,13 +151,44 @@ struct LauncherView: View {
         }
     }
 
-    /// Empty state for the selected endpoint: offline, nothing discovered, or
-    /// everything filtered out.
+    /// One server's models as a grid, optionally preceded by a section header
+    /// (status dot, name, loaded/total count). The header is shown in "All" mode
+    /// to label each section; hidden when a single server is already selected.
+    @ViewBuilder
+    private func serverSection(server: Server, models: [DiscoveredModel], showHeader: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if showHeader {
+                let loaded = models.filter { $0.model.isLoaded }.count
+                HStack(spacing: 8) {
+                    StatusLED(status: registry.status(for: server), size: 7, breathe: false)
+                    Eyebrow(server.label, color: Theme.textHi, size: 11)
+                    Spacer()
+                    Text(loaded > 0 ? "\(loaded) loaded · \(models.count)" : "\(models.count) models")
+                        .font(Theme.metric(10))
+                        .foregroundStyle(Theme.textFaint)
+                }
+            }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 260), spacing: 12)],
+                spacing: 12
+            ) {
+                ForEach(models) { item in
+                    ModelTile(item: item, persona: selectedPersona,
+                              onTap: { onLaunch(item, selectedPersona) },
+                              onUnload: onUnload.map { fn in { await fn(item) } },
+                              onPin: onPin.map { fn in { Task<Void, Never> { await fn(item) } } },
+                              onUnpin: onUnpin.map { fn in { Task<Void, Never> { await fn(item) } } })
+                }
+            }
+        }
+    }
+
+    /// Empty state: offline selected server, nothing discovered, or everything filtered out.
     @ViewBuilder private var emptyHint: some View {
         if let server = selectedServer, registry.status(for: server) == .offline {
             hintRow(icon: "bolt.horizontal.circle",
-                    text: "\(server.label) is offline — pick another server in the sidebar.")
-        } else if discovered.contains(where: { $0.server.id == selectedServer?.id }) {
+                    text: "\(server.label) is offline — pick another server above.")
+        } else if discovered.contains(where: { selectedServer == nil || $0.server.id == selectedServer?.id }) {
             noFilterMatchHint
         } else {
             noModelsHint
@@ -179,7 +213,8 @@ struct LauncherView: View {
 
     private var capabilityFilterRow: some View {
         HStack(spacing: 6) {
-            if selectedServer?.kind != .lmStudio {
+            // "Free" only narrows cloud catalogues — hide it when a single local server is in view.
+            if selectedServer?.kind.isLocal != true {
                 CapabilityFilterChip(label: "Free",   key: "free",
                                      tint: Theme.green,
                                      active: activeFilters.contains("free"))   { toggle("free") }
@@ -236,6 +271,45 @@ struct LauncherView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panel(Color.white.opacity(0.02), radius: 10)
+    }
+}
+
+// MARK: - Server pill
+
+/// A server switcher pill for the launcher strip. `status == nil` renders the
+/// runtime-agnostic "All" pill (no status dot). Mirrors the Status page's pill.
+private struct LauncherPill: View {
+    let label: String
+    let status: ServerStatus?
+    let isActive: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let status {
+                    StatusLED(status: status, size: 5)
+                }
+                Text(label)
+                    .font(Theme.label(9))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(isActive ? Theme.amber : Theme.textDim)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                isActive ? Theme.amberFill : (hovering ? Theme.fillHi : Color.clear),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule().strokeBorder(isActive ? Theme.amberBorder : Theme.line, lineWidth: 1)
+            )
+            .animation(.easeOut(duration: 0.12), value: isActive)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

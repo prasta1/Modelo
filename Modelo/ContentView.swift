@@ -104,7 +104,6 @@ struct ContentView: View {
             }
         }
         .task(id: serverDiscoveryKey) {
-            selectDefaultEndpoint()
             gpuMonitor.start(servers: servers)   // pick up agent-URL / macmon changes
             await refreshModels()
         }
@@ -112,7 +111,7 @@ struct ContentView: View {
         .onChange(of: route) { saveRoute(route); syncPickedModel(); updateForeground() }
         .focusedSceneValue(\.modeloCommands, ModeloCommands(
             newChat: { newChat() },
-            goToLauncher: { route = .launcher; selectDefaultEndpoint() },
+            goToLauncher: { route = .launcher },
             goToStatus: { route = .status },
             goToReports: { route = .reports }
         ))
@@ -378,17 +377,6 @@ struct ContentView: View {
 
     private var onlineServerIDs: [UUID] {
         servers.filter { registry.isOnline($0) }.map(\.id)
-    }
-
-    /// Picks the default endpoint when nothing valid is currently selected.
-    /// Prefers the first online server by sortOrder; falls back to the first overall.
-    private func selectDefaultEndpoint() {
-        if let id = endpointFilter,
-           let server = servers.first(where: { $0.id == id }),
-           registry.isOnline(server) {
-            return
-        }
-        endpointFilter = (servers.first { registry.isOnline($0) } ?? servers.first)?.id
     }
 
     private func refreshModels() async {
