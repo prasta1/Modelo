@@ -16,6 +16,20 @@ struct ServerRow: View {
         }
     }
 
+    /// Human-readable subtitle for the server's connection method.
+    /// Uses the user-supplied ID when set; otherwise auto-detects from host/kind.
+    private var subtitle: String {
+        if !server.connectionID.isEmpty { return server.connectionID }
+        switch server.kind {
+        case .openRouter:
+            return "via API"
+        case .lmStudio, .llamaSwap:
+            return isTailscaleHost(server.host) ? "via Tailscale" : "\(server.host):\(server.port)"
+        case .cloudAPI:
+            return server.host
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             StatusLED(status: status)
@@ -23,7 +37,7 @@ struct ServerRow: View {
                 Text(server.label)
                     .font(Theme.mono(12, weight: .semibold))
                     .foregroundStyle(isEndpointActive ? Theme.Palette.signal : Theme.Palette.ink)
-                Text(verbatim: "\(server.host):\(server.port)")
+                Text(verbatim: subtitle)
                     .font(Theme.metric(10))
                     .foregroundStyle(Theme.Palette.inkFaint)
             }
@@ -38,5 +52,14 @@ struct ServerRow: View {
         .opacity(status == .offline ? 0.5 : 1)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(server.label), \(statusLabel)")
+    }
+
+    /// Returns true if the host looks like a Tailscale address —
+    /// either a 100.64–127.x.x.x CGNAT IP or a .ts.net hostname.
+    private func isTailscaleHost(_ host: String) -> Bool {
+        if host.hasSuffix(".ts.net") { return true }
+        let parts = host.split(separator: ".")
+        guard parts.count >= 2, parts[0] == "100", let second = Int(parts[1]) else { return false }
+        return second >= 64 && second <= 127
     }
 }

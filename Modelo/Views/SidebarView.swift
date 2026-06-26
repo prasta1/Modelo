@@ -10,10 +10,9 @@ import SwiftData
 /// rather than a `List`, since the system sidebar style can't reach this look.
 /// Selection is driven manually by writing `route` / `endpointFilter` on tap.
 struct SidebarView: View {
-    @Environment(ServerRegistry.self) private var registry
     @Environment(ChatSessionStore.self) private var sessionStore
+    @Environment(ProjectStore.self) private var projectStore
     @Environment(\.modelContext) private var context
-    @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @Query(sort: \Folder.sortOrder) private var folders: [Folder]
     @Binding var route: SidebarRoute?
@@ -54,7 +53,7 @@ struct SidebarView: View {
                     navRow("Settings", icon: "gearshape",                 to: .settings)
                 }
 
-                serversSection
+                projectsSection
                 conversationsSection
             }
             .padding(.horizontal, 16)
@@ -151,75 +150,63 @@ struct SidebarView: View {
         .help("Go to \(title)")
     }
 
-    // MARK: - Servers
+    // MARK: - Projects
 
-    private var serversSection: some View {
+    @ViewBuilder
+    private var projectsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Eyebrow("Servers")
+                Eyebrow("Projects")
                 Spacer()
-                Text("\(onlineCount) LIVE")
-                    .font(.mono(10))
-                    .foregroundStyle(Theme.green)
+                Button { projectStore.addProject() } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textMute)
+                }
+                .buttonStyle(.plain)
+                .help("Add project directory")
             }
             .padding(.horizontal, 8)
             .padding(.top, 24)
-            .padding(.bottom, 8)
+            .padding(.bottom, 10)
 
-            ForEach(servers) { server in
-                serverRow(server)
+            if projectStore.projects.isEmpty {
+                emptyLabel("No projects yet")
+            } else {
+                ForEach(projectStore.projects) { project in
+                    projectRow(project)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                if case .project(let id) = route, id == project.id { route = nil }
+                                projectStore.remove(project)
+                            } label: {
+                                Label("Remove Project", systemImage: "trash")
+                            }
+                        }
+                }
             }
         }
     }
 
-    /// Server row with the Native Refined treatment, but reading live state: the
-    /// dot is a real reachability `StatusLED`, the title is `server.label`, and the
-    /// active state mirrors the endpoint filter rather than a mock selection.
-    private func serverRow(_ server: Server) -> some View {
-        let active = endpointFilter == server.id
-        let status = registry.status(for: server)
-        return HStack(spacing: 9) {
-            StatusLED(status: status, size: 6)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(server.label)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.textBright)
-                    .lineLimit(1)
-                Text(server.host)
-                    .font(.mono(9.5))
-                    .foregroundStyle(Theme.textDim)
-                    .lineLimit(1)
-            }
+    private func projectRow(_ project: Project) -> some View {
+        let active = route == .project(project.id)
+        return HStack(spacing: 10) {
+            Image(systemName: "folder")
+                .font(.system(size: 11))
+                .frame(width: 14)
+                .foregroundStyle(active ? Theme.amber : Theme.textDim)
+            Text(project.name)
+                .font(.system(size: 12.5))
+                .foregroundStyle(active ? Theme.textHi : Theme.textSoft)
+                .lineLimit(1)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background {
-            if active {
-                RoundedRectangle(cornerRadius: Theme.Radius.control)
-                    .fill(Theme.amberFillLo)
-                    .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control)
-                        .stroke(Theme.amberBorder))
-            }
-        }
-        .overlay(alignment: .leading) {
-            if active {
-                Capsule().fill(Theme.amber)
-                    .frame(width: 2)
-                    .padding(.vertical, 9)
-            }
-        }
-        .padding(.bottom, 2)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(active ? Theme.fill : .clear,
+                    in: RoundedRectangle(cornerRadius: 7))
         .contentShape(Rectangle())
-        .onTapGesture {
-            endpointFilter = server.id
-            route = nil
-        }
-        .help("Filter models by \(server.label)")
-    }
-
-    private var onlineCount: Int {
-        servers.filter { registry.isOnline($0) }.count
+        .onTapGesture { route = .project(project.id) }
     }
 
     // MARK: - Conversations

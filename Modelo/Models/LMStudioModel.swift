@@ -28,10 +28,18 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     let maxContextLength: Int?
     /// Publisher / organization, e.g. `"mlx-community"`, `"lmstudio-community"`.
     let publisher: String?
-    /// File size on disk in bytes, from the `size` field of `/api/v0/models`.
+    /// Context length the model is currently loaded with (`loaded_context_length`), when reported.
+    let loadedContextLength: Int?
+    /// File size on disk in bytes. LM Studio's `/api/v0/models` reports this as `size_bytes`;
+    /// some OpenAI-compatible backends (llama-swap, MLX) use `size`. Decode whichever is present
+    /// and read through `fileSizeBytes`.
     let sizeBytes: Int?
+    /// Legacy `size` field, used as a fallback when `size_bytes` is absent.
+    let sizeBytesAlt: Int?
+    /// File size preferring the canonical `size_bytes`, falling back to the legacy `size`.
+    var fileSizeBytes: Int? { sizeBytes ?? sizeBytesAlt }
     /// When true, LM Studio will not evict this model from RAM when another is loaded.
-    let keepInRam: Bool?
+    var keepInRam: Bool?
 
     /// Zero-cost to use. Only meaningful for OpenRouter models (set from the
     /// API's pricing data when mapped); local models default to false and the
@@ -46,7 +54,9 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, object, type, arch, quantization, state, publisher
         case maxContextLength = "max_context_length"
-        case sizeBytes = "size"
+        case loadedContextLength = "loaded_context_length"
+        case sizeBytes = "size_bytes"
+        case sizeBytesAlt = "size"
         case keepInRam = "keep_in_ram"
     }
 
@@ -72,6 +82,21 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     var shortName: String {
         if let slash = id.firstIndex(of: "/") { return String(id[id.index(after: slash)...]) }
         return id
+    }
+
+    /// The provider / organization prefix in OpenRouter IDs (`org/model` format).
+    /// Returns nil for LM Studio IDs that have no slash.
+    var providerID: String? {
+        guard let slash = id.firstIndex(of: "/") else { return nil }
+        return String(id[id.startIndex..<slash])
+    }
+
+    /// Unified family grouping key for filter pills.
+    /// OpenRouter models use the provider prefix (e.g. `"anthropic"`, `"openai"`);
+    /// local LM Studio models fall back to architecture family (e.g. `"llama"`, `"qwen"`).
+    var familyTag: String? {
+        if let p = providerID { return p }
+        return displayArch
     }
 
     /// Back-compat alias used elsewhere in the app (e.g. the model-switcher menu).
@@ -158,13 +183,71 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
 
     /// Human-readable file size, e.g. `"4.2 GB"`, `"512 MB"`. nil when unknown.
     var fileSizeFormatted: String? {
-        guard let bytes = sizeBytes, bytes > 0 else { return nil }
+        guard let bytes = fileSizeBytes, bytes > 0 else { return nil }
         let gb = Double(bytes) / 1_073_741_824
         if gb >= 1 {
             return String(format: gb >= 10 ? "%.0f GB" : "%.1f GB", gb)
         }
         let mb = Double(bytes) / 1_048_576
         return String(format: mb >= 100 ? "%.0f MB" : "%.1f MB", mb)
+    }
+
+    /// True for mixture-of-experts models (e.g. Mixtral 8x7B, Llama 4 Scout 17B-16E).
+    /// MoE IDs embed the *active* parameter count, not total weight — estimating
+    /// size from active params produces a number that's 4–8× too small.
+    private var isMixtureOfExperts: Bool {
+        let lower = id.lowercased()
+        // Sparse-expert shorthand: "8x7b", "2x22b"
+        if lower.range(of: #"\d+x\d+[bm]"#, options: .regularExpression) != nil { return true }
+        // Expert-count suffix after a separator: "-16e-", "-16e" at end of segment
+        if lower.range(of: #"[-_]\d+e(?:[-_]|$)"#, options: .regularExpression) != nil { return true }
+        return false
+    }
+
+    /// Best-effort human-readable size: exact API value when available, otherwise
+    /// estimated from parameter count × quantization bit-depth (prefixed with `~`).
+    /// Returns nil when neither source provides enough information, or when the model
+    /// is a mixture-of-experts (active-param estimates are off by 4–8× for MoE).
+    var displaySizeFormatted: String? {
+        if let exact = fileSizeFormatted { return exact }
+
+        // MoE models list active-parameter counts in their IDs, not total weight.
+        // The estimation below would show e.g. ~8.7 GB for a model that actually
+        // needs 70+ GB in RAM — suppress it rather than show a misleading number.
+        if isMixtureOfExperts { return nil }
+        // Parse parameter count from id (e.g. "30B" → 30 × 10⁹).
+        guard let paramStr = parameterSize else { return nil }
+        let upper = paramStr.uppercased()
+        let scale: Double
+        let digits: String
+        if upper.hasSuffix("B") {
+            scale = 1_000_000_000; digits = String(upper.dropLast())
+        } else if upper.hasSuffix("M") {
+            scale = 1_000_000; digits = String(upper.dropLast())
+        } else { return nil }
+        guard let paramCount = Double(digits), paramCount > 0 else { return nil }
+        let params = paramCount * scale
+
+        // Parse bit-depth from quantization. Handles "4bit", "Q4_K_M", "f16", etc.
+        let q = (quantization ?? "").lowercased()
+        let bits: Double
+        if      q.contains("2bit") || q.hasPrefix("q2") || q == "int2" { bits = 2 }
+        else if q.contains("3bit") || q.hasPrefix("q3")                { bits = 3 }
+        else if q.contains("4bit") || q.hasPrefix("q4") || q == "int4" { bits = 4 }
+        else if q.contains("5bit") || q.hasPrefix("q5")                { bits = 5 }
+        else if q.contains("6bit") || q.hasPrefix("q6")                { bits = 6 }
+        else if q.contains("8bit") || q.hasPrefix("q8") || q == "int8" { bits = 8 }
+        else if q.contains("f16") || q == "float16" || q == "fp16"     { bits = 16 }
+        else if q.contains("f32") || q == "float32" || q == "fp32"     { bits = 32 }
+        else { return nil }
+
+        // ~10% overhead for non-quantized layers, buffers, and metadata.
+        let bytes = params * bits / 8.0 * 1.10
+        let gb = bytes / 1_073_741_824
+        if gb >= 10 { return "~\(Int(gb.rounded())) GB" }
+        if gb >= 1  { return String(format: "~%.1f GB", gb) }
+        let mb = bytes / 1_048_576
+        return String(format: "~%.0f MB", mb)
     }
 
     /// Display arch — prefers API field, falls back to a rough id-derived guess.

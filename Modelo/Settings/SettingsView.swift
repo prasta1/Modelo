@@ -21,7 +21,7 @@ struct SettingsView: View {
     private let keychain = KeychainStore()
 
     private var localServers: [Server] { servers.filter { $0.kind.isLocal } }
-    private var cloudServers: [Server] { servers.filter { $0.kind == .cloudAPI } }
+    private var cloudServers: [Server] { servers.filter { $0.kind == .cloudAPI || $0.kind == .openRouter } }
 
     var body: some View {
         if isInline {
@@ -102,6 +102,7 @@ struct SettingsView: View {
             // MARK: Tools
             ScrollView {
                 VStack(spacing: 12) {
+                    GlobalToolsCard()
                     FilesystemToolsCard()
                     ToolRoundsCard()
                     ArtifactsCard()
@@ -417,6 +418,25 @@ private struct ToolRoundsCard: View {
     }
 }
 
+/// Master switch for all tool use. Mirrors the per-conversation Tools toggle and
+/// gates `ChatSession`'s tool offering globally; when off, no model is given tools.
+private struct GlobalToolsCard: View {
+    @AppStorage("toolsGloballyEnabled") private var enabled = true
+
+    var body: some View {
+        SettingsSection("Tools") {
+            Toggle(isOn: $enabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Enable tools").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                    Text("Allow models to call tools (file access, web search, MCP). Can also be toggled per conversation.")
+                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                }
+            }
+            .toggleStyle(.switch)
+        }
+    }
+}
+
 private struct ArtifactsCard: View {
     @AppStorage("artifactsEnabled") private var enabled = true
 
@@ -511,10 +531,21 @@ private struct FilesystemToolsCard: View {
 /// Theme picker (§3.5): a swatch + label per palette, applied live via `@AppStorage`.
 private struct AppearanceSettingsTab: View {
     @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                SettingsSection("General") {
+                    Toggle(isOn: $showMenuBarIcon) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Show menu bar icon").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                            Text("Adds a menu bar item with a quick ephemeral chat popover.")
+                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                }
                 SettingsSection("Theme") {
                     VStack(spacing: 8) {
                         ForEach(ThemeID.allCases) { theme in

@@ -1,5 +1,15 @@
 import Foundation
 
+/// Categorizes the failure mode of a reachability probe so the UI can surface
+/// an actionable hint rather than a generic "offline" indicator.
+enum ProbeResult {
+    case reachable
+    case hostNotFound    // DNS resolution failed
+    case unreachable     // connection refused or non-2xx (host up, LM Studio not running)
+    case timeout
+    case invalidURL
+}
+
 /// HTTP client for LM Studio's OpenAI-compatible API. The `URLSession` is
 /// injected so tests can stub the network; production uses the default below.
 final class LMStudioClient: ChatProvider {
@@ -39,6 +49,10 @@ final class LMStudioClient: ChatProvider {
     /// Embedding models are filtered out.
     func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] {
         switch endpoint.kind {
+        case .openRouter:
+            let data = try await authedGet(path: "/models", endpoint: endpoint)
+            return try OpenRouterCatalog.models(from: data)
+                .filter { !$0.isEmbeddingModel }
         case .cloudAPI:
             let data = try await authedGet(path: "/models", endpoint: endpoint)
             return try JSONDecoder().decode(ModelsResponse.self, from: data).data
@@ -90,7 +104,7 @@ final class LMStudioClient: ChatProvider {
     /// present on all versions and compatible servers) rather than `/api/v0/models`
     /// (LM Studio-specific, absent on older builds and other local servers).
     func probeReachable(endpoint: Endpoint, timeout: TimeInterval = 4) async -> Bool {
-        let path = endpoint.kind == .cloudAPI ? "/models" : "/v1/models"
+        let path = endpoint.kind != .lmStudio ? "/models" : "/v1/models"
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
@@ -98,6 +112,33 @@ final class LMStudioClient: ChatProvider {
         guard let (_, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse else { return false }
         return (200..<400).contains(http.statusCode)
+    }
+
+    /// Like `probeReachable` but returns a `ProbeResult` identifying the failure
+    /// mode so the settings UI can show an actionable hint (e.g. "hostname not
+    /// found" versus "LM Studio not running on this port").
+    func probeDetailed(endpoint: Endpoint, timeout: TimeInterval = 4) async -> ProbeResult {
+        let path = endpoint.kind != .lmStudio ? "/models" : "/v1/models"
+        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        applyAuth(&request, endpoint: endpoint)
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return .unreachable }
+            return (200..<400).contains(http.statusCode) ? .reachable : .unreachable
+        } catch let urlError as URLError {
+            switch urlError.code {
+            case .cannotFindHost, .dnsLookupFailed:
+                return .hostNotFound
+            case .timedOut:
+                return .timeout
+            default:
+                return .unreachable
+            }
+        } catch {
+            return .unreachable
+        }
     }
 
     // MARK: Model load / unload (LM Studio only)
@@ -237,7 +278,7 @@ final class LMStudioClient: ChatProvider {
     ) async -> Bool {
         do {
             // LM Studio's base is host:port (needs /v1); cloud API bases already end in /v1.
-            let chatPath = endpoint.kind == .cloudAPI ? "/chat/completions" : "/v1/chat/completions"
+            let chatPath = endpoint.kind != .lmStudio ? "/chat/completions" : "/v1/chat/completions"
             guard let url = URL(string: "\(endpoint.baseURL)\(chatPath)") else {
                 throw ClientError.invalidURL
             }

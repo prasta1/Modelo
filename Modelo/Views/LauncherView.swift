@@ -19,22 +19,25 @@ struct LauncherView: View {
     @State private var selectedPersona: Persona?
     @State private var activeFilters: Set<String> = ["free"]
     @Environment(ServerRegistry.self) private var registry
+    @Environment(FavoritesStore.self) private var favorites
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
-    /// Models for the selected endpoint after capability filters. Never shows
-    /// more than one server — `endpointFilter` falls back to the first server.
+    /// Models for the selected endpoint after capability filters, with favorites
+    /// sorted to the top. Never shows more than one server — `endpointFilter`
+    /// falls back to the first server.
     private var filteredModels: [DiscoveredModel] {
         let serverID = endpointFilter ?? servers.first?.id
-        return discovered.filter { item in
+        let filtered = discovered.filter { item in
             if let serverID, item.server.id != serverID { return false }
             let m = item.model
             // Free filter only applies to cloud endpoints — local models are always shown.
-            if activeFilters.contains("free") && item.server.kind == .cloudAPI && !m.isFree { return false }
+            if activeFilters.contains("free") && item.server.kind != .lmStudio && !m.isFree { return false }
             if activeFilters.contains("vision") && !m.supportsVision   { return false }
             if activeFilters.contains("tools")  && !m.supportsToolUse  { return false }
             if activeFilters.contains("reason") && !m.supportsThinking { return false }
             return true
         }
+        return filtered.sorted { favorites.isFavorite($0.model.id) && !favorites.isFavorite($1.model.id) }
     }
 
     /// The endpoint currently in view. The launcher shows one server at a time;
@@ -97,7 +100,7 @@ struct LauncherView: View {
                     ForEach(filteredModels) { item in
                         ModelTile(item: item, persona: selectedPersona,
                                   onTap: { onLaunch(item, selectedPersona) },
-                                  onUnload: onUnload.map { fn in { Task<Void, Never> { await fn(item) } } },
+                                  onUnload: onUnload.map { fn in { await fn(item) } },
                                   onPin: onPin.map { fn in { Task<Void, Never> { await fn(item) } } },
                                   onUnpin: onUnpin.map { fn in { Task<Void, Never> { await fn(item) } } })
                     }
@@ -171,7 +174,7 @@ struct LauncherView: View {
 
     private var capabilityFilterRow: some View {
         HStack(spacing: 6) {
-            if selectedServer?.kind == .cloudAPI {
+            if selectedServer?.kind != .lmStudio {
                 CapabilityFilterChip(label: "Free",   key: "free",
                                      tint: Theme.green,
                                      active: activeFilters.contains("free"))   { toggle("free") }
@@ -422,25 +425,37 @@ private struct ModelTile: View {
     let item: DiscoveredModel
     let persona: Persona?
     let onTap: () -> Void
-    var onUnload: (() -> Void)? = nil
+    var onUnload: (() async -> Void)? = nil
     var onPin: (() -> Void)? = nil
     var onUnpin: (() -> Void)? = nil
     @State private var hovering = false
     @State private var isLoading = false
     @State private var isUnloading = false
+    @Environment(FavoritesStore.self) private var favorites
 
     private var model: LMStudioModel { item.model }
+    private var isFavorite: Bool { favorites.isFavorite(model.id) }
 
-    /// Trailing element of the name row: a quiet "loaded" dot at rest, the
-    /// pin/eject controls on hover, or a spinner while (un)loading.
+    /// Trailing element of the name row: a quiet indicator at rest, the
+    /// star/pin/eject controls on hover, or a spinner while (un)loading.
     @ViewBuilder private var trailingStatus: some View {
         if isLoading || isUnloading {
             ProgressView()
                 .controlSize(.mini)
                 .scaleEffect(0.7)
-        } else if model.isLoaded {
-            if hovering {
-                HStack(spacing: 6) {
+        } else if hovering {
+            HStack(spacing: 6) {
+                Button {
+                    favorites.toggle(model.id)
+                } label: {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(isFavorite ? Theme.amber : Theme.textLo)
+                }
+                .buttonStyle(.plain)
+                .help(isFavorite ? "Remove from favorites" : "Add to favorites")
+
+                if model.isLoaded {
                     if model.keepInRam == true, let onUnpin {
                         Button(action: onUnpin) {
                             Image(systemName: "pin.slash")
@@ -461,7 +476,10 @@ private struct ModelTile: View {
                     if let onUnload {
                         Button {
                             isUnloading = true
-                            onUnload()
+                            Task {
+                                await onUnload()
+                                isUnloading = false
+                            }
                         } label: {
                             Image(systemName: "eject.fill")
                                 .font(.system(size: 9, weight: .semibold))
@@ -471,8 +489,16 @@ private struct ModelTile: View {
                         .help("Unload model")
                     }
                 }
-            } else {
-                HStack(spacing: 5) {
+            }
+        } else if isFavorite || model.isLoaded {
+            HStack(spacing: 5) {
+                if isFavorite {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(Theme.amber)
+                        .help("Favorite")
+                }
+                if model.isLoaded {
                     if model.keepInRam == true {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 7, weight: .semibold))
@@ -499,7 +525,7 @@ private struct ModelTile: View {
             }
         }) {
             VStack(alignment: .leading, spacing: 6) {
-                // Name + loaded dot (hover swaps the dot for pin/eject controls)
+                // Name + indicators (hover swaps indicators for star/pin/eject controls)
                 HStack(spacing: 6) {
                     Text(model.familyName)
                         .font(.system(size: 15, weight: .semibold))

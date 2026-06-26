@@ -811,8 +811,14 @@ struct ChatView: View {
         }
         // Include tools from any connected MCP servers.
         tools += mcpManager.availableTools
-        // First-party filesystem/shell tools — opt-in, confined to the chosen workspace.
-        tools += FSToolSettings.tools(enabled: fsToolsEnabled, shell: shellToolEnabled, root: fsToolsRoot)
+        // First-party filesystem/shell tools. A project-scoped conversation (started from
+        // the Projects sidebar) confines them to that project directory; otherwise they're
+        // opt-in and confined to the user's chosen global workspace.
+        if let path = conversation.projectPath, !path.isEmpty {
+            tools += FSToolSettings.tools(enabled: true, shell: shellToolEnabled, root: path)
+        } else {
+            tools += FSToolSettings.tools(enabled: fsToolsEnabled, shell: shellToolEnabled, root: fsToolsRoot)
+        }
         // Expose ~/.agents skills via a use_skill tool (§3.7).
         let skills = AgentsLoader.loadSkills()
         if !skills.isEmpty { tools.append(UseSkillTool(skills: skills)) }

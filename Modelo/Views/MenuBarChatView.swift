@@ -182,8 +182,13 @@ struct MenuBarChatView: View {
                                 .strokeBorder(Theme.Palette.stroke, lineWidth: 1)
                         )
                 )
-                .onSubmit {
+                .onKeyPress(.return, phases: .down) { press in
+                    if press.modifiers.contains(.shift) {
+                        draft += "\n"
+                        return .handled
+                    }
                     if canSend { send() }
+                    return .handled
                 }
 
             Button {

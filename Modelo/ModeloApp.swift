@@ -10,11 +10,15 @@ struct ModeloApp: App {
     @State private var gpuMonitor = GPUMonitor()
     @State private var prometheusMonitor = PrometheusMonitor()
     @State private var mcpManager = MCPServerManager()
+    @State private var favoritesStore = FavoritesStore()
+    @State private var projectStore = ProjectStore()
     // Drives chat text size; matches the @AppStorage default used in the views.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     // Selected color theme (§3.5). Reading this in a scene body makes that scene
     // rebuild when the theme changes; `palette` applies it to `Theme.active`.
     @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
+    // Show the menu-bar icon (General settings toggle).
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
 
     /// Applies the stored theme to `Theme.active` and returns it. Called in each scene
     /// body (before its `.id(themeID)` subtree builds) so colors repaint on change.
@@ -28,6 +32,7 @@ struct ModeloApp: App {
         // same file. Pin this app to its own ModeloDos subfolder instead.
         let storeFolder = URL.applicationSupportDirectory.appending(path: "ModeloDos", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: storeFolder, withIntermediateDirectories: true)
+
         let config = ModelConfiguration(schema: schema, url: storeFolder.appending(path: "ModeloDos.store"))
         let container = try! ModelContainer(for: schema, configurations: [config])
         self.container = container
@@ -62,12 +67,24 @@ struct ModeloApp: App {
                 .environment(gpuMonitor)
                 .environment(prometheusMonitor)
                 .environment(mcpManager)
+                .environment(favoritesStore)
+                .environment(projectStore)
+                .environment(reachabilityMonitor)
                 .task { await startMonitoring() }
                 .task { mcpManager.startAll() }
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)   // rebuild the tree so static Theme.* reads repaint (§3.5)
+                .onAppear {
+                    DispatchQueue.main.async {
+                        if let window = NSApp.keyWindow {
+                            window.center()
+                            window.titlebarAppearsTransparent = true
+                        }
+                    }
+                }
         }
-        .defaultSize(width: 1100, height: 720)
+        .defaultSize(width: 1200, height: 740)
+        .defaultPosition(.center)
         .modelContainer(container)
         .commands {
             // File ▸ New Chat — replaces the default "New Window" item.
@@ -97,7 +114,7 @@ struct ModeloApp: App {
             }
         }
 
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarChatView()
                 .environment(registry)
                 .environment(serverMonitor)

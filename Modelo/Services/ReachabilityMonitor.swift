@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// Polls each server's HTTP endpoint and records online/offline in the registry.
 /// Cadence: 10s while a server is online, 30s while offline/unknown (so a sleeping
@@ -14,7 +15,7 @@ final class ReachabilityMonitor {
     /// from the model on the main actor (in `checkOnce`) so this closure — which
     /// runs off-main — never touches a non-Sendable SwiftData object.
     private let probe: (Endpoint) async -> Bool
-    private var loops: [UUID: Task<Void, Never>] = [:]
+    private var loops: [PersistentIdentifier: Task<Void, Never>] = [:]
 
     init(registry: ServerRegistry, keychain: KeychainStore = KeychainStore(),
          probe: @escaping (Endpoint) async -> Bool) {
@@ -27,7 +28,7 @@ final class ReachabilityMonitor {
     /// Cloud APIs use a fixed cadence (no sleep state); local servers back off when offline.
     func pollInterval(for status: ServerStatus, kind: ServerKind) -> Duration {
         switch kind {
-        case .cloudAPI: return .seconds(30)
+        case .cloudAPI, .openRouter: return .seconds(30)
         case .lmStudio, .llamaSwap: return status == .online ? .seconds(10) : .seconds(30)
         }
     }
@@ -51,7 +52,7 @@ final class ReachabilityMonitor {
     func start(servers: [Server]) {
         stop()
         for server in servers {
-            loops[server.id] = Task { [weak self] in
+            loops[server.persistentModelID] = Task { [weak self] in
                 guard let self else { return }
                 while !Task.isCancelled {
                     await self.checkOnce(server)

@@ -127,7 +127,7 @@ struct MessageRow: View {
             if !calls.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(calls.enumerated()), id: \.offset) { _, call in
-                        ToolCard(title: "🔧 \(call.name)(…)", detail: call.arguments)
+                        ToolCard(title: "🔧 \(call.name)(…)", detail: call.arguments, language: "json")
                     }
                 }
                 .padding(.top, message.content.isEmpty ? 0 : 12)
@@ -338,11 +338,21 @@ struct MessageRow: View {
 private struct ToolCard: View {
     let title: String
     let detail: String
+    /// Explicit language hint for syntax highlighting. Pass nil to auto-detect JSON.
+    var language: String? = nil
     @State private var expanded = false
+
+    /// Sniffs the content for JSON if no language is supplied.
+    private var effectiveLanguage: String? {
+        if let language { return language }
+        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed.hasPrefix("{") || trimmed.hasPrefix("[")) ? "json" : nil
+    }
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            Text(detail)
+            ModeloSyntaxHighlighter.shared
+                .highlightCode(detail, language: effectiveLanguage)
                 .font(Theme.code(11))
                 .foregroundStyle(Theme.textDim)
                 .textSelection(.enabled)

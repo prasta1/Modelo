@@ -28,6 +28,8 @@ final class Server {
     /// `macmon` tool and show it on the Status/inspector tiles (§2.2). Mutually
     /// alternative to `metricsAgentURL` (which is for a remote NVIDIA box).
     var localGPU: Bool = false
+    /// User-supplied subtitle shown under the server name in the sidebar. Empty means auto-detect.
+    var connectionID: String = ""
 
     // MARK: Per-model context length overrides (§7)
 
@@ -53,7 +55,8 @@ final class Server {
         switch kind {
         // Local runtimes are addressed by host:port.
         case .lmStudio, .llamaSwap: "http://\(Server.normalizedHost(host)):\(port)"
-        case .cloudAPI:  host
+        case .cloudAPI:   host
+        case .openRouter: Endpoint.openRouterBaseURL
         }
     }
 
@@ -81,6 +84,9 @@ final class Server {
 
     init(label: String, host: String, port: Int = 1234, sortOrder: Int = 0,
          kind: ServerKind = .lmStudio) {
+        // Explicit assignment avoids the SwiftData compile-time-constant UUID bug
+        // (var id: UUID = UUID() bakes the same UUID for every row if not set here).
+        self.id = UUID()
         self.label = label
         self.host = host
         self.port = port

@@ -113,4 +113,41 @@ struct ServerMonitorTests {
 
         #expect(monitor.snapshot(for: server)?.models.first?.id == "first-model")
     }
+
+    /// When all models report explicit `state == "not-loaded"`, the snapshot should be empty —
+    /// the first-model fallback must NOT fire since state is known.
+    @Test func pollStoresEmptySnapshotWhenAllModelsExplicitlyNotLoaded() async {
+        let provider = FakeMonitorProvider()
+        provider.modelsJSON = """
+        {"data":[
+          {"id":"model-a","state":"not-loaded","type":"llm"},
+          {"id":"model-b","state":"not-loaded","type":"llm"}
+        ]}
+        """
+        let monitor = ServerMonitor(client: provider)
+        let server = Server(label: "Studio", host: "studio")
+
+        await monitor.poll(server)
+
+        let snap = monitor.snapshot(for: server)
+        #expect(snap != nil)
+        #expect(snap?.models.isEmpty == true)
+    }
+
+    /// Stale loaded-model snapshot is cleared after models are unloaded.
+    @Test func pollClearsStaleSnapshotOnUnload() async {
+        let provider = FakeMonitorProvider()
+        let monitor = ServerMonitor(client: provider)
+        let server = Server(label: "Studio", host: "studio")
+
+        // First poll: 1 model loaded
+        provider.modelsJSON = #"{"data":[{"id":"model-a","state":"loaded","type":"llm"}]}"#
+        await monitor.poll(server)
+        #expect(monitor.snapshot(for: server)?.models.isEmpty == false)
+
+        // Second poll: all models unloaded
+        provider.modelsJSON = #"{"data":[{"id":"model-a","state":"not-loaded","type":"llm"}]}"#
+        await monitor.poll(server)
+        #expect(monitor.snapshot(for: server)?.models.isEmpty == true)
+    }
 }

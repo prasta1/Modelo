@@ -171,7 +171,9 @@ final class ChatSession {
         await compactIfNeeded(conversation, server: server, contextWindow: contextWindow)
 
         let endpoint = Endpoint(server: server, keychain: keychain)
-        let toolsActive = modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
+        // Global tools toggle (Settings ▸ Tools); defaults on when unset.
+        let globalToolsEnabled = UserDefaults.standard.object(forKey: "toolsGloballyEnabled") as? Bool ?? true
+        let toolsActive = globalToolsEnabled && modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
         // Progressive disclosure (large tool sets): show only the most relevant tools for
         // this request + a find_tools meta-tool, so a small model isn't drowned in specs.
         let progressive = toolsActive && registry.count > Self.progressiveThreshold

@@ -146,6 +146,7 @@ struct Chip: View {
 
     var body: some View {
         Text(text.uppercased())
+            .lineLimit(1)
             .font(Theme.label(9))
             .tracking(0.8)
             .foregroundStyle(tint)
@@ -153,6 +154,7 @@ struct Chip: View {
             .padding(.vertical, 2)
             .background(tint.opacity(0.13), in: Capsule())
             .overlay(Capsule().strokeBorder(tint.opacity(0.30), lineWidth: 0.5))
+            .fixedSize()
     }
 }
 
@@ -163,6 +165,7 @@ struct CapabilityChips: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            if model.isFree           { Chip(text: "free",   tint: Theme.Palette.live) }
             if model.supportsVision   { Chip(text: "vision", tint: Theme.Palette.vision) }
             if model.supportsToolUse  { Chip(text: "tools",  tint: Theme.Palette.signal) }
             if model.supportsThinking { Chip(text: "reason", tint: Theme.Palette.think) }
@@ -226,7 +229,7 @@ struct SpecStrip: View {
         if let s = model.parameterSize   { p.append(s) }
         if let q = model.quantization    { p.append(q) }
         if let c = model.maxContextLength { p.append("\(c >= 1000 ? "\(c / 1000)K" : "\(c)") ctx") }
-        if let f = model.fileSizeFormatted { p.append(f) }
+        if let f = model.displaySizeFormatted { p.append(f) }
         return p
     }
 
@@ -387,6 +390,41 @@ struct PillToggle: View {
             }
             .contentShape(Capsule())
             .onTapGesture { withAnimation(.easeOut(duration: 0.16)) { isOn.toggle() } }
+    }
+}
+
+/// Single-select filter pill for family/provider strips. Active state highlights amber,
+/// matching `ChipToggleStyle`. Use in horizontally-scrolling pill rows.
+struct FilterPill: View {
+    let label: String
+    let isActive: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(Theme.label(9))
+                .lineLimit(1)
+                .tracking(0.8)
+                .textCase(.uppercase)
+                .foregroundStyle(isActive ? Theme.amber : Theme.textDim)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    isActive ? Theme.amberFill : (hovering ? Theme.fillHi : Color.clear),
+                    in: Capsule()
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        isActive ? Theme.amberBorder : Theme.line,
+                        lineWidth: 1
+                    )
+                )
+                .animation(.easeOut(duration: 0.12), value: isActive)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

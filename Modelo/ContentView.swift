@@ -8,6 +8,7 @@ enum SidebarRoute: Hashable {
     case reports
     case settings
     case conversation(PersistentIdentifier)
+    case project(UUID)
 }
 
 /// Actions the focused main window exposes to the menu bar.
@@ -40,6 +41,7 @@ struct ContentView: View {
     @Environment(ServerMonitor.self) private var monitor
     @Environment(GPUMonitor.self) private var gpuMonitor
     @Environment(\.modelContext) private var context
+    @Environment(ProjectStore.self) private var projectStore
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @State private var route: SidebarRoute?
@@ -124,17 +126,20 @@ struct ContentView: View {
         case .launcher, nil:
             launcher
         case .status:
-            StatusView(
-                onPin: { server, modelID in Task { await handleModelPin(server: server, modelID: modelID) } },
-                onUnpin: { server, modelID in Task { await handleModelUnpin(server: server, modelID: modelID) } }
-            )
+            ServerStatsView(endpointFilter: $endpointFilter)
         case .reports:
             ReportingView()
         case .settings:
             SettingsView(isInline: true)
+        case .project(let id):
+            if let project = projectStore.projects.first(where: { $0.id == id }) {
+                ProjectLandingView(project: project) { proj in newChatInProject(proj) }
+            } else {
+                launcher
+            }
         case .conversation:
             if let convo = selectedConversation {
-                ChatView(conversation: convo, discovered: discovered, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
+                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
                     .id(convo.persistentModelID)
             } else {
                 launcher
@@ -144,7 +149,7 @@ struct ContentView: View {
 
     private var launcher: some View {
         LauncherView(
-            discovered: discovered,
+            discovered: discoveredWithLiveState,
             endpointFilter: endpointFilter,
             onLaunch: { model, persona in Task { await launch(model: model, persona: persona) } },
             onUnload: handleModelEject,
@@ -244,6 +249,7 @@ struct ContentView: View {
         case .status:                storedRoute = "status"
         case .reports:               storedRoute = "reports"
         case .settings:              storedRoute = "settings"
+        case .project(let id):       storedRoute = "proj:" + id.uuidString
         case .conversation(let id):
             if let data = try? JSONEncoder().encode(id) {
                 storedRoute = "conv:" + data.base64EncodedString()
@@ -253,13 +259,24 @@ struct ContentView: View {
     }
 
     private func restoreRoute() {
-        guard route == nil, !storedRoute.isEmpty else { return }
+        guard route == nil else { return }
+        if storedRoute.isEmpty {
+            route = .status
+            return
+        }
         switch storedRoute {
         case "launcher":  route = .launcher
         case "status":    route = .status
         case "reports":   route = .reports
         case "settings":  route = .settings
         default:
+            if storedRoute.hasPrefix("proj:") {
+                let uuidStr = String(storedRoute.dropFirst(5))
+                if let uuid = UUID(uuidString: uuidStr) {
+                    route = .project(uuid)
+                    return
+                }
+            }
             guard storedRoute.hasPrefix("conv:") else { return }
             let b64 = String(storedRoute.dropFirst(5))
             guard let data = Data(base64Encoded: b64),
@@ -315,6 +332,52 @@ struct ContentView: View {
     private var serverDiscoveryKey: String {
         servers.map { "\($0.id)|\($0.host)|\($0.port)|\($0.kindRaw)|\(registry.isOnline($0))|\($0.metricsAgentURL ?? "")|\($0.localGPU)" }
             .joined(separator: ",")
+    }
+
+    /// Creates a new conversation scoped to a project directory. The project path
+    /// is stored on the conversation so filesystem tools can be registered, and a
+    /// system prompt tells the model which tools are available and how to use them.
+    private func newChatInProject(_ project: Project) {
+        let systemPrompt = """
+        You are a coding assistant working in the project directory "\(project.name)".
+
+        Project root: \(project.path)
+
+        You have the following filesystem tools available. All paths are relative to the project root.
+        - read_file(path) — read a file's text content
+        - write_file(path, content) — create or overwrite a file
+        - edit_file(path, old_string, new_string, replace_all?) — replace an exact string in a file
+        - grep(pattern, path?) — search file contents for a regular expression
+        - glob(pattern) — list files matching a glob (e.g. "**/*.swift")
+
+        Start by globbing or reading the project root to orient yourself before answering questions about the code.
+        """
+        let convo = Conversation(modelID: pickedModel?.model.id ?? "", serverID: pickedModel?.server.id)
+        convo.systemPrompt = systemPrompt
+        convo.projectPath = project.path
+        context.insert(convo)
+        try? context.save()
+        route = .conversation(convo.persistentModelID)
+    }
+
+    /// `discovered` overlaid with live loaded/keepInRam state from the 3-second monitor poll.
+    /// Since `monitor` is @Observable, SwiftUI re-renders the launcher automatically each poll cycle.
+    private var discoveredWithLiveState: [DiscoveredModel] {
+        discovered.map { item in
+            guard item.server.kind == .lmStudio else { return item }
+            let snapshot = monitor.snapshot(for: item.server)
+            let liveModel = snapshot?.models.first(where: { $0.id == item.model.id })
+            var updated = item.model
+            if snapshot != nil {
+                updated.state = liveModel != nil ? "loaded" : "not-loaded"
+                if let live = liveModel { updated.keepInRam = live.keepInRam }
+            }
+            return DiscoveredModel(server: item.server, model: updated)
+        }
+    }
+
+    private var onlineServerIDs: [UUID] {
+        servers.filter { registry.isOnline($0) }.map(\.id)
     }
 
     /// Picks the default endpoint when nothing valid is currently selected.

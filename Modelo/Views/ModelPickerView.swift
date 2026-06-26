@@ -115,13 +115,70 @@ private struct ModelPickerList: View {
     @State private var loadingID: String?
     @State private var ejectingID: String?
     @State private var searchText = ""
+    @State private var selectedFamily: String? = nil
+    @Environment(FavoritesStore.self) private var favorites
 
     private var totalCount: Int { groups.reduce(0) { $0 + $1.models.count } }
+
+    /// Unique family tags from local servers only, sorted by model count.
+    private var families: [String] {
+        var counts: [String: Int] = [:]
+        for group in groups where group.server.kind != .cloudAPI {
+            for item in group.models {
+                if let tag = item.model.familyTag { counts[tag, default: 0] += 1 }
+            }
+        }
+        return counts.keys.sorted { counts[$0]! > counts[$1]! }
+    }
+
+    private var familyPillStrip: some View {
+        HStack(spacing: 6) {
+            FilterPill(label: "All", isActive: selectedFamily == nil) {
+                selectedFamily = nil
+            }
+            // Top families by count, capped so they fit the 418pt popover without scrolling.
+            // (Horizontal ScrollViews don't respond to a standard mouse scroll wheel on macOS.)
+            ForEach(families.prefix(7), id: \.self) { tag in
+                FilterPill(
+                    label: familyDisplayName(tag),
+                    isActive: selectedFamily == tag
+                ) {
+                    selectedFamily = selectedFamily == tag ? nil : tag
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 13)
+        .frame(height: 34)
+    }
+
+    private func familyDisplayName(_ tag: String) -> String {
+        let known: [String: String] = [
+            "llama":      "Llama",
+            "qwen":       "Qwen",
+            "gemma":      "Gemma",
+            "gemma3":     "Gemma",
+            "mistral":    "Mistral",
+            "phi":        "Phi",
+            "deepseek":   "DeepSeek",
+            "pixtral":    "Pixtral",
+            "anthropic":  "Anthropic",
+            "openai":     "OpenAI",
+            "google":     "Google",
+            "meta-llama": "Meta",
+            "mistralai":  "Mistral",
+        ]
+        return known[tag] ?? tag.split(separator: "-").map { $0.capitalized }.joined(separator: " ")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             searchField
             Divider().overlay(Theme.line)
+            if !families.isEmpty {
+                familyPillStrip
+                Divider().overlay(Theme.line)
+            }
             content
             Divider().overlay(Theme.line)
             footer
@@ -174,36 +231,57 @@ private struct ModelPickerList: View {
         .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
     }
 
+    private var favoritesHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "star.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Theme.amber)
+            Text("FAVORITES")
+                .font(.mono(9.5)).tracking(1.2)
+                .foregroundStyle(Theme.textDim)
+            Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+            Text("\(favoriteItems.count)")
+                .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
+        }
+        .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
+    }
+
+    /// Favorited models matching the current search, loaded models floated first.
+    private var favoriteItems: [DiscoveredModel] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allModels = groups.flatMap { $0.models }
+        var favs = allModels.filter { favorites.isFavorite($0.model.id) }
+        if let fam = selectedFamily { favs = favs.filter { $0.model.familyTag == fam } }
+        let filtered = query.isEmpty ? favs : favs.filter {
+            $0.model.familyName.localizedCaseInsensitiveContains(query)
+                || $0.model.id.localizedCaseInsensitiveContains(query)
+        }
+        // Sort loaded first, then deduplicate: one entry per model ID regardless of server.
+        // Without this, a model hosted on both Mac Studio and MacBook Pro would appear twice.
+        var seen = Set<String>()
+        return filtered
+            .sorted { $0.model.isLoaded && !$1.model.isLoaded }
+            .filter { seen.insert($0.model.id).inserted }
+    }
+
     @ViewBuilder private var content: some View {
         if isEmpty {
             emptyState(icon: "cube.transparent", text: "No models on any online server")
-        } else if displayGroups.isEmpty && !cloudHintVisible {
+        } else if displayGroups.isEmpty && !cloudHintVisible && favoriteItems.isEmpty {
             emptyState(icon: "magnifyingglass", text: "No models match")
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if !favoriteItems.isEmpty {
+                        favoritesHeader
+                        ForEach(favoriteItems) { item in
+                            modelRow(for: item)
+                        }
+                    }
                     ForEach(displayGroups, id: \.server.id) { group in
                         groupHeader(group.server, count: group.models.count)
                         ForEach(group.models) { item in
-                            ModelRow(item: item,
-                                     isSelected: item.id == selection?.id,
-                                     isLoading: loadingID == item.id,
-                                     isEjecting: ejectingID == item.id,
-                                     onEject: onEject == nil ? nil : {
-                                        ejectingID = item.id
-                                        onEject!(item)
-                                        Task { @MainActor in
-                                            try? await Task.sleep(for: .seconds(5))
-                                            if ejectingID == item.id { ejectingID = nil }
-                                        }
-                                     }) {
-                                loadingID = item.id
-                                onSelect(item)
-                                Task { @MainActor in
-                                    try? await Task.sleep(for: .seconds(0.5))
-                                    if loadingID == item.id { loadingID = nil }
-                                }
-                            }
+                            modelRow(for: item)
                         }
                     }
                     if cloudHintVisible {
@@ -220,6 +298,29 @@ private struct ModelPickerList: View {
                     }
                 }
                 .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 8)
+            }
+        }
+    }
+
+    /// Builds a `ModelRow` wired to the shared loading/ejecting state.
+    private func modelRow(for item: DiscoveredModel) -> some View {
+        ModelRow(item: item,
+                 isSelected: item.id == selection?.id,
+                 isLoading: loadingID == item.id,
+                 isEjecting: ejectingID == item.id,
+                 onEject: onEject == nil ? nil : {
+                    ejectingID = item.id
+                    onEject!(item)
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(5))
+                        if ejectingID == item.id { ejectingID = nil }
+                    }
+                 }) {
+            loadingID = item.id
+            onSelect(item)
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.5))
+                if loadingID == item.id { loadingID = nil }
             }
         }
     }
@@ -256,17 +357,35 @@ private struct ModelPickerList: View {
 
     /// Local servers list in full; cloud catalogs stay behind search
     /// so hundreds of remote models don't dump into the popover unfiltered.
+    /// Within each group, loaded models float to the top.
     private var displayGroups: [(server: Server, models: [DiscoveredModel])] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        func floatLoaded(_ models: [DiscoveredModel]) -> [DiscoveredModel] {
+            models.sorted { $0.model.isLoaded && !$1.model.isLoaded }
+        }
+
+        func matchesFamily(_ item: DiscoveredModel) -> Bool {
+            guard let fam = selectedFamily else { return true }
+            return item.model.familyTag == fam
+        }
+
         guard !query.isEmpty else {
-            return groups.filter { $0.server.kind != .cloudAPI }
+            return groups
+                .filter { $0.server.kind != .cloudAPI }
+                .compactMap { group in
+                    let matched = group.models.filter { matchesFamily($0) }
+                    return matched.isEmpty ? nil : (group.server, floatLoaded(matched))
+                }
         }
         return groups.compactMap { group in
             let matched = group.models.filter {
-                $0.model.familyName.localizedCaseInsensitiveContains(query)
-                    || $0.model.id.localizedCaseInsensitiveContains(query)
+                matchesFamily($0) && (
+                    $0.model.familyName.localizedCaseInsensitiveContains(query)
+                        || $0.model.id.localizedCaseInsensitiveContains(query)
+                )
             }
-            return matched.isEmpty ? nil : (group.server, matched)
+            return matched.isEmpty ? nil : (group.server, floatLoaded(matched))
         }
     }
 
@@ -289,6 +408,7 @@ private struct ModelRow: View {
     let onEject: (() -> Void)?
     let onSelect: () -> Void
     @State private var hovering = false
+    @Environment(FavoritesStore.self) private var favorites
 
     private var model: LMStudioModel { item.model }
     private var busy: Bool { isLoading || isEjecting }
@@ -316,6 +436,7 @@ private struct ModelRow: View {
                         .font(.mono(10.5))
                         .foregroundStyle(Theme.textFaint)
                 }
+                starButton
                 if model.isLoaded {
                     if let onEject {
                         Button(action: onEject) {
@@ -344,6 +465,19 @@ private struct ModelRow: View {
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
         .help("Select \(model.familyName)")
+    }
+
+    private var starButton: some View {
+        let isFav = favorites.isFavorite(model.id)
+        return Button {
+            favorites.toggle(model.id)
+        } label: {
+            Image(systemName: isFav ? "star.fill" : "star")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(isFav ? Theme.amber : Theme.textDim)
+        }
+        .buttonStyle(.plain)
+        .help(isFav ? "Remove from favorites" : "Add to favorites")
     }
 
     @ViewBuilder private var indicator: some View {
