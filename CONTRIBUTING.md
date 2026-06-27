@@ -31,7 +31,7 @@ xcodebuild -project Modelo.xcodeproj -scheme Modelo \
   CODE_SIGNING_ALLOWED=NO test
 ```
 
-All tests use in-memory SwiftData models. A green test run is the **minimum bar** for any contribution — if tests fail, your PR is not ready.
+A green test run is the **minimum bar** for any contribution — if tests fail, your PR is not ready.
 
 ## Tests and new features
 
@@ -51,15 +51,15 @@ Untested changes will be asked to be tested before merging.
 
 ## Project structure
 
-- **Source:** `Sources/` — all app code.
-- **Tests:** `ModeloTests/` — SwiftData-backed test suite.
+- **Source:** `Modelo/` — all app code (`Models/`, `Views/`, `Services/`, `Settings/`).
+- **Tests:** `ModeloTests/` — test suite, at the repo root alongside `Modelo/`.
 - **Manifest:** `project.yml` — XcodeGen project definition. Never edit the generated `.xcodeproj` directly.
 - **Dependencies:** Swift Package Manager (MarkdownUI, Highlightr) — add new deps in `project.yml`.
 
 ## Submitting a PR
 
 1. Push your branch and open a PR against `main`.
-2. Ensure `xcodebuild test` passes in CI.
+2. Ensure `xcodebuild test` passes locally.
 3. Describe the change in the PR body: what it does, why, and how to verify.
 4. Link any related issues.
 
