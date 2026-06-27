@@ -9,8 +9,50 @@ struct ReportingView: View {
     @Environment(\.modelContext) private var context
     @AppStorage(UsageRetention.key) private var retentionDays = 0
     @State private var timeRange: ReportCalculator.TimeRange = .week
+    @State private var modelSortKey: ModelSortKey = .requests
+    @State private var modelSortAscending: Bool = false
+    @State private var serverSortKey: ServerSortKey = .requests
+    @State private var serverSortAscending: Bool = false
 
     private var records: [UsageRecord]             { timeRange.filter(all) }
+    private var sortedModels: [ReportCalculator.ModelStat] {
+        models.sorted { a, b in
+            let ascending = modelSortAscending
+            let result: Bool = switch modelSortKey {
+            case .model:       a.shortName < b.shortName
+            case .requests:    a.requests < b.requests
+            case .tokens:      a.totalTokens < b.totalTokens
+            case .tokPerSec:   (a.avgTokPerSec ?? 0) < (b.avgTokPerSec ?? 0)
+            }
+            return ascending ? result : !result
+        }
+    }
+
+    private enum ModelSortKey: String, CaseIterable {
+        case model = "MODEL"
+        case requests = "REQUESTS"
+        case tokens = "TOKENS"
+        case tokPerSec = "TOK/S"
+    }
+
+    private var sortedServers: [ReportCalculator.ServerStat] {
+        servers.sorted { a, b in
+            let ascending = serverSortAscending
+            let result: Bool = switch serverSortKey {
+            case .server: a.serverLabel < b.serverLabel
+            case .requests: a.requests < b.requests
+            case .tokens: a.totalTokens < b.totalTokens
+            }
+            return ascending ? result : !result
+        }
+    }
+
+    private enum ServerSortKey: String, CaseIterable {
+        case server = "SERVER"
+        case requests = "REQUESTS"
+        case tokens = "TOKENS"
+    }
+
     private var summary: ReportCalculator.Summary  { ReportCalculator.summary(from: records) }
     private var days:    [ReportCalculator.DayBucket]  { ReportCalculator.byDay(from: records) }
     private var models:  [ReportCalculator.ModelStat]  { ReportCalculator.byModel(from: records) }
@@ -162,8 +204,8 @@ struct ReportingView: View {
         return VStack(alignment: .leading, spacing: 8) {
             Eyebrow("By model")
             card {
-                tableHeader(["MODEL", "REQUESTS", "TOKENS", "TOK/S", "SHARE"])
-                ForEach(models) { stat in
+                modelTableHeader
+                ForEach(sortedModels) { stat in
                     HStack(spacing: 12) {
                         cell(stat.shortName, .leading, color: Theme.textHi)
                         cell("\(stat.requests)", .trailing)
@@ -181,12 +223,75 @@ struct ReportingView: View {
         }
     }
 
+    private var modelTableHeader: some View {
+        HStack(spacing: 12) {
+            sortHeader("MODEL", key: ModelSortKey.model, alignment: .leading)
+            sortHeader("REQUESTS", key: ModelSortKey.requests, alignment: .trailing)
+            sortHeader("TOKENS", key: ModelSortKey.tokens, alignment: .trailing)
+            sortHeader("TOK/S", key: ModelSortKey.tokPerSec, alignment: .trailing)
+            Text("SHARE")
+                .font(.mono(9.5)).tracking(0.8)
+                .foregroundStyle(Theme.textFaint)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+    }
+
+    private func sortHeader(_ title: String, key: ModelSortKey, alignment: Alignment) -> some View {
+        let isActive = modelSortKey == key
+        return Button {
+            if modelSortKey == key {
+                modelSortAscending.toggle()
+            } else {
+                modelSortKey = key
+                modelSortAscending = (key == .model)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.mono(9.5)).tracking(0.8)
+                    .foregroundStyle(isActive ? Theme.amber : Theme.textFaint)
+                Text(modelSortKey == key ? (modelSortAscending ? "▲" : "▼") : "")
+                    .font(.mono(8))
+                    .foregroundStyle(isActive ? Theme.amber : .clear)
+                    .frame(width: 8)
+            }
+            .frame(maxWidth: .infinity, alignment: alignment)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sortHeader(_ title: String, key: ServerSortKey, alignment: Alignment) -> some View {
+        let isActive = serverSortKey == key
+        return Button {
+            if serverSortKey == key {
+                serverSortAscending.toggle()
+            } else {
+                serverSortKey = key
+                serverSortAscending = (key == .server)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.mono(9.5)).tracking(0.8)
+                    .foregroundStyle(isActive ? Theme.amber : Theme.textFaint)
+                Text(serverSortKey == key ? (serverSortAscending ? "▲" : "▼") : "")
+                    .font(.mono(8))
+                    .foregroundStyle(isActive ? Theme.amber : .clear)
+                    .frame(width: 8)
+            }
+            .frame(maxWidth: .infinity, alignment: alignment)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var serverSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Eyebrow("By server")
             card {
-                tableHeader(["SERVER", "REQUESTS", "TOKENS"])
-                ForEach(servers) { stat in
+                serverTableHeader
+                ForEach(sortedServers) { stat in
                     HStack(spacing: 12) {
                         cell(stat.serverLabel, .leading, color: Theme.textHi)
                         cell("\(stat.requests)", .trailing)
@@ -201,14 +306,11 @@ struct ReportingView: View {
         }
     }
 
-    private func tableHeader(_ cols: [String]) -> some View {
+    private var serverTableHeader: some View {
         HStack(spacing: 12) {
-            ForEach(Array(cols.enumerated()), id: \.offset) { i, col in
-                Text(col)
-                    .font(.mono(9.5)).tracking(0.8)
-                    .foregroundStyle(Theme.textFaint)
-                    .frame(maxWidth: .infinity, alignment: i == 0 || i == cols.count - 1 ? .leading : .trailing)
-            }
+            sortHeader("SERVER", key: ServerSortKey.server, alignment: .leading)
+            sortHeader("REQUESTS", key: ServerSortKey.requests, alignment: .trailing)
+            sortHeader("TOKENS", key: ServerSortKey.tokens, alignment: .trailing)
         }
         .padding(.vertical, 10)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
