@@ -29,7 +29,7 @@ final class ReachabilityMonitor {
     func pollInterval(for status: ServerStatus, kind: ServerKind) -> Duration {
         switch kind {
         case .cloudAPI, .openRouter: return .seconds(30)
-        case .lmStudio, .llamaSwap: return status == .online ? .seconds(10) : .seconds(30)
+        case .lmStudio, .llamaCpp, .oMLX: return status == .online ? .seconds(10) : .seconds(30)
         }
     }
 

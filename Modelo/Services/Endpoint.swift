@@ -2,18 +2,22 @@ import Foundation
 import SwiftData
 
 /// Which kind of backend a `Server` row points at.
-/// - `lmStudio`: a local LM Studio machine (host:port over HTTP, no auth).
-/// - `llamaSwap`: a local llama.cpp server, typically fronted by llama-swap
-///   (host:port over HTTP, OpenAI-compatible `/v1`, no auth, no `/api/v0`).
+/// - `lmStudio`: a local LM Studio machine (host:port over HTTP, no auth, rich `/api/v0`).
+/// - `llamaCpp`: a local llama.cpp server, often fronted by llama-swap
+///   (host:port over HTTP, OpenAI-compatible `/v1`, optional auth, no `/api/v0`).
+/// - `oMLX`: a local oMLX server (omlx.ai) — an Apple-silicon MLX runtime. Same wire
+///   shape as `llamaCpp` (host:port, OpenAI-compatible `/v1`); distinct only in label/port.
 /// - `cloudAPI`: any OpenAI-compatible cloud endpoint (user-supplied HTTPS base URL, bearer auth).
 /// - `openRouter`: hardcoded OpenRouter cloud endpoint — user supplies only the API key.
 ///
-/// `lmStudio` and `llamaSwap` are *local* (self-hosted) — they run on hardware you
+/// `lmStudio`, `llamaCpp`, and `oMLX` are *local* (self-hosted) — they run on hardware you
 /// control and can have a `modelo-tap` GPU agent next to them. Add new local runtimes
-/// (vLLM, sglang, …) as cases here; they automatically pick up local behavior.
+/// (vLLM, sglang, …) as cases here; everything but LM Studio's `/api/v0` is generic local.
 enum ServerKind: String, Codable, Sendable, CaseIterable {
     case lmStudio
-    case llamaSwap
+    /// Raw value kept as "llamaSwap" so servers saved before the rename still deserialise.
+    case llamaCpp = "llamaSwap"
+    case oMLX
     /// Raw value kept as "openRouter" so existing SwiftData records deserialise correctly.
     case cloudAPI = "openRouter"
     /// Dedicated OpenRouter endpoint — fixed base URL, user supplies only the API key.
@@ -21,20 +25,44 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
 
     /// Self-hosted servers run on your own hardware (host:port, no auth) and may expose
     /// a `modelo-tap` GPU agent. Cloud APIs (`cloudAPI`, `openRouter`) are managed endpoints that do not.
-    var isLocal: Bool { self == .lmStudio || self == .llamaSwap }
+    var isLocal: Bool {
+        switch self {
+        case .lmStudio, .llamaCpp, .oMLX: true
+        case .cloudAPI, .openRouter:      false
+        }
+    }
 
     /// Human-readable runtime name for chips, menus, and labels.
     var displayName: String {
         switch self {
         case .lmStudio:   return "LM Studio"
-        case .llamaSwap:  return "llama.cpp"
+        case .llamaCpp:   return "llama.cpp"
+        case .oMLX:       return "oMLX"
         case .cloudAPI:   return "Cloud API"
         case .openRouter: return "OpenRouter"
         }
     }
 
+    /// Default `host:port` port for a freshly-added local server of this kind. Used to
+    /// seed (and re-seed, while still at a default) the port field in Settings. Cloud
+    /// kinds don't use host:port, so they report 0.
+    var defaultPort: Int {
+        switch self {
+        case .lmStudio:              return 1234
+        case .llamaCpp:              return 8080
+        case .oMLX:                  return 8000
+        case .cloudAPI, .openRouter: return 0
+        }
+    }
+
     /// The local runtimes, in declaration order — used to populate the runtime picker.
     static var localCases: [ServerKind] { allCases.filter(\.isLocal) }
+
+    /// True if `port` is the canonical default for some local kind — i.e. the user
+    /// hasn't hand-picked it, so switching runtimes may safely re-seed it.
+    static func isDefaultLocalPort(_ port: Int) -> Bool {
+        localCases.contains { $0.defaultPort == port }
+    }
 }
 
 /// A `Sendable` snapshot of a `Server` for the networking layer. Built on the
