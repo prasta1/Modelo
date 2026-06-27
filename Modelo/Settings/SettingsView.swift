@@ -19,6 +19,10 @@ struct SettingsView: View {
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     private let keychain = KeychainStore()
+    @State private var selectedTab = "Servers"
+
+    private static let tabTitles = ["Servers", "Cloud APIs", "Personas", "Sampling",
+                                    "Presets", "Appearance", "Tools", "MCP Servers"]
 
     private var localServers: [Server] { servers.filter { $0.kind.isLocal } }
     private var cloudServers: [Server] { servers.filter { $0.kind == .cloudAPI || $0.kind == .openRouter } }
@@ -38,118 +42,132 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        TabView {
-            // MARK: Servers
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(localServers) { server in
-                        ServerSettingsRow(server: server) {
-                            context.delete(server)
-                            try? context.save()
-                        }
-                    }
-                    addButton("Add Server", action: addServer)
+        VStack(spacing: 0) {
+            // Themed segmented tab bar (matches the Reports range selector) instead of
+            // a system TabView — avoids the macOS-26 Liquid Glass mis-rendering and keeps
+            // macOS 14 support.
+            SegmentedPills(options: Self.tabTitles, selection: $selectedTab, boxed: true)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+            Divider().overlay(Theme.line)
+            Group {
+                switch selectedTab {
+                case "Cloud APIs":  cloudAPIsTab
+                case "Personas":    personasTab
+                case "Sampling":    SamplingSettingsTab()
+                case "Presets":     PresetsSettingsTab()
+                case "Appearance":  AppearanceSettingsTab()
+                case "Tools":       toolsTab
+                case "MCP Servers": mcpServersTab
+                default:            serversTab
                 }
-                .padding(24)
             }
-            .clipped()
-            .tabItem { Label("Servers", systemImage: "network") }
-
-            // MARK: Cloud APIs
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(cloudServers) { server in
-                        CloudServerSettingsRow(server: server, keychain: keychain) {
-                            context.delete(server)
-                            try? context.save()
-                        }
-                    }
-                    addButton("Add Cloud API", action: addCloudServer)
-                }
-                .padding(24)
-            }
-            .clipped()
-            .tabItem { Label("Cloud APIs", systemImage: "globe") }
-
-            // MARK: Personas
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(personas) { persona in
-                        PersonaSettingsRow(persona: persona) {
-                            context.delete(persona)
-                            try? context.save()
-                        }
-                    }
-                    addButton("Add Persona", action: addPersona)
-                }
-                .padding(24)
-            }
-            .clipped()
-            .tabItem { Label("Personas", systemImage: "theatermasks") }
-
-            // MARK: Sampling
-            SamplingSettingsTab()
-                .tabItem { Label("Sampling", systemImage: "slider.horizontal.3") }
-
-            // MARK: Presets
-            PresetsSettingsTab()
-                .tabItem { Label("Presets", systemImage: "square.stack.3d.up") }
-
-            // MARK: Appearance (§3.5)
-            AppearanceSettingsTab()
-                .tabItem { Label("Appearance", systemImage: "paintpalette") }
-
-            // MARK: Tools
-            ScrollView {
-                VStack(spacing: 12) {
-                    GlobalToolsCard()
-                    FilesystemToolsCard()
-                    ToolRoundsCard()
-                    ArtifactsCard()
-                    KeyCard(caption: "Firecrawl API key",
-                            placeholder: "fc-…",
-                            hint: "Enables firecrawl_scrape and firecrawl_search for tool-capable models.",
-                            account: FirecrawlClient.keychainAccount,
-                            keychain: keychain)
-                }
-                .padding(24)
-            }
-            .clipped()
-            .tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
-
-            // MARK: MCP Servers
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(mcpManager.configs) { config in
-                        MCPServerSettingsRow(
-                            config: config,
-                            error: mcpManager.connectionErrors[config.id],
-                            onUpdate: { mcpManager.updateConfig($0) },
-                            onDelete: { mcpManager.removeConfig(id: config.id) }
-                        )
-                    }
-                    addButton("Add MCP Server", action: addMCPServer)
-                    Text("MCP servers run as local processes. New tools are available when you start the next chat.")
-                        .font(Theme.metric(10))
-                        .foregroundStyle(Theme.textFaint)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Divider()
-                        .overlay(Theme.line)
-                        .padding(.vertical, 6)
-
-                    MCPDiscoverySection(installed: mcpManager.configs) { entry in
-                        mcpManager.addConfig(entry.makeConfig())
-                    }
-                }
-                .padding(24)
-            }
-            .clipped()
-            .tabItem { Label("MCP Servers", systemImage: "terminal") }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Theme.windowBG)
         .tint(Theme.amber)
         .preferredColorScheme(Theme.active.scheme)
+    }
+
+    // MARK: Servers
+    private var serversTab: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(localServers) { server in
+                    ServerSettingsRow(server: server) {
+                        context.delete(server)
+                        try? context.save()
+                    }
+                }
+                addButton("Add Server", action: addServer)
+            }
+            .padding(24)
+        }
+        .clipped()
+    }
+
+    // MARK: Cloud APIs
+    private var cloudAPIsTab: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(cloudServers) { server in
+                    CloudServerSettingsRow(server: server, keychain: keychain) {
+                        context.delete(server)
+                        try? context.save()
+                    }
+                }
+                addButton("Add Cloud API", action: addCloudServer)
+            }
+            .padding(24)
+        }
+        .clipped()
+    }
+
+    // MARK: Personas
+    private var personasTab: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(personas) { persona in
+                    PersonaSettingsRow(persona: persona) {
+                        context.delete(persona)
+                        try? context.save()
+                    }
+                }
+                addButton("Add Persona", action: addPersona)
+            }
+            .padding(24)
+        }
+        .clipped()
+    }
+
+    // MARK: Tools
+    private var toolsTab: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                GlobalToolsCard()
+                FilesystemToolsCard()
+                ToolRoundsCard()
+                ArtifactsCard()
+                KeyCard(caption: "Firecrawl API key",
+                        placeholder: "fc-…",
+                        hint: "Enables firecrawl_scrape and firecrawl_search for tool-capable models.",
+                        account: FirecrawlClient.keychainAccount,
+                        keychain: keychain)
+            }
+            .padding(24)
+        }
+        .clipped()
+    }
+
+    // MARK: MCP Servers
+    private var mcpServersTab: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(mcpManager.configs) { config in
+                    MCPServerSettingsRow(
+                        config: config,
+                        error: mcpManager.connectionErrors[config.id],
+                        onUpdate: { mcpManager.updateConfig($0) },
+                        onDelete: { mcpManager.removeConfig(id: config.id) }
+                    )
+                }
+                addButton("Add MCP Server", action: addMCPServer)
+                Text("MCP servers run as local processes. New tools are available when you start the next chat.")
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Divider()
+                    .overlay(Theme.line)
+                    .padding(.vertical, 6)
+
+                MCPDiscoverySection(installed: mcpManager.configs) { entry in
+                    mcpManager.addConfig(entry.makeConfig())
+                }
+            }
+            .padding(24)
+        }
+        .clipped()
     }
 
     private func addButton(_ label: String, action: @escaping () -> Void) -> some View {
@@ -660,6 +678,10 @@ private struct SettingsSection<Content: View>: View {
             Eyebrow(title)
             content
         }
+        // Fill the column and left-align, so a section with narrow content (e.g. a bare
+        // toggle) doesn't size-to-fit and float toward the center while wider sections
+        // (those with a Spacer) sit flush left.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
