@@ -363,7 +363,7 @@ enum FileWalker {
 enum GlobMatch {
     static func regex(for pattern: String) -> String {
         var re = "^"
-        var chars = Array(pattern)
+        let chars = Array(pattern)
         var i = 0
         while i < chars.count {
             let c = chars[i]
@@ -399,22 +399,25 @@ enum Shell {
             proc.standardOutput = pipe
             proc.standardError = pipe
 
+            final class PipeState: @unchecked Sendable {
+                var buffer = Data()
+                var finished = false
+            }
             let lock = NSLock()
-            var buffer = Data()
-            var finished = false
+            let state = PipeState()
             pipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
                 guard !chunk.isEmpty else { return }
-                lock.lock(); buffer.append(chunk); lock.unlock()
+                lock.lock(); state.buffer.append(chunk); lock.unlock()
             }
             proc.terminationHandler = { p in
                 pipe.fileHandleForReading.readabilityHandler = nil
                 let rest = pipe.fileHandleForReading.readDataToEndOfFile()
                 lock.lock()
-                if !finished {
-                    finished = true
-                    buffer.append(rest)
-                    let text = String(decoding: buffer, as: UTF8.self)
+                if !state.finished {
+                    state.finished = true
+                    state.buffer.append(rest)
+                    let text = String(decoding: state.buffer, as: UTF8.self)
                     lock.unlock()
                     cont.resume(returning: (text, p.terminationStatus))
                 } else { lock.unlock() }
