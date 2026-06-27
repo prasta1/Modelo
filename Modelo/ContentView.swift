@@ -150,7 +150,7 @@ struct ContentView: View {
     private var launcher: some View {
         LauncherView(
             discovered: discoveredWithLiveState,
-            endpointFilter: endpointFilter,
+            endpointFilter: $endpointFilter,
             onLaunch: { model, persona in Task { await launch(model: model, persona: persona) } },
             onUnload: handleModelEject,
             onPin: { item in await handleModelPin(server: item.server, modelID: item.model.id) },

@@ -6,7 +6,7 @@ import SwiftData
 /// model grid; tapping a tile starts a chat.
 struct LauncherView: View {
     let discovered: [DiscoveredModel]
-    let endpointFilter: UUID?
+    @Binding var endpointFilter: UUID?
     let onLaunch: (DiscoveredModel, Persona?) -> Void
     var onUnload: ((DiscoveredModel) async -> Void)? = nil
     var onPin: ((DiscoveredModel) async -> Void)? = nil
@@ -84,7 +84,7 @@ struct LauncherView: View {
 
     private var modelSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            endpointHeader
+            serverTabs
             // Capability filters — left-aligned
             if !discovered.isEmpty {
                 capabilityFilterRow
@@ -109,36 +109,41 @@ struct LauncherView: View {
         }
     }
 
-    /// Banner for the endpoint currently in view: status dot, name, and a
-    /// loaded/total count. The launcher shows one server at a time — switch
-    /// endpoints from the sidebar SERVERS list.
-    @ViewBuilder private var endpointHeader: some View {
-        if let server = selectedServer {
-            let loaded = filteredModels.filter { $0.model.isLoaded }.count
-            HStack(spacing: 8) {
-                StatusLED(status: registry.status(for: server), size: 7, breathe: false)
-                Eyebrow(server.label, color: Theme.textHi, size: 11)
-                Spacer()
-                Text(loaded > 0 ? "\(loaded) loaded · \(filteredModels.count)"
-                                : "\(filteredModels.count) models")
-                    .font(Theme.metric(10))
-                    .foregroundStyle(Theme.textFaint)
-                if let onRefresh {
-                    Button {
-                        isRefreshing = true
-                        Task { await onRefresh(); isRefreshing = false }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.textDim)
-                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                            .animation(isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default,
-                                       value: isRefreshing)
+    /// A tab per configured server — tap one to switch which server's models the
+    /// grid shows. Each tab carries a live status dot and that server's loaded-model
+    /// count; the refresh button (re-query every server's /models) sits at the right.
+    @ViewBuilder private var serverTabs: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(servers) { server in
+                        ServerTab(
+                            label: server.label,
+                            status: registry.status(for: server),
+                            loadedCount: discovered.filter { $0.server.id == server.id && $0.model.isLoaded }.count,
+                            isSelected: (endpointFilter ?? servers.first?.id) == server.id
+                        ) {
+                            endpointFilter = server.id
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isRefreshing)
-                    .help("Fetch models — re-query every server's /models")
                 }
+                .padding(.vertical, 1)   // room for the selected chip's border
+            }
+            if let onRefresh {
+                Button {
+                    isRefreshing = true
+                    Task { await onRefresh(); isRefreshing = false }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textDim)
+                        .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                        .animation(isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default,
+                                   value: isRefreshing)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+                .help("Fetch models — re-query every server's /models")
             }
         }
     }
@@ -266,6 +271,52 @@ private struct CapabilityFilterChip: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help("Filter: \(label)")
+    }
+}
+
+// MARK: - Server tab
+
+/// One server tab in the Models launcher: a live status dot, the server name, and a
+/// loaded-model count badge. Highlights in the accent when it's the server in view.
+private struct ServerTab: View {
+    let label: String
+    let status: ServerStatus
+    let loadedCount: Int
+    let isSelected: Bool
+    let onTap: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 7) {
+                StatusLED(status: status, size: 6, breathe: false)
+                Text(label)
+                    .font(Theme.metric(11))
+                    .foregroundStyle(isSelected ? Theme.textHi : Theme.textMid)
+                    .lineLimit(1)
+                if loadedCount > 0 {
+                    Text("\(loadedCount)")
+                        .font(Theme.metric(10))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.amber)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Theme.amber.opacity(0.15), in: Capsule())
+                }
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(
+                isSelected ? Theme.amber.opacity(0.12) : (hovering ? Theme.fillHi : Color.clear),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule().strokeBorder(isSelected ? Theme.amber.opacity(0.5) : Theme.line, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(loadedCount > 0 ? "\(label) — \(loadedCount) loaded" : label)
     }
 }
 
