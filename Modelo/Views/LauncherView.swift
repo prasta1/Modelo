@@ -185,7 +185,11 @@ struct LauncherView: View {
 
     /// Empty state: offline selected server, nothing discovered, or everything filtered out.
     @ViewBuilder private var emptyHint: some View {
-        if let server = selectedServer, registry.status(for: server) == .offline {
+        if endpointFilter != nil && selectedServer == nil {
+            // Filter holds a stale UUID (server was deleted) — guide the user rather than
+            // showing "no models match your filters" which implies a filter problem.
+            hintRow(icon: "server.rack", text: "Selected server was removed — pick another above.")
+        } else if let server = selectedServer, registry.status(for: server) == .offline {
             hintRow(icon: "bolt.horizontal.circle",
                     text: "\(server.label) is offline — pick another server above.")
         } else if discovered.contains(where: { selectedServer == nil || $0.server.id == selectedServer?.id }) {
