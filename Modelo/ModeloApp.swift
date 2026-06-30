@@ -143,7 +143,19 @@ struct ModeloApp: App {
         Settings {
             SettingsView()
                 .modelContainer(container)
+                // The Settings scene is a standalone window and does NOT inherit the
+                // environment injected into the main WindowGroup. SettingsView (and its
+                // rows) read ServerRegistry/MCPServerManager via @Environment, so opening
+                // Settings via ⌘, used to hit a missing-environment assertion and crash.
+                // Inject the same objects the main window provides to keep this scene complete.
+                .environment(registry)
+                .environment(serverMonitor)
+                .environment(gpuMonitor)
+                .environment(prometheusMonitor)
                 .environment(mcpManager)
+                .environment(favoritesStore)
+                .environment(projectStore)
+                .environment(reachabilityMonitor)
                 .toolbarBackground(.hidden, for: .windowToolbar)
                 .navigationTitle("")
                 .preferredColorScheme(palette.scheme)
