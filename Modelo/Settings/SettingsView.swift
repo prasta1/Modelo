@@ -11,11 +11,9 @@ import AppKit
 /// layout. Hand-laying the rows gives full control of the chrome and matches the
 /// app's monospaced "telemetry" look.
 struct SettingsView: View {
-    /// When `true` the view fills the detail pane instead of a fixed-size window.
-    var isInline: Bool = false
-
     @Environment(\.modelContext) private var context
     @Environment(MCPServerManager.self) private var mcpManager
+    @Environment(SettingsNavigator.self) private var navigator
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     private let keychain = KeychainStore()
     @SceneStorage("settingsSelectedTab") private var selectedTab = "Endpoints"
@@ -39,20 +37,6 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        if isInline {
-            tabContent
-        } else {
-            tabContent
-                .frame(minWidth: 580, idealWidth: 700, maxWidth: .infinity,
-                       minHeight: 480, idealHeight: 580, maxHeight: .infinity)
-                // Override the main window's .toolbarBackground(.hidden) so the tab
-                // strip has an opaque background and scroll content doesn't bleed through.
-                .toolbarBackground(Theme.windowBG, for: .windowToolbar)
-        }
-    }
-
-    @ViewBuilder
-    private var tabContent: some View {
         VStack(spacing: 0) {
             // Themed segmented tab bar (matches the Reports range selector) instead of
             // a system TabView — avoids the macOS-26 Liquid Glass mis-rendering and keeps
@@ -76,6 +60,11 @@ struct SettingsView: View {
         .background(Theme.windowBG)
         .tint(Theme.amber)
         .preferredColorScheme(Theme.active.scheme)
+        // One-shot tab deep link ("Manage models" → Endpoints). A plain ⌘, or
+        // sidebar visit has no pending tab and keeps the last selection.
+        .onAppear {
+            if let tab = navigator.consumeTab() { selectedTab = tab }
+        }
     }
 
     // MARK: Endpoints
@@ -590,7 +579,6 @@ private struct MemoryEnableCard: View {
                 .toggleStyle(.switch)
                 Text("Off by default — one-off conversations stay one-off. Costs a line of context per memory. Open chats pick the change up from their next message.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

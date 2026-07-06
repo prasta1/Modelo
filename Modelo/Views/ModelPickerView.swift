@@ -117,6 +117,8 @@ private struct ModelPickerList: View {
     @State private var searchText = ""
     @State private var selectedServer: Server? = nil
     @Environment(FavoritesStore.self) private var favorites
+    @Environment(SettingsNavigator.self) private var settingsNavigator
+    @Environment(\.dismiss) private var dismiss
 
     private var totalCount: Int { groups.reduce(0) { $0 + $1.models.count } }
 
@@ -308,7 +310,12 @@ private struct ModelPickerList: View {
     }
 
     private var footer: some View {
-        SettingsLink {
+        Button {
+            // Close the popover, then route to Settings ▸ Endpoints in-app
+            // (the Settings window no longer exists).
+            dismiss()
+            settingsNavigator.open(tab: "Endpoints")
+        } label: {
             HStack(spacing: 10) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12))
