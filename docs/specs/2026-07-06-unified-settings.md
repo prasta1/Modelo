@@ -1,7 +1,7 @@
 # Design: Single in-app Settings
 
 **Date:** 2026-07-06
-**Status:** Proposed (no code changes yet)
+**Status:** Implemented on `feature/unified-settings`
 **Author:** Patrick + Claude
 
 ## Problem
@@ -63,28 +63,39 @@ the root.
    `.environment(...)` injections, `.modelContainer`, `.toolbarBackground`, and
    `.windowResizability(.contentMinSize)`.
 
-2. **⌘, becomes a routed menu item.** `CommandGroup(replacing: .appSettings)`
-   inserts our own "Settings…" button with `.keyboardShortcut(",")` in the
-   standard app-menu position. It navigates via a new `goToSettings` action on
-   the existing `ModeloCommands` focused-value bundle (`ContentView.swift:22`),
-   exactly like the Go menu commands.
-   - Main window focused → route it to `.settings`.
-   - No focused window (menu-bar-only mode) → reopen the main window, then land
-     on settings — the same "reopen and route" idea the notification-tap flow
-     already uses (`notifier.tappedConversation`, consumed in `onAppear`).
-   - **Constraint:** must never spawn a second main window when one already
-     exists. Modelo is deliberately single-window (File ▸ New Window is replaced
-     by New Chat). Mechanism — `openWindow(id:)` on an id'd `WindowGroup` vs.
-     ordering an existing `NSWindow` front — is decided in the implementation
-     plan, but the behavior above is the requirement.
+2. **One navigation mechanism for every entry point: `SettingsNavigator`.**
+   A small `@Observable @MainActor` class (in `ContentView.swift`, beside
+   `ModeloCommands`) owned by `ModeloApp` and injected into the window
+   environment. Requests are one-shot: `open(tab:)` stamps a fresh `requestID`
+   and an optional tab; `ContentView` consumes the request to set
+   `route = .settings` (in `onAppear` for a freshly reopened window, and in
+   `onChange(of: requestID)` for a live one — the same dual-consumption pattern
+   the notification-tap flow uses); `SettingsView` consumes `pendingTab` in
+   `onAppear` to override its `@SceneStorage` tab selection.
 
-3. **"Manage models" routes to Settings ▸ Endpoints.** Replace the
-   `SettingsLink` in `ModelPickerView` with a custom environment action
-   (declared with the `@Entry` macro) that `ContentView` injects. Invoking it
-   dismisses the picker popover, routes to `.settings`, and selects the
-   Endpoints tab. Tab targeting: `ContentView` hands `SettingsView` a one-shot
-   pending-tab override that wins over the `@SceneStorage` selection when set,
-   then clears.
+   *Deviation from the original draft:* the draft proposed a `goToSettings`
+   focused-value action plus a separate `@Entry` environment action. A focused
+   value is nil exactly when ⌘, must still work (no focused window in
+   menu-bar-only mode), so the app-owned navigator serves all entry points with
+   one path instead of two.
+
+3. **⌘, becomes a routed menu item.** `CommandGroup(replacing: .appSettings)`
+   inserts a "Settings…" button with `.keyboardShortcut(",")` in the standard
+   app-menu position (`SettingsCommand`, handed the navigator directly by
+   `ModeloApp`). It calls `navigator.open()` and then ensures the main window
+   is visible:
+   - An existing main window — found via its `NSWindow` identifier prefix; the
+     `WindowGroup` now has `id: "main"` — is ordered front, even if
+     miniaturized.
+   - Only when none exists does it call `openWindow(id: "main")`. This ordering
+     guarantees **no second main window is ever spawned**: Modelo is
+     deliberately single-window (File ▸ New Window is replaced by New Chat),
+     and `openWindow(id:)` on a `WindowGroup` would happily create another
+     instance.
+
+   **"Manage models" routes to Settings ▸ Endpoints** through the same
+   navigator: the picker popover's footer button dismisses the popover and
+   calls `open(tab: "Endpoints")`.
 
 4. **`SettingsView` loses its dual personality.** Delete the `isInline`
    property, the window-sized `frame` branch, and the window-only

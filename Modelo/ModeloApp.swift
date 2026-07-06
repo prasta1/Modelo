@@ -27,6 +27,13 @@ struct ModeloApp: App {
     @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
     // Show the menu-bar icon (General settings toggle).
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon: Bool = true
+    // Routes ⌘, / sidebar / "Manage models" to the in-app settings pane. Owned
+    // here so the ⌘, command works even when no window is focused.
+    @State private var settingsNavigator = SettingsNavigator()
+
+    /// `WindowGroup` id for the main window, so ⌘, can reopen it by id in
+    /// menu-bar-only mode (and find it via its NSWindow identifier prefix).
+    static let mainWindowID = "main"
 
     /// Applies the stored theme to `Theme.active` and returns it. Called in each scene
     /// body (before its `.id(themeID)` subtree builds) so colors repaint on change.
@@ -93,7 +100,7 @@ struct ModeloApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mainWindowID) {
             ContentView()
                 .environment(registry)
                 .environment(serverMonitor)
@@ -104,6 +111,7 @@ struct ModeloApp: App {
                 .environment(projectStore)
                 .environment(reachabilityMonitor)
                 .environment(notifier)
+                .environment(settingsNavigator)
                 .task { await startMonitoring() }
                 .task { mcpManager.startAll() }
                 .preferredColorScheme(palette.scheme)
@@ -126,6 +134,10 @@ struct ModeloApp: App {
         .defaultPosition(.center)
         .modelContainer(container)
         .commands {
+            // App menu ▸ Settings… (⌘,) — routes in-app; there is no Settings scene.
+            CommandGroup(replacing: .appSettings) {
+                SettingsCommand(navigator: settingsNavigator)
+            }
             // File ▸ New Chat — replaces the default "New Window" item.
             CommandGroup(replacing: .newItem) {
                 NewChatCommand()
@@ -168,29 +180,6 @@ struct ModeloApp: App {
             Image(nsImage: Self.bottleMenuBarIcon)
         }
         .menuBarExtraStyle(.window)
-
-        Settings {
-            SettingsView()
-                .modelContainer(container)
-                // The Settings scene is a standalone window and does NOT inherit the
-                // environment injected into the main WindowGroup. SettingsView (and its
-                // rows) read ServerRegistry/MCPServerManager via @Environment, so opening
-                // Settings via ⌘, used to hit a missing-environment assertion and crash.
-                // Inject the same objects the main window provides to keep this scene complete.
-                .environment(registry)
-                .environment(serverMonitor)
-                .environment(gpuMonitor)
-                .environment(prometheusMonitor)
-                .environment(mcpManager)
-                .environment(favoritesStore)
-                .environment(projectStore)
-                .environment(reachabilityMonitor)
-                .toolbarBackground(.hidden, for: .windowToolbar)
-                .navigationTitle("")
-                .preferredColorScheme(palette.scheme)
-                .id(themeID)
-        }
-        .windowResizability(.contentMinSize)
     }
 
     /// Opens the SwiftData container, recovering from an unopenable store instead of

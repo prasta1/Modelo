@@ -37,6 +37,42 @@ extension FocusedValues {
     }
 }
 
+/// Routes every settings entry point — ⌘, (app menu), the sidebar row, and the
+/// model picker's "Manage models" — to the in-app settings pane.
+///
+/// Owned by `ModeloApp` (so the ⌘, menu command can reach it even when no window
+/// is focused and `@FocusedValue` would be nil) and injected into the window's
+/// environment. Requests are one-shot: `ContentView` consumes `requestID` to set
+/// the route, and `SettingsView` consumes `pendingTab` to select a specific tab.
+@Observable @MainActor
+final class SettingsNavigator {
+    /// Non-nil while a settings request awaits routing; a fresh UUID per request
+    /// so repeated ⌘, presses are distinguishable.
+    private(set) var requestID: UUID?
+    /// One-shot tab override for `SettingsView` (e.g. "Endpoints"); nil keeps the
+    /// last-selected tab.
+    private(set) var pendingTab: String?
+
+    /// Request the settings pane, optionally on a specific tab.
+    func open(tab: String? = nil) {
+        pendingTab = tab
+        requestID = UUID()
+    }
+
+    /// True (once) if a request was pending — the caller routes to settings.
+    func consumeRequest() -> Bool {
+        guard requestID != nil else { return false }
+        requestID = nil
+        return true
+    }
+
+    /// The requested tab (once), if any — the caller selects it.
+    func consumeTab() -> String? {
+        defer { pendingTab = nil }
+        return pendingTab
+    }
+}
+
 struct ContentView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
@@ -53,6 +89,7 @@ struct ContentView: View {
     /// which conversation is on screen so the foreground chat stays quiet. Owned by
     /// `ModeloApp` (so its notification delegate outlives this window) and injected.
     @Environment(ChatNotifier.self) private var notifier
+    @Environment(SettingsNavigator.self) private var settingsNavigator
     @State private var pickedModel: DiscoveredModel?
     @State private var discovered: [DiscoveredModel] = []
     @State private var endpointFilter: UUID?
@@ -124,7 +161,7 @@ struct ContentView: View {
             gpuMonitor.start(servers: servers)   // pick up agent-URL / macmon changes
             await refreshModels()
         }
-        .onAppear { restoreRoute(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground() }
+        .onAppear { restoreRoute(); consumePendingSettings(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground() }
         .onChange(of: route) {
             saveRoute(route); syncPickedModel(); updateForeground()
             // Close a console left open on a chat so it doesn't get stuck open
@@ -134,6 +171,9 @@ struct ContentView: View {
         // A tapped reply notification routes here. Handled in onAppear too, so a tap
         // that re-opens a closed window (menu-bar mode) still lands on the chat.
         .onChange(of: notifier.tappedConversation) { consumeTappedConversation() }
+        // ⌘, / "Manage models" while the window is already open. Handled in onAppear
+        // too, so a ⌘, that re-opens a closed window (menu-bar mode) lands on settings.
+        .onChange(of: settingsNavigator.requestID) { consumePendingSettings() }
         .focusedSceneValue(\.modeloCommands, ModeloCommands(
             newChat: { newChat() },
             goToLauncher: { route = .launcher },
@@ -156,7 +196,7 @@ struct ContentView: View {
         case .reports:
             ReportingView()
         case .settings:
-            SettingsView(isInline: true)
+            SettingsView()
         case .project(let id):
             if let project = projectStore.projects.first(where: { $0.id == id }) {
                 ProjectLandingView(project: project) { proj in newChatInProject(proj) }
@@ -294,6 +334,10 @@ struct ContentView: View {
             }
         case nil:                    storedRoute = ""
         }
+    }
+
+    private func consumePendingSettings() {
+        if settingsNavigator.consumeRequest() { route = .settings }
     }
 
     private func restoreRoute() {
@@ -545,6 +589,37 @@ struct GoCommands: View {
                 .keyboardShortcut("3", modifiers: .command)
         }
         .disabled(commands == nil)
+    }
+}
+
+/// App menu ▸ Settings… (⌘,) — routes the main window to the in-app settings
+/// pane. There is no separate Settings window: with the main window closed
+/// (menu-bar-only mode) this reopens it, landing directly on settings.
+///
+/// Unlike the Go commands this doesn't use `@FocusedValue` — that would be nil
+/// with no focused window, exactly the case ⌘, must still work in. The navigator
+/// is handed in by `ModeloApp`, which owns it.
+struct SettingsCommand: View {
+    let navigator: SettingsNavigator
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Settings…") {
+            navigator.open()
+            // Reuse the existing main window if one is around (even miniaturized);
+            // only create one when none exists. Modelo is deliberately
+            // single-window — File ▸ New Window is replaced by New Chat — so
+            // openWindow(id:) on the WindowGroup must stay the last resort: it
+            // would add a second instance if a window already existed.
+            if let window = NSApp.windows.first(where: {
+                $0.identifier?.rawValue.hasPrefix(ModeloApp.mainWindowID) == true
+            }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(id: ModeloApp.mainWindowID)
+            }
+        }
+        .keyboardShortcut(",", modifiers: .command)
     }
 }
 
