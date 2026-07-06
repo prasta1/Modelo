@@ -23,14 +23,21 @@ That split causes real problems:
   environment, so all eight observable objects plus the model container are
   re-injected by hand; a missed one is a crash (this has already happened once — see the comment at
   `ModeloApp.swift:173-177`).
-- **The Memory-tab window blowup.** Every settings tab wraps its content in a
-  `ScrollView` except `memoryTab`, which is a bare `VStack` holding
-  `MemoryManagerView`. That view's `TextEditor` and `maxHeight: .infinity`
-  frames report an effectively unbounded *ideal* height. The Settings window
-  re-measures itself to fit content on tab switch, so selecting Memory grows
-  the window past the screen. Commit `bbe8411` made the window resizable
-  (`.contentMinSize`) but didn't bound what the content asks for. The main
-  window is immune — it is user-sized and never chases content.
+- **The Memory-tab window blowup.** *(Root cause corrected after measurement —
+  the original draft blamed `TextEditor` ideal-height and claimed the main
+  window was immune; both wrong.)* The footer `Text` in `MemoryEnableCard`
+  carried `.fixedSize(horizontal: false, vertical: true)`, which forces the
+  text's height to its fully wrapped height *at whatever width is proposed*.
+  During window minimum-size probing the proposed width is tiny, so the
+  ~150-character caption measures as ~1,500 pt of **minimum** height. Every
+  other tab hides the identical pattern inside a `ScrollView` (whose minimum
+  is near zero); `memoryTab` is the only unwrapped tab, so the bogus minimum
+  propagates to the window root. SwiftUI writes that into the window's
+  `contentMinSize`, and AppKit **grows any window** smaller than its minimum —
+  the old Settings window (whose `.windowResizability(.contentMinSize)`
+  enforced it directly) and the main window alike. Measured on a
+  1410 pt-high screen: `contentMinSize` height 1924 with the modifier,
+  377 without it.
 
 ## Decision
 
@@ -102,10 +109,17 @@ the root.
    `.toolbarBackground` override (`SettingsView.swift:41-52`). The view is
    always the detail-pane variant.
 
-5. **Memory tab verification.** With the window gone the blowup cannot occur,
-   but acceptance includes checking Settings ▸ Memory inline at the minimum
-   window size: the edit pane, memory list, and Add Memory button must all stay
-   within the pane (the detail pane bounds `maxHeight: .infinity` correctly).
+5. **Memory tab minimum-height fix.** Removing the window did *not* remove the
+   blowup — the defect travels with the content (see the corrected root cause
+   above), and the main window grew the same way once it hosted the tab. The
+   fix is deleting `.fixedSize(horizontal: false, vertical: true)` from the
+   `MemoryEnableCard` footer text. It is safe to remove: the text sits in a
+   plain `VStack`, which always proposes unconstrained height, so the caption
+   still gets its full wrapped height; `fixedSize(vertical:)` only defends
+   against height-constraining containers, and there is none here. The same
+   modifier on captions inside `ScrollView`-wrapped tabs (Tools, Artifacts) is
+   harmless and left untouched — but avoid `fixedSize(vertical: true)` on
+   wrapping text in any future tab that isn't scroll-wrapped.
 
 ### Accepted trade-off
 

@@ -578,7 +578,6 @@ private struct MemoryEnableCard: View {
                 .toggleStyle(.switch)
                 Text("Off by default — one-off conversations stay one-off. Costs a line of context per memory. Open chats pick the change up from their next message.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
