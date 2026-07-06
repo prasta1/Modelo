@@ -69,6 +69,9 @@ struct ChatView: View {
     @State private var showSampling = false
     @State private var showBenchmark = false
     @State private var showAgentControls = false
+    /// Reference to the AppKit view behind the chat column, resolved at click time
+    /// by the screenshot button to capture exactly what's on screen.
+    @State private var snapshotProbe = SnapshotProbeView.Holder()
 
     /// Identity key for this conversation's session/task in the shared store.
     private var convoID: PersistentIdentifier { conversation.persistentModelID }
@@ -189,6 +192,9 @@ struct ChatView: View {
                 footer
             }
             .frame(maxWidth: .infinity)
+            // Invisible; spans the chat column so the screenshot button knows
+            // exactly which region of the window to capture.
+            .background(SnapshotProbeView(holder: snapshotProbe))
 
             if let group = openArtifactGroup {
                 artifactResizeHandle
@@ -258,6 +264,7 @@ struct ChatView: View {
                     agentButton
                 }
                 benchmarkButton
+                screenshotButton
                 Spacer(minLength: 8)
                 if let server = pickedModel?.server {
                     statusPill(for: server)
@@ -501,6 +508,44 @@ struct ChatView: View {
         .sheet(isPresented: $showBenchmark) {
             BenchmarkView(discovered: discovered, initial: pickedModel)
         }
+    }
+
+    /// Captures the chat column as a share-ready PNG card: what's currently on
+    /// screen, on a themed backdrop with a caption. Saved to ~/Downloads and
+    /// copied to the clipboard.
+    private var screenshotButton: some View {
+        Button { takeScreenshot() } label: {
+            Image(systemName: "camera")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 30, height: 26)
+                .panel(Theme.Palette.panel, radius: 7)
+        }
+        .buttonStyle(.plain)
+        .help("Screenshot this chat — saves a share-ready PNG to Downloads")
+    }
+
+    /// Snapshot → card → Downloads + clipboard, with a transient confirmation in
+    /// the composer strip. All main-thread AppKit work, done synchronously.
+    private func takeScreenshot() {
+        let stamp = Date()
+        guard let probe = snapshotProbe.view,
+              let scale = probe.window?.backingScaleFactor,
+              let shot = SessionSnapshot.capture(around: probe),
+              let card = SessionSnapshot.card(
+                  from: shot,
+                  caption: SessionSnapshot.caption(title: conversation.displayTitle,
+                                                   modelID: pickedModel?.model.id,
+                                                   stamp: stamp),
+                  scale: scale),
+              let url = SessionSnapshot.writeToDownloads(card, title: conversation.displayTitle,
+                                                         stamp: stamp)
+        else {
+            flash("Screenshot failed — couldn't capture the chat window.")
+            return
+        }
+        SessionSnapshot.copyToClipboard(card)
+        flash("Screenshot saved to Downloads (\(url.lastPathComponent)) and copied to clipboard.")
     }
 
     /// Shows the active workspace as an amber chip (tap to change, ✕ to clear),
