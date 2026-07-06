@@ -31,9 +31,22 @@ final class EndpointTests: XCTestCase {
     }
 
     func test_serverKind_localCases_areTheLocalRuntimes() {
-        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .oMLX, .ollama])
+        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .oMLX, .ollama, .exo])
         XCTAssertTrue(ServerKind.oMLX.isLocal)
+        XCTAssertTrue(ServerKind.exo.isLocal)
         XCTAssertFalse(ServerKind.cloudAPI.isLocal)
+    }
+
+    func test_serverKind_exo_defaultsAndLabel() {
+        XCTAssertEqual(ServerKind.exo.rawValue, "exo")
+        XCTAssertEqual(ServerKind.exo.displayName, "exo")
+        XCTAssertEqual(ServerKind.exo.defaultPort, 52415)
+        XCTAssertTrue(ServerKind.isDefaultLocalPort(52415))
+    }
+
+    func test_baseURL_exo_usesHostPort() {
+        let s = Server(label: "exo", host: "localhost", port: 52415, kind: .exo)
+        XCTAssertEqual(s.baseURL, "http://localhost:52415")
     }
 
     func test_baseURL_oMLX_usesHostPort() {

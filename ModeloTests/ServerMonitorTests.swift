@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftData
 @testable import Modelo
 
 // MARK: - Fake provider for ServerMonitor tests
@@ -132,6 +133,31 @@ struct ServerMonitorTests {
         let snap = monitor.snapshot(for: server)
         #expect(snap != nil)
         #expect(snap?.models.isEmpty == true)
+    }
+
+    /// exo: only models with a placed instance appear in the snapshot.
+    @Test func poll_exo_snapshotContainsOnlyPlacedModels() async throws {
+        let modelsJSON = #"{"data":[{"id":"org/a","object":"model"},{"id":"org/b","object":"model"}]}"#
+        let stateJSON = #"{"instances":{"i1":{"MlxRingInstance":{"instanceId":"i1","shardAssignments":{"modelId":"org/b"}}}}}"#
+        StubURLProtocol.handler = { req in
+            if req.url!.absoluteString.contains("/state") { return (.stub(200), Data(stateJSON.utf8)) }
+            return (.stub(200), Data(modelsJSON.utf8))
+        }
+        defer { StubURLProtocol.reset() }
+
+        let schema = Schema([Server.self, ModelContextOverride.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [config])
+        let context = ModelContext(container)
+        let server = Server(label: "exo", host: "localhost", port: 52415, kind: .exo)
+        context.insert(server)
+
+        let monitor = ServerMonitor(client: LMStudioClient(session: StubURLProtocol.makeSession()),
+                                    exoClient: ExoClient(session: StubURLProtocol.makeSession()))
+        await monitor.poll(server)
+
+        let snapshot = monitor.snapshot(for: server)
+        #expect(snapshot?.models.map(\.id) == ["org/b"])
     }
 
     /// Stale loaded-model snapshot is cleared after models are unloaded.

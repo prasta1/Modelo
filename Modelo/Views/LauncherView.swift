@@ -379,6 +379,18 @@ private struct ServerTab: View {
 
 // MARK: - Model tile
 
+/// A quiet icon control (star/pin/eject) with a comfortable hit target, so a
+/// near-miss tap doesn't fall through to the tile's launch action. The glyph stays
+/// small; only the tappable area grows.
+private struct TileControlButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.5 : 1)
+    }
+}
+
 private struct ModelTile: View {
     let item: DiscoveredModel
     let onTap: () -> Void
@@ -401,7 +413,7 @@ private struct ModelTile: View {
                 .controlSize(.mini)
                 .scaleEffect(0.7)
         } else if hovering {
-            HStack(spacing: 6) {
+            HStack(spacing: 2) {
                 Button {
                     favorites.toggle(model.id)
                 } label: {
@@ -409,26 +421,28 @@ private struct ModelTile: View {
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(isFavorite ? Theme.amber : Theme.textLo)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TileControlButtonStyle())
                 .help(isFavorite ? "Remove from favorites" : "Add to favorites")
 
                 if model.isLoaded {
-                    if model.keepInRam == true, let onUnpin {
-                        Button(action: onUnpin) {
-                            Image(systemName: "pin.slash")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Theme.textLo)
+                    if item.server.kind == .lmStudio {
+                        if model.keepInRam == true, let onUnpin {
+                            Button(action: onUnpin) {
+                                Image(systemName: "pin.slash")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(Theme.textLo)
+                            }
+                            .buttonStyle(TileControlButtonStyle())
+                            .help("Unpin model (allow eviction)")
+                        } else if model.keepInRam != true, let onPin {
+                            Button(action: onPin) {
+                                Image(systemName: "pin")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(Theme.textLo)
+                            }
+                            .buttonStyle(TileControlButtonStyle())
+                            .help("Pin model (prevent auto-eviction)")
                         }
-                        .buttonStyle(.plain)
-                        .help("Unpin model (allow eviction)")
-                    } else if model.keepInRam != true, let onPin {
-                        Button(action: onPin) {
-                            Image(systemName: "pin")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Theme.textLo)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Pin model (prevent auto-eviction)")
                     }
                     if let onUnload {
                         Button {
@@ -442,7 +456,7 @@ private struct ModelTile: View {
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(Theme.textLo)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(TileControlButtonStyle())
                         .help("Unload model")
                     }
                 }

@@ -16,6 +16,23 @@ final class LMStudioClientTests: XCTestCase {
         Endpoint(baseURL: base, kind: .cloudAPI, apiKey: key)
     }
 
+    private func exo(_ base: String = "http://localhost:52415") -> Endpoint {
+        Endpoint(baseURL: base, kind: .exo, apiKey: nil)
+    }
+
+    func test_fetchModels_exo_requestsDownloadedOnly() async throws {
+        let body = #"{"data":[{"id":"lmstudio-community/Qwen3-30B-A3B-Instruct-2507-MLX-4bit","object":"model"}]}"#
+        StubURLProtocol.handler = { req in
+            XCTAssertTrue(req.url!.absoluteString.contains("/v1/models"))
+            XCTAssertTrue(req.url!.absoluteString.contains("status=downloaded"),
+                          "exo must request the downloaded-only model list, got \(req.url!.absoluteString)")
+            return (.stub(200), Data(body.utf8))
+        }
+        let models = try await makeClient().fetchModels(endpoint: exo())
+        XCTAssertEqual(models.count, 1)
+        XCTAssertEqual(models.first?.id, "lmstudio-community/Qwen3-30B-A3B-Instruct-2507-MLX-4bit")
+    }
+
     func test_fetchModels_parsesRichEndpoint() async throws {
         let body = #"{"data":[{"id":"qwen3-30b","object":"model","type":"llm","state":"loaded","max_context_length":32768}]}"#
         StubURLProtocol.handler = { req in

@@ -17,18 +17,21 @@ final class ServerMonitor {
 
     private var loops: [PersistentIdentifier: Task<Void, Never>] = [:]
     private let client: any ChatProvider
+    private let exoClient: ExoClient
 
-    init(client: any ChatProvider = LMStudioClient.shared) {
+    init(client: any ChatProvider = LMStudioClient.shared,
+         exoClient: ExoClient = ExoClient()) {
         self.client = client
+        self.exoClient = exoClient
     }
 
     /// The loaded model snapshot for `server`, or nil if none is known yet.
     func snapshot(for server: Server) -> ModelSnapshot? { snapshots[server.persistentModelID] }
 
-    /// Starts a 3-second poll loop per LM Studio server. Restarts cleanly if called again.
+    /// Starts a 3-second poll loop per LM Studio or exo server. Restarts cleanly if called again.
     func start(servers: [Server], registry: ServerRegistry) {
         stop()
-        for server in servers where server.kind == .lmStudio {
+        for server in servers where server.kind == .lmStudio || server.kind == .exo {
             loops[server.persistentModelID] = Task { [weak self] in
                 guard let self else { return }
                 while !Task.isCancelled {
@@ -54,6 +57,14 @@ final class ServerMonitor {
     /// (older /v1/models). Always writes the snapshot on success so stale data is cleared
     /// promptly when models are unloaded.
     func poll(_ server: Server) async {
+        if server.kind == .exo {
+            let endpoint = Endpoint(baseURL: server.baseURL, kind: .exo, apiKey: nil)
+            guard let all = try? await client.fetchModels(endpoint: endpoint),
+                  let loaded = try? await exoClient.loadedInstances(endpoint: endpoint) else { return }
+            let loadedIDs = Set(loaded.map(\.modelID))
+            snapshots[server.persistentModelID] = ModelSnapshot(models: all.filter { loadedIDs.contains($0.id) })
+            return
+        }
         let endpoint = Endpoint(baseURL: server.baseURL, kind: .lmStudio, apiKey: nil)
         guard let models = try? await client.fetchModels(endpoint: endpoint) else { return }
         let loaded = models.filter { $0.isLoaded }

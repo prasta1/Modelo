@@ -37,6 +37,14 @@ extension FocusedValues {
     }
 }
 
+/// A pending exo model-load awaiting the user's RAM-cost confirmation. Holds the
+/// continuation so `launch` can `await` the user's Load/Cancel choice inline.
+private struct ExoLoadPrompt: Identifiable {
+    let id = UUID()
+    let model: DiscoveredModel
+    let continuation: CheckedContinuation<Bool, Never>
+}
+
 struct ContentView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
@@ -54,6 +62,7 @@ struct ContentView: View {
     /// `ModeloApp` (so its notification delegate outlives this window) and injected.
     @Environment(ChatNotifier.self) private var notifier
     @State private var pickedModel: DiscoveredModel?
+    @State private var pendingExoLoad: ExoLoadPrompt?
     @State private var discovered: [DiscoveredModel] = []
     @State private var endpointFilter: UUID?
     @State private var renamingIDs: Set<PersistentIdentifier> = []
@@ -64,6 +73,7 @@ struct ContentView: View {
     @SceneStorage("sidebarRoute") private var storedRoute: String = ""
 
     private let client = LMStudioClient.shared
+    private let exoClient = ExoClient()
     private let keychain = KeychainStore()
 
     /// The conversation matching the current sidebar route, if any.
@@ -101,6 +111,31 @@ struct ContentView: View {
                         .transaction { $0.animation = nil }
                 }
         }
+        .confirmationDialog(
+            "Load model into exo?",
+            isPresented: Binding(
+                get: { pendingExoLoad != nil },
+                set: { presented in
+                    // Dismissed without choosing (Esc / click-away) counts as Cancel.
+                    if !presented, let prompt = pendingExoLoad {
+                        prompt.continuation.resume(returning: false)
+                        pendingExoLoad = nil
+                    }
+                }
+            ),
+            presenting: pendingExoLoad
+        ) { prompt in
+            Button("Load") {
+                prompt.continuation.resume(returning: true)
+                pendingExoLoad = nil
+            }
+            Button("Cancel", role: .cancel) {
+                prompt.continuation.resume(returning: false)
+                pendingExoLoad = nil
+            }
+        } message: { prompt in
+            Text("\(prompt.model.model.id) will be loaded into exo and use several GB of RAM until you unload it.")
+        }
         .navigationTitle("")
         // Shared across the sidebar and detail so a streaming turn survives chat
         // switches and the sidebar can discard a deleted conversation's session.
@@ -122,6 +157,9 @@ struct ContentView: View {
         }
         .task(id: serverDiscoveryKey) {
             gpuMonitor.start(servers: servers)   // pick up agent-URL / macmon changes
+            // Restart load-state polling too, so switching a server to exo (or adding one)
+            // at runtime begins populating its loaded-model snapshot without an app relaunch.
+            monitor.start(servers: servers, registry: registry)
             await refreshModels()
         }
         .onAppear { restoreRoute(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground() }
@@ -230,6 +268,16 @@ struct ContentView: View {
         route = .conversation(convo.persistentModelID)
     }
 
+    /// Presents the RAM-cost confirmation and suspends until the user chooses.
+    private func confirmExoLoad(_ model: DiscoveredModel) async -> Bool {
+        // A prompt is already on screen — decline rather than clobber the live
+        // continuation (which would leak it and hang the first caller).
+        guard pendingExoLoad == nil else { return false }
+        return await withCheckedContinuation { continuation in
+            pendingExoLoad = ExoLoadPrompt(model: model, continuation: continuation)
+        }
+    }
+
     /// Launcher tile tap — creates a chat pre-bound to a model. The persona is
     /// chosen later from the chat composer's picker.
     private func launch(model: DiscoveredModel) async {
@@ -242,6 +290,15 @@ struct ContentView: View {
             } catch {
                 // If loading fails, still proceed - the error will surface in chat
                 Log.network.error("Model load before launch failed for \(model.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        } else if model.server.kind == .exo, !model.model.isLoaded {
+            guard await confirmExoLoad(model) else { return }
+            let endpoint = Endpoint(server: model.server, keychain: keychain)
+            do {
+                try await exoClient.placeInstance(modelID: model.model.id, endpoint: endpoint)
+                await refreshModels()
+            } catch {
+                Log.network.error("exo place failed for \(model.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
         pickedModel = model
@@ -406,7 +463,7 @@ struct ContentView: View {
     /// Since `monitor` is @Observable, SwiftUI re-renders the launcher automatically each poll cycle.
     private var discoveredWithLiveState: [DiscoveredModel] {
         discovered.map { item in
-            guard item.server.kind == .lmStudio else { return item }
+            guard item.server.kind == .lmStudio || item.server.kind == .exo else { return item }
             let snapshot = monitor.snapshot(for: item.server)
             let liveModel = snapshot?.models.first(where: { $0.id == item.model.id })
             var updated = item.model
@@ -457,6 +514,18 @@ struct ContentView: View {
     /// Unloads a model on LM Studio and clears the selection if it was the active model.
     private func handleModelEject(_ item: DiscoveredModel) async {
         let endpoint = Endpoint(server: item.server, keychain: keychain)
+        if item.server.kind == .exo {
+            let loaded = (try? await exoClient.loadedInstances(endpoint: endpoint)) ?? []
+            guard let instance = loaded.first(where: { $0.modelID == item.model.id }) else { return }
+            do {
+                try await exoClient.deleteInstance(instanceID: instance.instanceID, endpoint: endpoint)
+                await refreshModels()
+                if pickedModel?.model.id == item.model.id { pickedModel = nil }
+            } catch {
+                Log.network.error("exo unload failed for \(item.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+            return
+        }
         do {
             _ = try await client.unloadModel(modelID: item.model.id, endpoint: endpoint)
             await refreshModels()

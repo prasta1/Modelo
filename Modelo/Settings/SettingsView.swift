@@ -273,6 +273,7 @@ struct SettingsView: View {
         case .llamaCpp: return "terminal"
         case .oMLX:     return "cpu"
         case .ollama:   return "cylinder"
+        case .exo:      return "point.3.connected.trianglepath.dotted"
         default:        return "server.rack"
         }
     }
@@ -1191,6 +1192,8 @@ private struct LocalSetupHint: View {
             return "Run the server: llama-server -m model.gguf --port 8080. llama-swap users: point to your proxy's port instead of 8080."
         case .oMLX:
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
+        case .exo:
+            return "Run exo (exolabs.net) on this or another Mac. Add its host and port (default 52415). Models must be launched in exo's dashboard before you can chat with them."
         case .cloudAPI, .openRouter:
             return ""
         }
