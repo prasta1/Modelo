@@ -51,8 +51,8 @@ extension MCPServerConfig {
 /// servers are prefilled but the user must supply the secret another way.
 enum MCPSetup: Equatable, Sendable {
     case none
-    case needsPath                 // point it at a folder / db / repo
-    case needsKey(env: String)     // requires an API key in the named env var
+    case needsPath                    // point it at a folder / db / repo
+    case needsKey(envs: [String])     // requires API keys in the named env vars
 }
 
 /// One known MCP server in the bundled discovery catalog. Converts to a
@@ -68,11 +68,13 @@ struct MCPCatalogEntry: Identifiable, Sendable {
 
     /// A config ready to hand to `MCPServerManager.addConfig`. Added disabled by
     /// default so the user can adjust paths/keys before it launches.
-    /// For `needsKey` entries the env dict is pre-seeded with an empty value so the
-    /// key field appears immediately in the settings row.
+    /// For `needsKey` entries the env dict is pre-seeded with empty values so the
+    /// key fields appear immediately in the settings row.
     func makeConfig(isEnabled: Bool = false) -> MCPServerConfig {
         var envDict: [String: String] = [:]
-        if case .needsKey(let envVar) = setup { envDict[envVar] = "" }
+        if case .needsKey(let envVars) = setup {
+            for envVar in envVars { envDict[envVar] = "" }
+        }
         return MCPServerConfig(name: name, command: command, arguments: arguments,
                                env: envDict, isEnabled: isEnabled)
     }
@@ -92,6 +94,11 @@ struct BundledMCPCatalog: Sendable {
             category: "Files", command: "npx",
             arguments: ["-y", "@modelcontextprotocol/server-filesystem", NSHomeDirectory()],
             setup: .needsPath),
+        MCPCatalogEntry(id: "markitdown", name: "MarkItDown",
+            summary: "Convert PDF, Office, and other documents to markdown.",
+            category: "Files", command: "uvx",
+            arguments: ["markitdown-mcp"],
+            setup: .none),
         MCPCatalogEntry(id: "memory", name: "Memory",
             summary: "Persistent knowledge-graph memory across chats.",
             category: "Reasoning", command: "npx",
@@ -107,35 +114,108 @@ struct BundledMCPCatalog: Sendable {
             category: "Web", command: "uvx",
             arguments: ["mcp-server-fetch"],
             setup: .none),
-        MCPCatalogEntry(id: "puppeteer", name: "Puppeteer",
-            summary: "Drive a headless browser — navigate, click, screenshot.",
+        MCPCatalogEntry(id: "playwright", name: "Playwright",
+            summary: "Drive a real browser via its accessibility tree — navigate, click, extract.",
             category: "Web", command: "npx",
-            arguments: ["-y", "@modelcontextprotocol/server-puppeteer"],
+            arguments: ["-y", "@playwright/mcp@latest"],
             setup: .none),
         MCPCatalogEntry(id: "git", name: "Git",
             summary: "Inspect a local git repository — log, diff, show.",
             category: "Dev", command: "uvx",
             arguments: ["mcp-server-git", "--repository", NSHomeDirectory()],
             setup: .needsPath),
-        MCPCatalogEntry(id: "sqlite", name: "SQLite",
-            summary: "Run read-only queries against a SQLite database.",
-            category: "Data", command: "uvx",
-            arguments: ["mcp-server-sqlite", "--db-path", "/path/to/database.db"],
-            setup: .needsPath),
-        MCPCatalogEntry(id: "github", name: "GitHub",
-            summary: "Browse repos, issues, and pull requests.",
+        MCPCatalogEntry(id: "context7", name: "Context7",
+            summary: "Up-to-date documentation for libraries and frameworks.",
             category: "Dev", command: "npx",
-            arguments: ["-y", "@modelcontextprotocol/server-github"],
-            setup: .needsKey(env: "GITHUB_PERSONAL_ACCESS_TOKEN")),
-        MCPCatalogEntry(id: "brave-search", name: "Brave Search",
-            summary: "Web and local search via the Brave API.",
-            category: "Web", command: "npx",
-            arguments: ["-y", "@modelcontextprotocol/server-brave-search"],
-            setup: .needsKey(env: "BRAVE_API_KEY")),
-        MCPCatalogEntry(id: "slack", name: "Slack",
-            summary: "Read channels and post messages in a workspace.",
-            category: "Chat", command: "npx",
-            arguments: ["-y", "@modelcontextprotocol/server-slack"],
-            setup: .needsKey(env: "SLACK_BOT_TOKEN")),
+            arguments: ["-y", "@upstash/context7-mcp"],
+            setup: .none),
+        MCPCatalogEntry(id: "github", name: "GitHub",
+            summary: "Official GitHub server — repos, issues, PRs. Install: brew install github-mcp-server.",
+            category: "Dev", command: "github-mcp-server",
+            arguments: ["stdio"],
+            setup: .needsKey(envs: ["GITHUB_PERSONAL_ACCESS_TOKEN"])),
+        MCPCatalogEntry(id: "apple-mcp", name: "Apple Apps",
+            summary: "Notes, Reminders, Calendar, Messages, and Maps. Requires Bun; prompts for Automation access.",
+            category: "Mac", command: "bunx",
+            arguments: ["apple-mcp"],
+            setup: .none),
     ]
+}
+
+// MARK: - Registry search
+
+/// Searches the official MCP Registry (registry.modelcontextprotocol.io) and maps
+/// hits onto `MCPCatalogEntry`, so remote results flow through the same discovery
+/// UI and add flow as the bundled catalog.
+///
+/// Modelo launches MCP servers as stdio subprocesses, so only servers publishing a
+/// stdio-capable npm or PyPI package are returned — remote-only (HTTP/SSE) servers
+/// are filtered out.
+struct MCPRegistrySearch: Sendable {
+    /// Query the registry and return launchable entries in registry order.
+    /// - Parameter query: free text, matched against server names and descriptions.
+    func search(_ query: String) async throws -> [MCPCatalogEntry] {
+        var components = URLComponents(string: "https://registry.modelcontextprotocol.io/v0/servers")!
+        components.queryItems = [
+            URLQueryItem(name: "search", value: query),
+            URLQueryItem(name: "version", value: "latest"),
+            URLQueryItem(name: "limit", value: "50"),
+        ]
+        let (data, _) = try await URLSession.shared.data(from: components.url!)
+        let response = try JSONDecoder().decode(Response.self, from: data)
+        return response.servers.compactMap { Self.entry(for: $0.server) }
+    }
+
+    /// Map one registry server to a catalog entry, or nil if it publishes no
+    /// package Modelo can launch (npm → npx, pypi → uvx; stdio transport only).
+    private static func entry(for server: Server) -> MCPCatalogEntry? {
+        guard let package = (server.packages ?? []).first(where: { pkg in
+            (pkg.transport?.type ?? "stdio") == "stdio"
+                && (pkg.registryType == "npm" || pkg.registryType == "pypi")
+                && pkg.identifier != nil
+        }), let identifier = package.identifier else { return nil }
+
+        let (command, arguments) = package.registryType == "npm"
+            ? ("npx", ["-y", identifier])
+            : ("uvx", [identifier])
+        let requiredEnvs = (package.environmentVariables ?? [])
+            .filter { $0.isRequired ?? false }
+            .map(\.name)
+        // Registry names are reverse-DNS ("io.github.owner/repo") — show the last
+        // path component unless the server declares a human-readable title.
+        let displayName = server.title
+            ?? server.name.split(separator: "/").last.map(String.init)
+            ?? server.name
+        return MCPCatalogEntry(
+            id: server.name,
+            name: displayName,
+            summary: server.description ?? "",
+            category: "Registry",
+            command: command,
+            arguments: arguments,
+            setup: requiredEnvs.isEmpty ? .none : .needsKey(envs: requiredEnvs))
+    }
+
+    // Decodable slices of the registry response — only the fields Modelo uses.
+    // Everything but the server name is optional so one sparse record can't sink
+    // the whole result list.
+    private struct Response: Decodable { let servers: [Record] }
+    private struct Record: Decodable { let server: Server }
+    private struct Server: Decodable {
+        let name: String
+        let title: String?
+        let description: String?
+        let packages: [Package]?
+    }
+    private struct Package: Decodable {
+        let registryType: String?
+        let identifier: String?
+        let transport: Transport?
+        let environmentVariables: [EnvVar]?
+    }
+    private struct Transport: Decodable { let type: String? }
+    private struct EnvVar: Decodable {
+        let name: String
+        let isRequired: Bool?
+    }
 }
