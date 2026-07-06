@@ -4,7 +4,7 @@
 
 A native macOS client for running inference against local and cloud LLMs.
 
-Connects to **LM Studio** over your local network or Tailscale, and to any **OpenAI-compatible cloud API** (OpenRouter, Together, Mistral, etc.). Built with SwiftUI and SwiftData.
+Connects to **LM Studio**, **Ollama**, **llama.cpp**, and **oMLX** over your local network or Tailscale, and to any **OpenAI-compatible cloud API** (OpenRouter, Together, Mistral, etc.). Built with SwiftUI and SwiftData.
 
 > The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
 
@@ -13,11 +13,13 @@ Connects to **LM Studio** over your local network or Tailscale, and to any **Ope
 - **Chat** — streaming responses, Markdown rendering with syntax-highlighted and copyable code blocks, per-message token metrics, slash commands (`/model`, `/temp`, `/system`, `/export`, `/skills`, …) with an autocomplete popup, queue messages while a reply streams, branch & regenerate any turn, adjustable text size
 - **Artifacts** — substantial model output (HTML, SVG, Mermaid, code, documents) opens in a Claude-style side panel with live preview — see [below](#artifacts)
 - **Tools & agents** — opt-in first-party filesystem + shell tools, MCP servers, `~/.agents` skills, with reliability tuned for local models — see [below](#tools--agents)
-- **Model Picker** — grouped by server with per-model load state (selected / loaded / idle / cloud)
+- **Multi-backend model picker** — per-server tabs in the launcher; groups by LM Studio, Ollama, llama.cpp, oMLX, and cloud; per-model load state (selected / loaded / idle / cloud); Models page shows every server Status-style for a full fleet overview
+- **Endpoints** — quick-setup hints guide you through adding a new server, workspace binding scopes file-tool access per endpoint, connectivity LED on each row shows reachability at a glance, and an Advanced section collapses rarely-touched options
 - **Server Status** — live latency, throughput, and request sparklines with a streaming console
-- **Reports** — throughput and TTFT charts (Swift Charts), a per-model usage table, and configurable usage retention
+- **Reports** — throughput and TTFT charts (Swift Charts), sortable per-model and per-server usage tables, and configurable usage retention
+- **Notifications** — foreground banners appear when a reply finishes while you're in another app; tapping one deep-links straight into the relevant chat
 - **Themes** — Dark (default), Light, and Catppuccin Latte / Frappé / Macchiato / Mocha, switchable live in Settings ▸ Appearance
-- **Settings** — LM Studio endpoints, cloud API endpoints (any OpenAI-compatible base URL), personas, filesystem/shell tools, Firecrawl key, MCP servers
+- **Settings** — master-detail layout for presets/personas; icon picker for custom persona icons; tab-selection persists across launches; LM Studio, Ollama, and cloud API endpoints; filesystem/shell tools; Firecrawl key; MCP servers
 - **Personas** — system prompt presets with icons and taglines
 - **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
 - **Menu bar mini chat** — quick-access popover from the menu bar
@@ -55,7 +57,7 @@ Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**
 ## Requirements
 
 - macOS 14.0+
-- [LM Studio](https://lmstudio.ai) for local inference (optional — cloud APIs work standalone)
+- A local inference backend is optional — cloud APIs work standalone. Supported backends: [LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com), [llama.cpp](https://github.com/ggerganov/llama.cpp), [oMLX](https://github.com/nidalhaddad/omlx)
 
 ## Building
 
