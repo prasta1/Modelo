@@ -17,8 +17,25 @@ struct MCPTool: Tool {
         self.client = client
     }
 
+    /// Hard cap on the characters of one MCP tool result forwarded to the model.
+    /// First-party tools each bound their own output (BashTool clips at the same
+    /// figure), but an external server can return anything — `directory_tree` on a
+    /// large folder yields megabytes of JSON that would ride the conversation into
+    /// every subsequent request and blow the context window (~4 chars ≈ 1 token,
+    /// so 30k chars ≈ 7.5k tokens).
+    static let resultCharacterLimit = 30_000
+
+    /// Returns `text` unchanged when within the cap, else its head plus a note
+    /// telling the model the result was clipped so it can ask for something
+    /// narrower on the next round.
+    static func clipped(_ text: String) -> String {
+        guard text.count > resultCharacterLimit else { return text }
+        return text.prefix(resultCharacterLimit)
+            + "\n… (result truncated: \(text.count) characters exceeds the \(resultCharacterLimit)-character limit — request something narrower, e.g. a subdirectory or a smaller range)"
+    }
+
     func execute(argumentsJSON: String) async throws -> String {
-        try await client.callTool(name: name, argumentsJSON: argumentsJSON)
+        Self.clipped(try await client.callTool(name: name, argumentsJSON: argumentsJSON))
     }
 }
 
