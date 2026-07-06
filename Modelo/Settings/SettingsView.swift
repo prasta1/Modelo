@@ -1694,10 +1694,18 @@ private struct MCPDiscoverySection: View {
     let onAdd: (MCPCatalogEntry) -> Void
 
     private let catalog = BundledMCPCatalog()
+    private let registry = MCPRegistrySearch()
     @State private var entries: [MCPCatalogEntry] = []
     @State private var query = ""
     @State private var category = "All"
     @FocusState private var searchFocused: Bool
+
+    // Live MCP Registry search state, driven by the same query field.
+    @State private var remote: [MCPCatalogEntry] = []
+    @State private var searching = false
+    @State private var searchFailed = false
+
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// "All" plus each catalog category in first-seen order.
     private var categories: [String] {
@@ -1713,6 +1721,15 @@ private struct MCPDiscoverySection: View {
         return entries.filter { entry in
             (category == "All" || entry.category == category)
             && (q.isEmpty || entry.searchText.contains(q))
+            && !installed.contains { $0.command == entry.command && $0.arguments == entry.arguments }
+        }
+    }
+
+    /// Registry hits not already installed and not duplicating a bundled entry
+    /// (many bundled servers are also published to the registry).
+    private var remoteVisible: [MCPCatalogEntry] {
+        remote.filter { entry in
+            !entries.contains { $0.command == entry.command && $0.arguments == entry.arguments }
             && !installed.contains { $0.command == entry.command && $0.arguments == entry.arguments }
         }
     }
@@ -1752,13 +1769,62 @@ private struct MCPDiscoverySection: View {
                     CatalogEntryRow(entry: entry) { onAdd(entry) }
                 }
             }
+
+            // Live results from the official MCP Registry once the query is
+            // long enough to be meaningful.
+            if trimmedQuery.count >= 2 {
+                HStack(spacing: 8) {
+                    Eyebrow("MCP Registry")
+                    if searching {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.6)
+                    }
+                }
+                .padding(.top, 6)
+
+                if !remoteVisible.isEmpty {
+                    ForEach(remoteVisible) { entry in
+                        CatalogEntryRow(entry: entry) { onAdd(entry) }
+                    }
+                } else if !searching {
+                    Text(searchFailed ? "Registry search failed — check your connection."
+                                      : "No registry servers match “\(trimmedQuery)”.")
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.textFaint)
+                        .padding(.vertical, 6)
+                }
+            }
         }
         .task { entries = await catalog.load() }
+        .task(id: query) {
+            let q = trimmedQuery
+            guard q.count >= 2 else {
+                remote = []; searching = false; searchFailed = false
+                return
+            }
+            do {
+                // Debounce: typing cancels this task, so superseded queries
+                // never reach the network.
+                try await Task.sleep(for: .milliseconds(350))
+                searching = true
+                remote = try await registry.search(q)
+                searchFailed = false
+            } catch is CancellationError {
+                return   // a newer query owns the search state now
+            } catch let error as URLError where error.code == .cancelled {
+                return
+            } catch {
+                remote = []
+                searchFailed = true
+            }
+            searching = false
+        }
     }
 
     private var emptyMessage: String {
         if entries.isEmpty { return "Loading catalog…" }
-        if !query.isEmpty  { return "No servers match “\(query)”." }
+        if !query.isEmpty  { return "No bundled servers match “\(query)”." }
         return "Every catalog server is already installed."
     }
 }
@@ -1840,7 +1906,7 @@ private struct CatalogEntryRow: View {
         switch entry.setup {
         case .none:               return nil
         case .needsPath:          return "Set a path in Arguments before enabling"
-        case .needsKey(let env):  return "Needs \(env)"
+        case .needsKey(let envs): return "Needs \(envs.joined(separator: ", "))"
         }
     }
 
