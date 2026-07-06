@@ -138,7 +138,9 @@ struct ModeloApp: App {
             CommandGroup(after: .toolbar) {
                 ConsoleMenuButton()
                 Divider()
-                // Chat text size is clamped to 12...26 pt.
+                // Content text size, clamped to 12...26 pt. Applies to all reading
+                // surfaces (chat, composer, artifact panel, menu-bar quick chat);
+                // app chrome keeps fixed sizes.
                 Button("Increase Text Size") {
                     messageFontSize = min(26, messageFontSize + 1)
                 }

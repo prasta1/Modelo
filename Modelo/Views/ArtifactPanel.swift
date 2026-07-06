@@ -13,6 +13,13 @@ struct ArtifactPanel: View {
     @State private var showingSource = false
     @State private var copied = false
 
+    // View ▸ text-size commands (⌘+/⌘−) drive this value; 15 pt is "Actual Size".
+    @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+
+    /// Zoom factor relative to the default text size, so artifact text tracks the
+    /// View ▸ text-size commands while keeping its compact base sizes at ⌘0.
+    private var textScale: CGFloat { messageFontSize / 15 }
+
     private var group: ArtifactGroup { groups.first { $0.id == selectedID } ?? groups[0] }
     private var current: Artifact { group.versions[min(versionIndex, group.versions.count - 1)] }
     private var hasToggle: Bool { group.kind.isRenderable || group.kind == .markdown }
@@ -94,7 +101,7 @@ struct ArtifactPanel: View {
     @ViewBuilder private var content: some View {
         if showingSource || group.kind == .code {
             ScrollView {
-                MarkdownText(content: fencedSource, fontSize: 12.5)
+                MarkdownText(content: fencedSource, fontSize: 12.5 * textScale)
                     .textSelection(.enabled)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -105,7 +112,7 @@ struct ArtifactPanel: View {
             ArtifactWebView(html: ArtifactHTML.document(for: current, dark: Theme.active.scheme == .dark))
         } else {   // rendered markdown
             ScrollView {
-                MarkdownText(content: current.content, fontSize: 14)
+                MarkdownText(content: current.content, fontSize: 14 * textScale)
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .hideScrollIndicators()

@@ -24,6 +24,13 @@ struct MenuBarChatView: View {
     @State private var streamTask: Task<Void, Never>?
     @State private var errorText: String?
 
+    // View ▸ text-size commands (⌘+/⌘−) drive this value; 15 pt is "Actual Size".
+    @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+
+    /// Zoom factor relative to the default text size, so the quick-chat composer
+    /// tracks the View ▸ text-size commands while keeping its compact 13 pt base.
+    private var textScale: CGFloat { messageFontSize / 15 }
+
     private let keychain = KeychainStore()
     private let client = LMStudioClient.shared
 
@@ -171,7 +178,7 @@ struct MenuBarChatView: View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField("Message…", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(.system(size: 13 * textScale))
                 .foregroundStyle(Theme.Palette.ink)
                 .lineLimit(1...5)
                 .padding(.horizontal, 10)
@@ -313,6 +320,11 @@ struct MenuBarChatView: View {
 private struct QuickMessageRow: View {
     let msg: QuickMessage
 
+    // Same key the main-window MessageRow reads, so both chats zoom together.
+    @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+
+    private var textScale: CGFloat { messageFontSize / 15 }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if msg.role == .assistant {
@@ -325,7 +337,7 @@ private struct QuickMessageRow: View {
             }
 
             Text(msg.content)
-                .font(.system(size: 13))
+                .font(.system(size: 13 * textScale))
                 .foregroundStyle(msg.role == .user ? Theme.Palette.inkDim : Theme.Palette.ink)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: msg.role == .user ? .trailing : .leading)
