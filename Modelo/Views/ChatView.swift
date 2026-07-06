@@ -72,6 +72,7 @@ struct ChatView: View {
     /// Reference to the AppKit view behind the chat column, resolved at click time
     /// by the screenshot button to capture exactly what's on screen.
     @State private var snapshotProbe = SnapshotProbeView.Holder()
+    @State private var pendingSnapshot: SnapshotItem?
 
     /// Identity key for this conversation's session/task in the shared store.
     private var convoID: PersistentIdentifier { conversation.persistentModelID }
@@ -243,6 +244,9 @@ struct ChatView: View {
         // Auto-open the newest artifact when the model produces a new one (Claude-style).
         .onChange(of: artifactGroups.count) { _, count in
             if count > 0, let newest = artifactGroups.last { openArtifactID = newest.id }
+        }
+        .sheet(item: $pendingSnapshot) { item in
+            SnapshotPreviewView(url: item.url)
         }
     }
 
@@ -522,11 +526,10 @@ struct ChatView: View {
                 .panel(Theme.Palette.panel, radius: 7)
         }
         .buttonStyle(.plain)
-        .help("Screenshot this chat — saves a share-ready PNG to Downloads")
+        .help("Screenshot this chat — opens a share-ready preview")
     }
 
-    /// Snapshot → card → Downloads + clipboard, with a transient confirmation in
-    /// the composer strip. All main-thread AppKit work, done synchronously.
+    /// Snapshot → card → temp file → preview sheet with Share / Done.
     private func takeScreenshot() {
         let stamp = Date()
         guard let probe = snapshotProbe.view,
@@ -538,14 +541,13 @@ struct ChatView: View {
                                                    modelID: pickedModel?.model.id,
                                                    stamp: stamp),
                   scale: scale),
-              let url = SessionSnapshot.writeToDownloads(card, title: conversation.displayTitle,
-                                                         stamp: stamp)
+              let url = SessionSnapshot.writeToTemp(card, title: conversation.displayTitle,
+                                                    stamp: stamp)
         else {
             flash("Screenshot failed — couldn't capture the chat window.")
             return
         }
-        SessionSnapshot.copyToClipboard(card)
-        flash("Screenshot saved to Downloads (\(url.lastPathComponent)) and copied to clipboard.")
+        pendingSnapshot = SnapshotItem(url: url)
     }
 
     /// Shows the active workspace as an amber chip (tap to change, ✕ to clear),

@@ -111,6 +111,24 @@ enum SessionSnapshot {
         return rep
     }
 
+    /// Write the card to a temp PNG the caller can show in a preview panel.
+    /// The caller is responsible for deleting the file when done.
+    static func writeToTemp(_ rep: NSBitmapImageRep, title: String, stamp: Date = Date()) -> URL? {
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "\(ConversationExporter.slug(title))-\(f.string(from: stamp)).png")
+        do {
+            try png.write(to: url)
+            return url
+        } catch {
+            Log.app.error("Session snapshot temp write failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     /// Write the card to ~/Downloads/<slug>-<stamp>.png (mirrors the Markdown
     /// exporter's naming). Returns the URL, or nil on failure.
     @discardableResult
