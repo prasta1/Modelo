@@ -104,6 +104,8 @@ struct SettingsView: View {
                             }
                         }
                         Menu("Cloud API") {
+                            Button("Nous Research") { addNousServer() }
+                            Divider()
                             ForEach(Self.cloudPresets) { preset in
                                 Button(preset.name) {
                                     addCloudServer(label: preset.name, baseURL: preset.baseURL)
@@ -242,6 +244,14 @@ struct SettingsView: View {
     private func addCloudServer(label: String = "Cloud API", baseURL: String = "") {
         let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
         let server = Server(label: label, host: baseURL, port: 0, sortOrder: nextOrder, kind: .cloudAPI)
+        context.insert(server)
+        context.saveOrLog()
+        newlyAddedID = server.id
+    }
+
+    private func addNousServer() {
+        let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
+        let server = Server(label: "Nous Research", host: "", port: 0, sortOrder: nextOrder, kind: .nous)
         context.insert(server)
         context.saveOrLog()
         newlyAddedID = server.id
@@ -1184,7 +1194,7 @@ private struct LocalSetupHint: View {
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
         case .exo:
             return "Run exo (exolabs.net) on this or another Mac. Add its host and port (default 52415). Models must be launched in exo's dashboard before you can chat with them."
-        case .cloudAPI, .openRouter:
+        case .cloudAPI, .openRouter, .nous:
             return ""
         }
     }
@@ -1341,11 +1351,24 @@ private struct CloudServerSettingsRow: View {
                         .foregroundStyle(Theme.textHi)
                         .focused($focus, equals: .label)
 
-                    FieldGroup(caption: "Base URL") {
-                        TextField("https://api.together.xyz/v1", text: $server.host)
-                            .textFieldStyle(.plain)
-                            .focused($focus, equals: .url)
-                            .fieldChrome(focused: focus == .url)
+                    if server.kind.hasFixedURL {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Theme.textFaint)
+                            Text(verbatim: server.baseURL)
+                                .font(Theme.metric(11))
+                                .foregroundStyle(Theme.textFaint)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    } else {
+                        FieldGroup(caption: "Base URL") {
+                            TextField("https://api.together.xyz/v1", text: $server.host)
+                                .textFieldStyle(.plain)
+                                .focused($focus, equals: .url)
+                                .fieldChrome(focused: focus == .url)
+                        }
                     }
 
                     FieldGroup(caption: "API Key") {

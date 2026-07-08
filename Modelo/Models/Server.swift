@@ -61,6 +61,7 @@ final class Server {
         case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: "http://\(Server.normalizedHost(host)):\(port)"
         case .cloudAPI:   host
         case .openRouter: Endpoint.openRouterBaseURL
+        case .nous:       Endpoint.nousBaseURL
         }
     }
 

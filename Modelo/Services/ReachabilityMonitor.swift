@@ -28,7 +28,7 @@ final class ReachabilityMonitor {
     /// Cloud APIs use a fixed cadence (no sleep state); local servers back off when offline.
     func pollInterval(for status: ServerStatus, kind: ServerKind) -> Duration {
         switch kind {
-        case .cloudAPI, .openRouter: return .seconds(30)
+        case .cloudAPI, .openRouter, .nous: return .seconds(30)
         case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: return status == .online ? .seconds(10) : .seconds(30)
         }
     }

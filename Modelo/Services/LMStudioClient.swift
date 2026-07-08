@@ -53,7 +53,7 @@ final class LMStudioClient: ChatProvider {
             let data = try await authedGet(path: "/models", endpoint: endpoint)
             return try OpenRouterCatalog.models(from: data)
                 .filter { !$0.isEmbeddingModel }
-        case .cloudAPI:
+        case .cloudAPI, .nous:
             let data = try await authedGet(path: "/models", endpoint: endpoint)
             return try JSONDecoder().decode(ModelsResponse.self, from: data).data
                 .filter { !$0.isEmbeddingModel }
@@ -115,7 +115,7 @@ final class LMStudioClient: ChatProvider {
         let path: String
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: path = "/v1/models"
-        case .cloudAPI, .openRouter: path = "/models"
+        case .cloudAPI, .openRouter, .nous: path = "/models"
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
         var request = URLRequest(url: url)
@@ -133,7 +133,7 @@ final class LMStudioClient: ChatProvider {
         let path: String
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: path = "/v1/models"
-        case .cloudAPI, .openRouter: path = "/models"
+        case .cloudAPI, .openRouter, .nous: path = "/models"
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
         var request = URLRequest(url: url)
@@ -298,7 +298,7 @@ final class LMStudioClient: ChatProvider {
             let chatPath: String
             switch endpoint.kind {
             case .lmStudio, .llamaCpp, .oMLX, .exo: chatPath = "/v1/chat/completions"
-            case .cloudAPI, .openRouter: chatPath = "/chat/completions"
+            case .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
             case .ollama: chatPath = "/v1/chat/completions"
             }
             guard let url = URL(string: "\(endpoint.baseURL)\(chatPath)") else {

@@ -9,6 +9,7 @@ import SwiftData
 ///   shape as `llamaCpp` (host:port, OpenAI-compatible `/v1`); distinct only in label/port.
 /// - `cloudAPI`: any OpenAI-compatible cloud endpoint (user-supplied HTTPS base URL, bearer auth).
 /// - `openRouter`: hardcoded OpenRouter cloud endpoint — user supplies only the API key.
+/// - `nous`: hardcoded Nous Research inference endpoint — user supplies only the API key.
 ///
 /// `lmStudio`, `llamaCpp`, `oMLX`, `ollama`, and `exo` are *local* (self-hosted) — they run on
 /// hardware you control and can have a `modelo-tap` GPU agent next to them. Add new local
@@ -28,13 +29,15 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     case cloudAPI = "openRouter"
     /// Dedicated OpenRouter endpoint — fixed base URL, user supplies only the API key.
     case openRouter = "openRouterFixed"
+    /// Dedicated Nous Research endpoint — fixed base URL, user supplies only the API key.
+    case nous = "nousFixed"
 
     /// Self-hosted servers run on your own hardware (host:port, no auth) and may expose
-    /// a `modelo-tap` GPU agent. Cloud APIs (`cloudAPI`, `openRouter`) are managed endpoints that do not.
+    /// a `modelo-tap` GPU agent. Cloud APIs (`cloudAPI`, `openRouter`, `nous`) are managed endpoints that do not.
     var isLocal: Bool {
         switch self {
         case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: true
-        case .cloudAPI, .openRouter:                     false
+        case .cloudAPI, .openRouter, .nous:               false
         }
     }
 
@@ -48,6 +51,7 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
         case .exo:        return "exo"
         case .cloudAPI:   return "Cloud API"
         case .openRouter: return "OpenRouter"
+        case .nous:       return "Nous Research"
         }
     }
 
@@ -56,12 +60,21 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     /// kinds don't use host:port, so they report 0.
     var defaultPort: Int {
         switch self {
-        case .lmStudio:              return 1234
-        case .llamaCpp:              return 8080
-        case .oMLX:                  return 8000
-        case .ollama:                return 11434
-        case .exo:                   return 52415
-        case .cloudAPI, .openRouter: return 0
+        case .lmStudio:                    return 1234
+        case .llamaCpp:                    return 8080
+        case .oMLX:                        return 8000
+        case .ollama:                      return 11434
+        case .exo:                         return 52415
+        case .cloudAPI, .openRouter, .nous: return 0
+        }
+    }
+
+    /// True when the base URL is hardcoded and not user-configurable.
+    /// The URL field in Settings is hidden for these kinds.
+    var hasFixedURL: Bool {
+        switch self {
+        case .openRouter, .nous: return true
+        default:                 return false
         }
     }
 
@@ -87,6 +100,8 @@ struct Endpoint: Sendable, Equatable {
 extension Endpoint {
     /// Hardcoded base URL for the dedicated OpenRouter endpoint.
     static let openRouterBaseURL = "https://openrouter.ai/api/v1"
+    /// Hardcoded base URL for the dedicated Nous Research endpoint.
+    static let nousBaseURL = "https://inference-api.nousresearch.com/v1"
 
     /// Keychain account key for a server's bearer token (cloud APIs, the dedicated
     /// OpenRouter endpoint, or a local OpenAI-compatible server that requires auth, e.g. an MLX server).

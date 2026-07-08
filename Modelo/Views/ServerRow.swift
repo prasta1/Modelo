@@ -22,7 +22,7 @@ struct ServerRow: View {
     private var subtitle: String {
         if !server.connectionID.isEmpty { return server.connectionID }
         switch server.kind {
-        case .openRouter:
+        case .openRouter, .nous:
             return "via API"
         case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo:
             return isTailscaleHost(server.host) ? "via Tailscale" : "\(server.host):\(server.port)"
