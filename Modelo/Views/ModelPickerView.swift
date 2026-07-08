@@ -7,6 +7,95 @@ struct DiscoveredModel: Identifiable, Hashable {
     var id: String { "\(server.id)|\(model.id)" }
 }
 
+// MARK: - Sort
+
+/// User-selectable ordering for the model panes. Shared between the launcher grid
+/// and the switcher popover via a single @AppStorage key.
+enum ModelSort: String, CaseIterable, Identifiable {
+    case name, family, size, parameters
+
+    static let storageKey = "modelSortKey"
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .name:       "Name"
+        case .family:     "Family"
+        case .size:       "Size"
+        case .parameters: "Parameters"
+        }
+    }
+
+    /// Returns true when `a` should sort before `b`. Name/Family: ascending;
+    /// Size/Parameters: descending (largest first). Unknown values sort last.
+    func ascending(_ a: LMStudioModel, _ b: LMStudioModel) -> Bool {
+        switch self {
+        case .name:
+            return a.familyName.localizedCaseInsensitiveCompare(b.familyName) == .orderedAscending
+        case .family:
+            let fa = a.familyTag ?? "\u{10FFFF}"
+            let fb = b.familyTag ?? "\u{10FFFF}"
+            let cmp = fa.localizedCaseInsensitiveCompare(fb)
+            guard cmp == .orderedSame else { return cmp == .orderedAscending }
+            return a.familyName.localizedCaseInsensitiveCompare(b.familyName) == .orderedAscending
+        case .size:
+            switch (a.fileSizeBytes, b.fileSizeBytes) {
+            case (nil, _): return false
+            case (_, nil): return true
+            case let (sa?, sb?): return sa > sb
+            }
+        case .parameters:
+            switch (Self.paramBillions(a), Self.paramBillions(b)) {
+            case (nil, _): return false
+            case (_, nil): return true
+            case let (pa?, pb?): return pa > pb
+            }
+        }
+    }
+
+    /// "7B" → 7.0, nil when the id has no embedded param count.
+    private static func paramBillions(_ m: LMStudioModel) -> Double? {
+        guard let s = m.parameterSize else { return nil }
+        return Double(s.dropLast())
+    }
+}
+
+// MARK: - Sort menu
+
+/// Compact sort control shared by the launcher grid and the switcher popover.
+struct ModelSortMenu: View {
+    @Binding var sort: ModelSort
+
+    var body: some View {
+        Menu {
+            ForEach(ModelSort.allCases) { option in
+                Button { sort = option } label: {
+                    if sort == option {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 9, weight: .medium))
+                Text(sort.label)
+                    .font(Theme.label(9))
+                    .tracking(0.8)
+            }
+            .foregroundStyle(Theme.textDim)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Theme.fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+}
+
 /// Model switcher (handoff §8). The trigger is a compact model chip; tapping it
 /// raises a dark popover that groups models by server, shows each unit's specs,
 /// and marks the loaded / selected one.
@@ -116,16 +205,29 @@ private struct ModelPickerList: View {
     @State private var ejectingID: String?
     @State private var searchText = ""
     @State private var selectedServer: Server? = nil
+    @State private var freeOnly = false
+    @State private var loadedOnly = false
+    @State private var favoritesOnly = false
+    @AppStorage(ModelSort.storageKey) private var sortKey: ModelSort = .name
     @Environment(FavoritesStore.self) private var favorites
     @Environment(SettingsNavigator.self) private var settingsNavigator
     @Environment(\.dismiss) private var dismiss
 
     private var totalCount: Int { groups.reduce(0) { $0 + $1.models.count } }
 
+    /// True when the item should be shown given the current free-only toggle.
+    /// Local models always pass (they're free to run); cloud models must have isFree set.
+    private func passesFree(_ item: DiscoveredModel) -> Bool {
+        !freeOnly || item.server.kind.isLocal || item.model.isFree
+    }
+
     private var serverPillStrip: some View {
         HStack(spacing: 6) {
             FilterPill(label: "All", isActive: selectedServer == nil) {
                 selectedServer = nil
+            }
+            FilterPill(label: "free", isActive: freeOnly) {
+                freeOnly.toggle()
             }
             // Cap at 5 — server names tend to be longer than family tags.
             ForEach(Array(groups.prefix(5)), id: \.server.id) { group in
@@ -145,6 +247,8 @@ private struct ModelPickerList: View {
     var body: some View {
         VStack(spacing: 0) {
             searchField
+            Divider().overlay(Theme.line)
+            filterSortRow
             Divider().overlay(Theme.line)
             if groups.count > 1 {
                 serverPillStrip
@@ -217,21 +321,24 @@ private struct ModelPickerList: View {
         .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
     }
 
-    /// Favorited models matching the current search, loaded models floated first.
+    /// Favorited models matching the current search + filters, loaded models floated first.
     private var favoriteItems: [DiscoveredModel] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let allModels = groups.flatMap { $0.models }
         var favs = allModels.filter { favorites.isFavorite($0.model.id) }
         if let srv = selectedServer { favs = favs.filter { $0.server.id == srv.id } }
-        let filtered = query.isEmpty ? favs : favs.filter {
+        if loadedOnly { favs = favs.filter { $0.model.isLoaded } }
+        let filtered = (query.isEmpty ? favs : favs.filter {
             $0.model.familyName.localizedCaseInsensitiveContains(query)
                 || $0.model.id.localizedCaseInsensitiveContains(query)
-        }
-        // Sort loaded first, then deduplicate: one entry per model ID regardless of server.
-        // Without this, a model hosted on both Mac Studio and MacBook Pro would appear twice.
+        }).filter { passesFree($0) }
+        // Sort: loaded first, then by user sort key. Deduplicate by model ID across servers.
         var seen = Set<String>()
         return filtered
-            .sorted { $0.model.isLoaded && !$1.model.isLoaded }
+            .sorted { a, b in
+                if a.model.isLoaded != b.model.isLoaded { return a.model.isLoaded }
+                return sortKey.ascending(a.model, b.model)
+            }
             .filter { seen.insert($0.model.id).inserted }
     }
 
@@ -333,14 +440,35 @@ private struct ModelPickerList: View {
         .background(Color.white.opacity(0.012))
     }
 
+    private var filterSortRow: some View {
+        HStack(spacing: 6) {
+            FilterPill(label: "Loaded", isActive: loadedOnly) { loadedOnly.toggle() }
+            FilterPill(label: "Favorites", isActive: favoritesOnly) { favoritesOnly.toggle() }
+            Spacer(minLength: 0)
+            ModelSortMenu(sort: $sortKey)
+        }
+        .padding(.horizontal, 13)
+        .frame(height: 34)
+    }
+
     /// Local servers list in full; cloud catalogs stay behind search
     /// so hundreds of remote models don't dump into the popover unfiltered.
-    /// Within each group, loaded models float to the top.
+    /// Within each group, loaded models float to the top, then sorted by sortKey.
     private var displayGroups: [(server: Server, models: [DiscoveredModel])] {
+        // When favoritesOnly is on, the favorites section shows everything; hide server groups.
+        if favoritesOnly { return [] }
+
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        func floatLoaded(_ models: [DiscoveredModel]) -> [DiscoveredModel] {
-            models.sorted { $0.model.isLoaded && !$1.model.isLoaded }
+        func sortAndFloat(_ models: [DiscoveredModel]) -> [DiscoveredModel] {
+            models.sorted { a, b in
+                if a.model.isLoaded != b.model.isLoaded { return a.model.isLoaded }
+                return sortKey.ascending(a.model, b.model)
+            }
+        }
+
+        func applyFilters(_ models: [DiscoveredModel]) -> [DiscoveredModel] {
+            models.filter { passesFree($0) && (!loadedOnly || $0.model.isLoaded) }
         }
 
         func matchesServer(_ group: (server: Server, models: [DiscoveredModel])) -> Bool {
@@ -350,21 +478,22 @@ private struct ModelPickerList: View {
 
         guard !query.isEmpty else {
             return groups
-                // When a specific server is selected, show its models even if it's a cloud server.
-                .filter { selectedServer != nil || $0.server.kind != .cloudAPI }
+                // When a specific server is selected or free filter is on, show cloud groups too.
+                .filter { selectedServer != nil || freeOnly || $0.server.kind != .cloudAPI }
                 .filter { matchesServer($0) }
                 .compactMap { group in
-                    return (group.server, floatLoaded(group.models))
+                    let visible = sortAndFloat(applyFilters(group.models))
+                    return visible.isEmpty ? nil : (group.server, visible)
                 }
         }
         return groups
             .filter { matchesServer($0) }
             .compactMap { group in
-                let matched = group.models.filter {
+                let matched = applyFilters(group.models.filter {
                     $0.model.familyName.localizedCaseInsensitiveContains(query)
                         || $0.model.id.localizedCaseInsensitiveContains(query)
-                }
-                return matched.isEmpty ? nil : (group.server, floatLoaded(matched))
+                })
+                return matched.isEmpty ? nil : (group.server, sortAndFloat(matched))
             }
     }
 
@@ -376,6 +505,8 @@ private struct ModelPickerList: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && cloudModelCount > 0
             && selectedServer == nil
+            && !freeOnly
+            && !favoritesOnly
     }
 }
 

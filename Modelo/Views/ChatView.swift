@@ -1148,6 +1148,7 @@ struct ChatView: View {
         }
         // Include tools from any connected MCP servers.
         tools += mcpManager.availableTools
+        tools.append(CurrentTimeTool())
         // First-party filesystem/shell tools. A project-scoped conversation (started from
         // the Projects sidebar) confines them to that project directory; otherwise they're
         // opt-in and confined to the user's chosen global workspace.

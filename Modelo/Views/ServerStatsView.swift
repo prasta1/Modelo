@@ -214,23 +214,29 @@ private struct ServerStatsDashboardPanel: View {
 
     @ViewBuilder
     private var statusBadge: some View {
-        switch status {
-        case .online:
-            Text("LIVE")
-                .font(.mono(9)).tracking(1)
-                .foregroundStyle(Theme.green)
-        case .offline:
-            Text("OFFLINE")
+        if server.isPaused {
+            Text("PAUSED")
                 .font(.mono(9)).tracking(1)
                 .foregroundStyle(Theme.textDim)
-        case .unknown:
-            Text("PROBING")
-                .font(.mono(9)).tracking(1)
-                .foregroundStyle(Theme.textDim)
-        case .needsKey:
-            Text("NO KEY")
-                .font(.mono(9)).tracking(1)
-                .foregroundStyle(Theme.textDim)
+        } else {
+            switch status {
+            case .online:
+                Text("LIVE")
+                    .font(.mono(9)).tracking(1)
+                    .foregroundStyle(Theme.green)
+            case .offline:
+                Text("OFFLINE")
+                    .font(.mono(9)).tracking(1)
+                    .foregroundStyle(Theme.textDim)
+            case .unknown:
+                Text("PROBING")
+                    .font(.mono(9)).tracking(1)
+                    .foregroundStyle(Theme.textDim)
+            case .needsKey:
+                Text("NO KEY")
+                    .font(.mono(9)).tracking(1)
+                    .foregroundStyle(Theme.textDim)
+            }
         }
     }
 

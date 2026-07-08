@@ -815,6 +815,8 @@ private struct ServerSettingsRow: View {
                 }
                 Spacer(minLength: 8)
                 runtimePicker
+                PillToggle(isOn: Binding(get: { !server.isPaused }, set: { server.isPaused = !$0 }))
+                    .help(server.isPaused ? "Resume: show this server's models in the picker" : "Pause: hide this server's models from the picker")
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
@@ -1311,7 +1313,9 @@ private struct CloudServerSettingsRow: View {
                         .truncationMode(.middle)
                 }
                 Spacer(minLength: 8)
-                Chip(text: server.kind.displayName.lowercased())
+                Chip(text: server.kind.displayName.lowercased(), tint: Theme.amber)
+                PillToggle(isOn: Binding(get: { !server.isPaused }, set: { server.isPaused = !$0 }))
+                    .help(server.isPaused ? "Resume: show this endpoint's models in the picker" : "Pause: hide this endpoint's models from the picker")
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))

@@ -193,10 +193,11 @@ struct ContentView: View {
             }
         }
         .task(id: serverDiscoveryKey) {
-            gpuMonitor.start(servers: servers)   // pick up agent-URL / macmon changes
+            let activeServers = servers.filter { !$0.isPaused }
+            gpuMonitor.start(servers: activeServers)   // pick up agent-URL / macmon changes
             // Restart load-state polling too, so switching a server to exo (or adding one)
             // at runtime begins populating its loaded-model snapshot without an app relaunch.
-            monitor.start(servers: servers, registry: registry)
+            monitor.start(servers: activeServers, registry: registry)
             await refreshModels()
         }
         .onAppear { restoreRoute(); consumePendingSettings(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground() }
@@ -473,7 +474,7 @@ struct ContentView: View {
     /// Re-discover when a server is added/edited/removed (or comes online), not just
     /// when the online set changes — so a newly-configured server's models appear.
     private var serverDiscoveryKey: String {
-        servers.map { "\($0.id)|\($0.host)|\($0.port)|\($0.kindRaw)|\(registry.isOnline($0))|\($0.metricsAgentURL ?? "")|\($0.localGPU)" }
+        servers.map { "\($0.id)|\($0.host)|\($0.port)|\($0.kindRaw)|\(registry.isOnline($0))|\($0.metricsAgentURL ?? "")|\($0.localGPU)|\($0.isPaused)" }
             .joined(separator: ",")
     }
 
@@ -524,11 +525,13 @@ struct ContentView: View {
     }
 
     private func refreshModels() async {
-        // Query every server, not just ones the reachability monitor has already
+        // Query every non-paused server, not just ones the reachability monitor has already
         // flagged online — a freshly-added/edited server (or one that came up after
         // launch) is "unknown" until its next probe, and we shouldn't hide its models
         // in the meantime. fetchModels fails fast for genuinely-offline servers.
-        let targets = servers.map { (server: $0, endpoint: Endpoint(server: $0, keychain: keychain)) }
+        let targets = servers
+            .filter { !$0.isPaused }
+            .map { (server: $0, endpoint: Endpoint(server: $0, keychain: keychain)) }
 
         var modelsByIndex: [Int: [LMStudioModel]] = [:]
         await withTaskGroup(of: (Int, [LMStudioModel]).self) { group in

@@ -28,6 +28,10 @@ final class Server {
     /// `macmon` tool and show it on the Status/inspector tiles (§2.2). Mutually
     /// alternative to `metricsAgentURL` (which is for a remote NVIDIA box).
     var localGPU: Bool = false
+    /// When true, the server's models are hidden from the chat picker and all background
+    /// monitoring (reachability, loaded-model polling, GPU/Prometheus) is suspended.
+    /// Settings and historical stats are preserved; toggle off to resume normal operation.
+    var isPaused: Bool = false
     /// User-supplied subtitle shown under the server name in the sidebar. Empty means auto-detect.
     var connectionID: String = ""
 

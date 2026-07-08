@@ -291,7 +291,7 @@ struct MenuBarChatView: View {
     }
 
     private func fetchModels() async {
-        let targets = servers.filter { registry.isOnline($0) }
+        let targets = servers.filter { registry.isOnline($0) && !$0.isPaused }
             .map { (server: $0, endpoint: Endpoint(server: $0, keychain: keychain)) }
 
         var result: [DiscoveredModel] = []

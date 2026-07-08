@@ -234,7 +234,8 @@ struct ModeloApp: App {
     }
 
     @MainActor private func startMonitoring() async {
-        let servers = (try? ModelContext(container).fetch(FetchDescriptor<Server>())) ?? []
+        let all = (try? ModelContext(container).fetch(FetchDescriptor<Server>())) ?? []
+        let servers = all.filter { !$0.isPaused }
         reachabilityMonitor.start(servers: servers)
         serverMonitor.start(servers: servers, registry: registry)
         gpuMonitor.start(servers: servers)

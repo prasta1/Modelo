@@ -43,16 +43,21 @@ struct ServerRow: View {
                     .foregroundStyle(Theme.Palette.inkFaint)
             }
             Spacer(minLength: 0)
-            if isEndpointActive {
+            if server.isPaused {
+                Text("PAUSED")
+                    .font(Theme.metric(8))
+                    .tracking(0.5)
+                    .foregroundStyle(Theme.Palette.inkFaint)
+            } else if isEndpointActive {
                 Image(systemName: "arrow.right.circle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.Palette.signal.opacity(0.7))
             }
         }
         .padding(.vertical, 2)
-        .opacity(status == .offline ? 0.5 : 1)
+        .opacity(status == .offline || server.isPaused ? 0.5 : 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(server.label), \(statusLabel)")
+        .accessibilityLabel("\(server.label), \(server.isPaused ? "paused" : statusLabel)")
     }
 
     /// Returns true if the host looks like a Tailscale address —

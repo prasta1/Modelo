@@ -16,11 +16,12 @@ struct LauncherView: View {
 
     @State private var isRefreshing = false
     @State private var activeFilters: Set<String> = ["free"]
+    @AppStorage(ModelSort.storageKey) private var sortKey: ModelSort = .name
     @Environment(ServerRegistry.self) private var registry
     @Environment(FavoritesStore.self) private var favorites
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
-    /// Models after capability filters, with favorites sorted to the top.
+    /// Models after capability filters, with favorites sorted to the top then sorted by sortKey.
     /// When `endpointFilter` is set, shows only that server's models; otherwise
     /// shows all servers' models.
     private var filteredModels: [DiscoveredModel] {
@@ -32,9 +33,15 @@ struct LauncherView: View {
             if activeFilters.contains("vision") && !m.supportsVision   { return false }
             if activeFilters.contains("tools")  && !m.supportsToolUse  { return false }
             if activeFilters.contains("reason") && !m.supportsThinking { return false }
+            if activeFilters.contains("loaded") && !m.isLoaded         { return false }
+            if activeFilters.contains("favs") && !favorites.isFavorite(m.id) { return false }
             return true
         }
-        return filtered.sorted { favorites.isFavorite($0.model.id) && !favorites.isFavorite($1.model.id) }
+        return filtered.sorted { a, b in
+            let af = favorites.isFavorite(a.model.id), bf = favorites.isFavorite(b.model.id)
+            if af != bf { return af }
+            return sortKey.ascending(a.model, b.model)
+        }
     }
 
     /// The endpoint currently in view, if the user has filtered to one.
@@ -211,6 +218,14 @@ struct LauncherView: View {
             CapabilityFilterChip(label: "Reason", key: "reason",
                                  tint: Theme.purple,
                                  active: activeFilters.contains("reason")) { toggle("reason") }
+            CapabilityFilterChip(label: "Loaded", key: "loaded",
+                                 tint: Theme.green,
+                                 active: activeFilters.contains("loaded")) { toggle("loaded") }
+            CapabilityFilterChip(label: "Favs",   key: "favs",
+                                 tint: Theme.amber,
+                                 active: activeFilters.contains("favs"))   { toggle("favs") }
+            Spacer(minLength: 0)
+            ModelSortMenu(sort: $sortKey)
         }
     }
 
