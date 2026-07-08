@@ -209,6 +209,7 @@ private struct ServerStatsDashboardPanel: View {
         case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: return "\(server.host):\(server.port)"
         case .cloudAPI:   return URL(string: server.host)?.host ?? server.host
         case .openRouter: return "openrouter.ai"
+        case .nous:       return "inference-api.nousresearch.com"
         }
     }
 

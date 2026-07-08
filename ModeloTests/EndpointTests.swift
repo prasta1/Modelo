@@ -30,6 +30,19 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(ServerKind.openRouter.rawValue, "openRouterFixed")
     }
 
+    func test_serverKind_nous_rawValueAndProperties() {
+        XCTAssertEqual(ServerKind.nous.rawValue, "nousFixed")
+        XCTAssertEqual(ServerKind.nous.displayName, "Nous Research")
+        XCTAssertFalse(ServerKind.nous.isLocal)
+        XCTAssertTrue(ServerKind.nous.hasFixedURL)
+    }
+
+    func test_baseURL_nous_isHardcoded() {
+        let s = Server(label: "Nous", host: "", port: 0, kind: .nous)
+        XCTAssertEqual(s.baseURL, Endpoint.nousBaseURL)
+        XCTAssertEqual(s.baseURL, "https://inference-api.nousresearch.com/v1")
+    }
+
     func test_serverKind_localCases_areTheLocalRuntimes() {
         XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .oMLX, .ollama, .exo])
         XCTAssertTrue(ServerKind.oMLX.isLocal)
