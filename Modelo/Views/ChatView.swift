@@ -1155,14 +1155,9 @@ struct ChatView: View {
         panel.message = "Text, code, PDF, CSV, JSON, notebooks…"
         guard panel.runModal() == .OK else { return }
 
-        let binaryExtensions: Set<String> = [
-            "parquet", "pkl", "arrow", "xlsx", "docx", "pptx",
-            "zip", "gz", "tar", "bin", "exe", "dmg", "mp4", "mov"
-        ]
-
         for url in panel.urls {
             let ext = url.pathExtension.lowercased()
-            if binaryExtensions.contains(ext) {
+            if Self.binaryAttachmentExtensions.contains(ext) {
                 flash(".\(ext) files cannot be attached — binary format not supported.")
                 continue
             }
@@ -1515,6 +1510,14 @@ private struct SlashSuggestionRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
     }
+}
+
+
+private extension ChatView {
+    static let binaryAttachmentExtensions: Set<String> = [
+        "parquet", "pkl", "arrow", "xlsx", "docx", "pptx",
+        "zip", "gz", "tar", "bin", "exe", "dmg", "mp4", "mov"
+    ]
 }
 
 /// Confirmation card for a mutating file/shell tool call. Shows what the model wants
