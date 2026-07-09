@@ -33,7 +33,9 @@ struct FileTextExtractorTests {
 
         let result = try #require(FileTextExtractor.extract(url: url))
         #expect(result.contains("[… truncated"))
-        #expect(result.count < long.count)
+        // Verify the prefix is exactly maxCharacters of 'a' before the truncation banner.
+        let prefix = String(result.prefix(FileTextExtractor.maxCharacters))
+        #expect(prefix == String(repeating: "a", count: FileTextExtractor.maxCharacters))
     }
 
     @Test("does not truncate text within maxCharacters")
@@ -68,6 +70,23 @@ struct FileTextExtractorTests {
         #expect(result.contains("import pandas as pd"))
     }
 
+    @Test("extracts notebook cell with string source field")
+    func extractsNotebookWithStringSource() throws {
+        let notebook = """
+        {
+          "cells": [
+            {"cell_type": "code", "source": "import os"}
+          ]
+        }
+        """
+        let url = try writeTempFile(name: "string-source.ipynb", content: notebook)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let result = try #require(FileTextExtractor.extract(url: url))
+        #expect(result.contains("import os"))
+        #expect(result.contains("```python"))
+    }
+
     @Test("returns nil for malformed .ipynb")
     func returnsNilForBadNotebook() throws {
         let url = try writeTempFile(name: "bad.ipynb", content: "not json at all {{{")
@@ -79,7 +98,8 @@ struct FileTextExtractorTests {
     // MARK: Helpers
 
     private func writeTempFile(name: String, content: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        let unique = "\(UUID().uuidString)-\(name)"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(unique)
         try content.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
