@@ -14,6 +14,9 @@ struct MessageAttachment: Codable, Sendable, Identifiable {
     let mimeType: String
     let fileName: String
 
+    /// True for `image/*` MIME types (vision path); false for all text files (inline path).
+    var isImage: Bool { mimeType.hasPrefix("image/") }
+
     init(data: Data, mimeType: String, fileName: String) {
         self.id = UUID()
         self.data = data
