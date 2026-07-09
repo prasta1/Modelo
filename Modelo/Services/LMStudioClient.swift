@@ -240,7 +240,8 @@ final class LMStudioClient: ChatProvider {
                     // Text file attachments come first, each as a labeled fenced block.
                     for att in textAtts {
                         let text = String(data: att.data, encoding: .utf8) ?? ""
-                        blocks.append(.text("<file name=\"\(att.fileName)\">\n\(text)\n</file>"))
+                        let safeName = att.fileName.replacingOccurrences(of: "\"", with: "\\\"")
+                        blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
                     }
                     // User's typed message (may be empty if they attached without typing).
                     if !m.content.isEmpty { blocks.append(.text(m.content)) }
