@@ -229,12 +229,22 @@ final class LMStudioClient: ChatProvider {
             case .system:
                 continue
             case .user:
-                let imageAtts = m.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
-                if imageAtts.isEmpty {
+                let allAtts = m.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
+                let imageAtts = allAtts.filter { $0.isImage }
+                let textAtts  = allAtts.filter { !$0.isImage }
+
+                if allAtts.isEmpty {
                     if !m.content.isEmpty { wire.append(WireMessage(role: "user", content: m.content)) }
                 } else {
                     var blocks: [WireContentBlock] = []
+                    // Text file attachments come first, each as a labeled fenced block.
+                    for att in textAtts {
+                        let text = String(data: att.data, encoding: .utf8) ?? ""
+                        blocks.append(.text("<file name=\"\(att.fileName)\">\n\(text)\n</file>"))
+                    }
+                    // User's typed message (may be empty if they attached without typing).
                     if !m.content.isEmpty { blocks.append(.text(m.content)) }
+                    // Image attachments last (vision models only).
                     for att in imageAtts { blocks.append(.imageURL(att.dataURL)) }
                     wire.append(WireMessage(role: "user", blocks: blocks))
                 }
