@@ -239,7 +239,7 @@ final class LMStudioClient: ChatProvider {
                     var blocks: [WireContentBlock] = []
                     // Text file attachments come first, each as a labeled fenced block.
                     for att in textAtts {
-                        let text = String(data: att.data, encoding: .utf8) ?? ""
+                        let text = String(data: att.data, encoding: .utf8) ?? "[unreadable]"
                         let safeName = att.fileName.replacingOccurrences(of: "\"", with: "\\\"")
                         blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
                     }

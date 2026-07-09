@@ -1229,8 +1229,8 @@ struct ChatView: View {
         case "sh", "bash", "zsh":                               return "terminal"
         case "log":                                              return "list.bullet.rectangle"
         case "patch", "diff":                                    return "arrow.left.arrow.right"
-        case "py", "js", "ts", "swift", "go", "rs",
-             "java", "kt", "c", "cpp", "h", "rb", "cs", "php": return "chevron.left.forwardslash.chevron.right"
+        case "py", "js", "ts", "jsx", "tsx", "swift", "go", "rs",
+             "java", "kt", "c", "cpp", "cc", "cxx", "h", "hpp", "rb", "cs", "php": return "chevron.left.forwardslash.chevron.right"
         default:                                                 return "doc"
         }
     }
