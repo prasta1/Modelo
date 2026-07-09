@@ -1049,14 +1049,32 @@ struct ChatView: View {
             HStack(spacing: 8) {
                 ForEach(pendingAttachments) { att in
                     ZStack(alignment: .topTrailing) {
-                        if let img = NSImage(data: att.data) {
-                            Image(nsImage: img)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 56, height: 56)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.stroke, lineWidth: 0.5))
+                        if att.isImage {
+                            if let img = NSImage(data: att.data) {
+                                Image(nsImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 56, height: 56)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.stroke, lineWidth: 0.5))
+                            }
+                        } else {
+                            VStack(spacing: 4) {
+                                Image(systemName: fileSystemImage(for: att.fileName))
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(Theme.amber)
+                                Text(att.fileName)
+                                    .font(.mono(9))
+                                    .foregroundStyle(Theme.textMid)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: 68)
+                            }
+                            .frame(width: 72, height: 56)
+                            .background(Theme.fill, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.stroke, lineWidth: 0.5))
                         }
+
                         Button {
                             pendingAttachments.removeAll { $0.id == att.id }
                         } label: {
@@ -1195,6 +1213,25 @@ struct ChatView: View {
         case "sql":                                return "application/sql"
         case "sh", "bash", "zsh":                 return "application/x-sh"
         default:                                   return "text/plain"
+        }
+    }
+
+    /// Maps a file extension to an SF Symbol name for the attachment chip icon.
+    private func fileSystemImage(for fileName: String) -> String {
+        let ext = URL(fileURLWithPath: fileName).pathExtension.lowercased()
+        switch ext {
+        case "pdf":                                              return "doc.richtext"
+        case "csv", "tsv":                                       return "tablecells"
+        case "json", "jsonl", "ipynb":                           return "curlybraces"
+        case "md", "rst", "txt":                                 return "doc.text"
+        case "yaml", "yml", "toml", "env", "ini":               return "gear"
+        case "sql":                                              return "cylinder"
+        case "sh", "bash", "zsh":                               return "terminal"
+        case "log":                                              return "list.bullet.rectangle"
+        case "patch", "diff":                                    return "arrow.left.arrow.right"
+        case "py", "js", "ts", "swift", "go", "rs",
+             "java", "kt", "c", "cpp", "h", "rb", "cs", "php": return "chevron.left.forwardslash.chevron.right"
+        default:                                                 return "doc"
         }
     }
 
