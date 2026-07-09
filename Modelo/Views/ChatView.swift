@@ -978,6 +978,7 @@ struct ChatView: View {
                 attachmentStrip
             }
             HStack(alignment: .bottom, spacing: 10) {
+                attachFileButton
                 if pickedModel?.model.supportsVision == true {
                     attachButton
                 }
@@ -1088,6 +1089,17 @@ struct ChatView: View {
         .help("Attach images (vision model)")
     }
 
+    private var attachFileButton: some View {
+        Button(action: pickFiles) {
+            Image(systemName: "paperclip")
+                .font(.system(size: 16))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain)
+        .help("Attach a file — text, code, PDF, CSV, JSON, notebooks…")
+    }
+
     // MARK: Image picking and drop handling
 
     private func pickImages() {
@@ -1130,6 +1142,64 @@ struct ChatView: View {
         case "webp":        return "image/webp"
         case "heif", "heic": return "image/heif"
         default:            return "image/jpeg"
+        }
+    }
+
+    private func pickFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowsOtherFileTypes = true
+        panel.allowedContentTypes = []
+        panel.title = "Attach a file"
+        panel.message = "Text, code, PDF, CSV, JSON, notebooks…"
+        guard panel.runModal() == .OK else { return }
+
+        let binaryExtensions: Set<String> = [
+            "parquet", "pkl", "arrow", "xlsx", "docx", "pptx",
+            "zip", "gz", "tar", "bin", "exe", "dmg", "mp4", "mov"
+        ]
+
+        for url in panel.urls {
+            let ext = url.pathExtension.lowercased()
+            if binaryExtensions.contains(ext) {
+                flash(".\(ext) files cannot be attached — binary format not supported.")
+                continue
+            }
+            guard let content = FileTextExtractor.extract(url: url) else {
+                flash("Could not read \(url.lastPathComponent).")
+                continue
+            }
+            pendingAttachments.append(MessageAttachment(
+                data: Data(content.utf8),
+                mimeType: textMimeType(for: url),
+                fileName: url.lastPathComponent
+            ))
+        }
+    }
+
+    private func textMimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf":                                return "application/pdf"
+        case "json", "jsonl", "ipynb":             return "application/json"
+        case "csv", "tsv":                         return "text/csv"
+        case "yaml", "yml":                        return "application/yaml"
+        case "xml":                                return "application/xml"
+        case "md", "rst":                          return "text/markdown"
+        case "html":                               return "text/html"
+        case "py":                                 return "text/x-python"
+        case "js", "ts", "jsx", "tsx":            return "text/javascript"
+        case "swift":                              return "text/x-swift"
+        case "go":                                 return "text/x-go"
+        case "rs":                                 return "text/x-rust"
+        case "java", "kt":                         return "text/x-java"
+        case "c", "cpp", "cc", "cxx", "h", "hpp": return "text/x-c"
+        case "rb":                                 return "text/x-ruby"
+        case "cs":                                 return "text/x-csharp"
+        case "php":                                return "text/x-php"
+        case "sql":                                return "application/sql"
+        case "sh", "bash", "zsh":                 return "application/x-sh"
+        default:                                   return "text/plain"
         }
     }
 
