@@ -22,3 +22,4 @@ modelo-tap/Cargo.lock
 # Xcode build output
 /build/
 /build-release/
+.worktrees/
