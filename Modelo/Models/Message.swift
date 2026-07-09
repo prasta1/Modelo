@@ -62,7 +62,7 @@ final class Message {
     var toolCallID: String?
     /// On a `.tool` result message: the tool's name (for the card label).
     var toolName: String?
-    /// On a `.user` message: JSON-encoded `[MessageAttachment]` for image attachments.
+    /// On a `.user` message: JSON-encoded `[MessageAttachment]` for image and file attachments.
     var attachmentsJSON: String?
 
     // MARK: Branching tree (§1.2)
