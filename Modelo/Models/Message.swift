@@ -14,6 +14,9 @@ struct MessageAttachment: Codable, Sendable, Identifiable {
     let mimeType: String
     let fileName: String
 
+    /// True for `image/*` MIME types (vision path); false for all text files (inline path).
+    var isImage: Bool { mimeType.hasPrefix("image/") }
+
     init(data: Data, mimeType: String, fileName: String) {
         self.id = UUID()
         self.data = data
@@ -59,7 +62,7 @@ final class Message {
     var toolCallID: String?
     /// On a `.tool` result message: the tool's name (for the card label).
     var toolName: String?
-    /// On a `.user` message: JSON-encoded `[MessageAttachment]` for image attachments.
+    /// On a `.user` message: JSON-encoded `[MessageAttachment]` for image and file attachments.
     var attachmentsJSON: String?
 
     // MARK: Branching tree (§1.2)

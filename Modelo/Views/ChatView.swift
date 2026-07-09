@@ -978,6 +978,7 @@ struct ChatView: View {
                 attachmentStrip
             }
             HStack(alignment: .bottom, spacing: 10) {
+                attachFileButton
                 if pickedModel?.model.supportsVision == true {
                     attachButton
                 }
@@ -1048,14 +1049,32 @@ struct ChatView: View {
             HStack(spacing: 8) {
                 ForEach(pendingAttachments) { att in
                     ZStack(alignment: .topTrailing) {
-                        if let img = NSImage(data: att.data) {
-                            Image(nsImage: img)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 56, height: 56)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.stroke, lineWidth: 0.5))
+                        if att.isImage {
+                            if let img = NSImage(data: att.data) {
+                                Image(nsImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 56, height: 56)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.stroke, lineWidth: 0.5))
+                            }
+                        } else {
+                            VStack(spacing: 4) {
+                                Image(systemName: fileSystemImage(for: att.fileName))
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(Theme.amber)
+                                Text(att.fileName)
+                                    .font(.mono(9))
+                                    .foregroundStyle(Theme.textMid)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: 68)
+                            }
+                            .frame(width: 72, height: 56)
+                            .background(Theme.fill, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.Palette.stroke, lineWidth: 0.5))
                         }
+
                         Button {
                             pendingAttachments.removeAll { $0.id == att.id }
                         } label: {
@@ -1086,6 +1105,17 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Attach images (vision model)")
+    }
+
+    private var attachFileButton: some View {
+        Button(action: pickFiles) {
+            Image(systemName: "paperclip")
+                .font(.system(size: 16))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain)
+        .help("Attach a file — text, code, PDF, CSV, JSON, notebooks…")
     }
 
     // MARK: Image picking and drop handling
@@ -1130,6 +1160,78 @@ struct ChatView: View {
         case "webp":        return "image/webp"
         case "heif", "heic": return "image/heif"
         default:            return "image/jpeg"
+        }
+    }
+
+    private func pickFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowsOtherFileTypes = true
+        panel.allowedContentTypes = []
+        panel.title = "Attach a file"
+        panel.message = "Text, code, PDF, CSV, JSON, notebooks…"
+        guard panel.runModal() == .OK else { return }
+
+        for url in panel.urls {
+            let ext = url.pathExtension.lowercased()
+            if Self.binaryAttachmentExtensions.contains(ext) {
+                flash(".\(ext) files cannot be attached — binary format not supported.")
+                continue
+            }
+            guard let content = FileTextExtractor.extract(url: url) else {
+                flash("Could not read \(url.lastPathComponent).")
+                continue
+            }
+            pendingAttachments.append(MessageAttachment(
+                data: Data(content.utf8),
+                mimeType: textMimeType(for: url),
+                fileName: url.lastPathComponent
+            ))
+        }
+    }
+
+    private func textMimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf":                                return "application/pdf"
+        case "json", "jsonl", "ipynb":             return "application/json"
+        case "csv", "tsv":                         return "text/csv"
+        case "yaml", "yml":                        return "application/yaml"
+        case "xml":                                return "application/xml"
+        case "md", "rst":                          return "text/markdown"
+        case "html":                               return "text/html"
+        case "py":                                 return "text/x-python"
+        case "js", "ts", "jsx", "tsx":            return "text/javascript"
+        case "swift":                              return "text/x-swift"
+        case "go":                                 return "text/x-go"
+        case "rs":                                 return "text/x-rust"
+        case "java", "kt":                         return "text/x-java"
+        case "c", "cpp", "cc", "cxx", "h", "hpp": return "text/x-c"
+        case "rb":                                 return "text/x-ruby"
+        case "cs":                                 return "text/x-csharp"
+        case "php":                                return "text/x-php"
+        case "sql":                                return "application/sql"
+        case "sh", "bash", "zsh":                 return "application/x-sh"
+        default:                                   return "text/plain"
+        }
+    }
+
+    /// Maps a file extension to an SF Symbol name for the attachment chip icon.
+    private func fileSystemImage(for fileName: String) -> String {
+        let ext = URL(fileURLWithPath: fileName).pathExtension.lowercased()
+        switch ext {
+        case "pdf":                                              return "doc.richtext"
+        case "csv", "tsv":                                       return "tablecells"
+        case "json", "jsonl", "ipynb":                           return "curlybraces"
+        case "md", "rst", "txt":                                 return "doc.text"
+        case "yaml", "yml", "toml", "env", "ini":               return "gear"
+        case "sql":                                              return "cylinder"
+        case "sh", "bash", "zsh":                               return "terminal"
+        case "log":                                              return "list.bullet.rectangle"
+        case "patch", "diff":                                    return "arrow.left.arrow.right"
+        case "py", "js", "ts", "jsx", "tsx", "swift", "go", "rs",
+             "java", "kt", "c", "cpp", "cc", "cxx", "h", "hpp", "rb", "cs", "php": return "chevron.left.forwardslash.chevron.right"
+        default:                                                 return "doc"
         }
     }
 
@@ -1445,6 +1547,14 @@ private struct SlashSuggestionRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
     }
+}
+
+
+private extension ChatView {
+    static let binaryAttachmentExtensions: Set<String> = [
+        "parquet", "pkl", "arrow", "xlsx", "docx", "pptx",
+        "zip", "gz", "tar", "bin", "exe", "dmg", "mp4", "mov"
+    ]
 }
 
 /// Confirmation card for a mutating file/shell tool call. Shows what the model wants
