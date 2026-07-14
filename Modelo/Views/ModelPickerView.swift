@@ -222,25 +222,26 @@ private struct ModelPickerList: View {
     }
 
     private var serverPillStrip: some View {
-        HStack(spacing: 6) {
-            FilterPill(label: "All", isActive: selectedServer == nil) {
-                selectedServer = nil
-            }
-            FilterPill(label: "free", isActive: freeOnly) {
-                freeOnly.toggle()
-            }
-            // Cap at 5 — server names tend to be longer than family tags.
-            ForEach(Array(groups.prefix(5)), id: \.server.id) { group in
-                FilterPill(
-                    label: group.server.label,
-                    isActive: selectedServer?.id == group.server.id
-                ) {
-                    selectedServer = selectedServer?.id == group.server.id ? nil : group.server
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                FilterPill(label: "All", isActive: selectedServer == nil) {
+                    selectedServer = nil
+                }
+                FilterPill(label: "free", isActive: freeOnly) {
+                    freeOnly.toggle()
+                }
+                ForEach(groups, id: \.server.id) { group in
+                    FilterPill(
+                        label: group.server.label,
+                        isActive: selectedServer?.id == group.server.id
+                    ) {
+                        selectedServer = selectedServer?.id == group.server.id ? nil : group.server
+                    }
                 }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 13)
         }
-        .padding(.horizontal, 13)
+        .scrollIndicators(.hidden)
         .frame(height: 34)
     }
 

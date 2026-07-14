@@ -107,7 +107,7 @@ struct LauncherView: View {
                     LauncherPill(label: "All", status: nil, isActive: endpointFilter == nil) {
                         endpointFilter = nil
                     }
-                    ForEach(servers) { server in
+                    ForEach(servers.filter { !$0.isPaused }) { server in
                         LauncherPill(label: server.label,
                                      status: registry.status(for: server),
                                      isActive: endpointFilter == server.id) {

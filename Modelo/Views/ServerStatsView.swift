@@ -6,6 +6,7 @@ import SwiftData
 /// derived from `UsageRecord` history, `ServerRegistry`, and `ServerMonitor`.
 struct ServerStatsView: View {
     @Binding var endpointFilter: UUID?
+    var onChat: ((DiscoveredModel) -> Void)? = nil
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
@@ -30,7 +31,8 @@ struct ServerStatsView: View {
                         server: server,
                         status: registry.status(for: server),
                         latency: registry.latency(for: server),
-                        snapshot: monitor.snapshot(for: server)
+                        snapshot: monitor.snapshot(for: server),
+                        onChat: onChat
                     )
                 } else {
                     noServersState
@@ -122,13 +124,16 @@ private struct ServerStatsDashboard: View {
     let status: ServerStatus
     let latency: Double?
     let snapshot: ModelSnapshot?
+    var onChat: ((DiscoveredModel) -> Void)? = nil
     @Query private var records: [UsageRecord]
 
-    init(server: Server, status: ServerStatus, latency: Double?, snapshot: ModelSnapshot?) {
+    init(server: Server, status: ServerStatus, latency: Double?, snapshot: ModelSnapshot?,
+         onChat: ((DiscoveredModel) -> Void)? = nil) {
         self.server = server
         self.status = status
         self.latency = latency
         self.snapshot = snapshot
+        self.onChat = onChat
         let label = server.label
         _records = Query(
             filter: #Predicate<UsageRecord> { $0.serverLabel == label },
@@ -143,7 +148,8 @@ private struct ServerStatsDashboard: View {
             status: status,
             latency: latency,
             snapshot: snapshot,
-            rollup: rollup
+            rollup: rollup,
+            onChat: onChat
         )
     }
 }
@@ -156,6 +162,7 @@ private struct ServerStatsDashboardPanel: View {
     let latency: Double?
     let snapshot: ModelSnapshot?
     let rollup: InferenceRollup
+    var onChat: ((DiscoveredModel) -> Void)? = nil
     @Environment(ReachabilityMonitor.self) private var reachabilityMonitor
 
     var body: some View {
@@ -315,7 +322,12 @@ private struct ServerStatsDashboardPanel: View {
             Eyebrow("Loaded Models")
             if let models = snapshot?.models, !models.isEmpty {
                 ForEach(models, id: \.id) { model in
-                    LoadedModelRow(model: model)
+                    LoadedModelRow(
+                        model: model,
+                        onChat: onChat == nil ? nil : {
+                            onChat?(DiscoveredModel(server: server, model: model))
+                        }
+                    )
                 }
             } else if server.kind.isLocal {
                 NoModelRow()

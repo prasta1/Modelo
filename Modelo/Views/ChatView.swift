@@ -73,6 +73,7 @@ struct ChatView: View {
     /// by the screenshot button to capture exactly what's on screen.
     @State private var snapshotProbe = SnapshotProbeView.Holder()
     @State private var pendingSnapshot: SnapshotItem?
+    @State private var errorCopied = false
 
     /// Identity key for this conversation's session/task in the shared store.
     private var convoID: PersistentIdentifier { conversation.persistentModelID }
@@ -180,9 +181,14 @@ struct ChatView: View {
         openArtifactID.flatMap { id in artifactGroups.first { $0.id == id } }
     }
 
-    /// Artifact panel width clamped so the chat never shrinks below `minChatWidth`.
+    /// Artifact panel width clamped so the chat never shrinks below `minChatWidth`
+    /// and the panel never exceeds 40% of the available detail column width.
     private var clampedArtifactWidth: Double {
-        min(max(artifactPanelWidth, 320), max(360, Double(detailWidth) - minChatWidth))
+        let upper = min(
+            Double(detailWidth) * 0.40,
+            max(360, Double(detailWidth) - minChatWidth)
+        )
+        return min(max(artifactPanelWidth, 320), max(320, upper))
     }
 
     var body: some View {
@@ -192,7 +198,7 @@ struct ChatView: View {
                 messageStream
                 footer
             }
-            .frame(maxWidth: .infinity)
+            .frame(minWidth: 0, maxWidth: .infinity)
             // Invisible; spans the chat column so the screenshot button knows
             // exactly which region of the window to capture.
             .background(SnapshotProbeView(holder: snapshotProbe))
@@ -692,19 +698,32 @@ struct ChatView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             if let error = session?.errorText {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Palette.alert)
-                    Text(error)
-                        .font(Theme.metric(11))
-                        .foregroundStyle(Theme.Palette.alert)
-                    Spacer(minLength: 0)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(error, forType: .string)
+                    errorCopied = true
+                    Task { try? await Task.sleep(for: .seconds(1.5)); errorCopied = false }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Palette.alert)
+                        Text(error)
+                            .font(Theme.metric(11))
+                            .foregroundStyle(Theme.Palette.alert)
+                        Spacer(minLength: 0)
+                        Image(systemName: errorCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10))
+                            .foregroundStyle(errorCopied ? Theme.green : Theme.Palette.alert.opacity(0.7))
+                            .animation(.easeOut(duration: 0.15), value: errorCopied)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Theme.Palette.alert.opacity(0.10))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity)
-                .background(Theme.Palette.alert.opacity(0.10))
+                .buttonStyle(.plain)
+                .help("Click to copy error")
             }
 
             // Standing cue that this chat runs tools unattended (YOLO mode).

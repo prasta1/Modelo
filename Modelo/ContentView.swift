@@ -231,7 +231,8 @@ struct ContentView: View {
         case .personas:
             PersonasManagerView()
         case .status:
-            ServerStatsView(endpointFilter: $endpointFilter)
+            ServerStatsView(endpointFilter: $endpointFilter,
+                            onChat: { item in Task { await launch(model: item) } })
         case .reports:
             ReportingView()
         case .settings:
