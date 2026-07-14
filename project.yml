@@ -57,6 +57,11 @@ targets:
         MARKETING_VERSION: "0.2.4"
         CURRENT_PROJECT_VERSION: "1"
         ENABLE_HARDENED_RUNTIME: YES
+        # Keychain access group → forces an embedded provisioning profile with
+        # com.apple.application-identifier, required for the data-protection
+        # keychain (see Modelo.entitlements). Without it, KeychainStore falls back
+        # to the legacy login keychain and macOS prompts for a password per build.
+        CODE_SIGN_ENTITLEMENTS: Modelo/Modelo.entitlements
         SWIFT_VERSION: "5.0"
   ModeloTests:
     type: bundle.unit-test

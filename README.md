@@ -15,12 +15,14 @@ Connects to **LM Studio**, **Ollama**, **llama.cpp**, and **oMLX** over your loc
 - **Tools & agents** — opt-in first-party filesystem + shell tools, MCP servers, `~/.agents` skills, with reliability tuned for local models — see [below](#tools--agents)
 - **Multi-backend model picker** — per-server tabs in the launcher; groups by LM Studio, Ollama, llama.cpp, oMLX, and cloud; per-model load state (selected / loaded / idle / cloud); Models page shows every server Status-style for a full fleet overview
 - **Endpoints** — quick-setup hints guide you through adding a new server, workspace binding scopes file-tool access per endpoint, connectivity LED on each row shows reachability at a glance, and an Advanced section collapses rarely-touched options
+- **Memory** — opt-in persistent memory across conversations: the model saves and recalls named notes (`save_memory` / `read_memory`) stored as hand-editable Markdown under `~/.modelo/memory`, with global and per-project scopes; manage entries in **Settings ▸ Memory** or per project — off by default
+- **Projects** — attach local directories as sidebar projects with project-scoped chats, filesystem tools, and memory
 - **Server Status** — live latency, throughput, and request sparklines with a streaming console
 - **Reports** — throughput and TTFT charts (Swift Charts), sortable per-model and per-server usage tables, and configurable usage retention
 - **Notifications** — foreground banners appear when a reply finishes while you're in another app; tapping one deep-links straight into the relevant chat
-- **Themes** — Dark (default), Light, and Catppuccin Latte / Frappé / Macchiato / Mocha, switchable live in Settings ▸ Appearance
-- **Settings** — master-detail layout for presets/personas; icon picker for custom persona icons; tab-selection persists across launches; LM Studio, Ollama, and cloud API endpoints; filesystem/shell tools; Firecrawl key; MCP servers
-- **Personas** — system prompt presets with icons and taglines
+- **Themes** — Dark (default), Light, Lager (light), Negra (dark), and Catppuccin Latte / Frappé / Macchiato / Mocha, switchable live in Settings ▸ Appearance
+- **Settings** — LM Studio endpoints; cloud endpoints via provider presets (OpenAI, Groq, OpenRouter, Together, DeepSeek, Mistral) or any custom OpenAI-compatible base URL; presets/personas with icon picker; filesystem/shell tools; memory; Firecrawl key; MCP servers
+- **Personas** — system prompt presets with icons and taglines, managed from their own sidebar section and applied per-chat from the composer
 - **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
 - **Menu bar mini chat** — quick-access popover from the menu bar
 
@@ -29,6 +31,7 @@ Connects to **LM Studio**, **Ollama**, **llama.cpp**, and **oMLX** over your loc
 Modelo gives models a layered tool stack, designed so that even small/quantized **local** models can find and use tools reliably:
 
 - **First-party filesystem & shell tools** — `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`. **Opt-in and off by default**: enable them in **Settings ▸ Tools** and pick a workspace folder (defaults to an auto-created `~/.modelo` sandbox) that all file access is confined to — path traversal is blocked. `bash` is behind its own separate toggle. Read-only tools run automatically; **writes, edits, and shell commands pause for an in-chat approval card** (Deny / Approve once / Approve for session) showing the content, diff, or command first.
+- **Approvals & limits** — a configurable max tool rounds per turn, and an opt-in **YOLO mode** (global or per-chat) that auto-approves mutating tool calls and lifts the round cap.
 - **MCP servers** — the standard way to add external/custom tools; managed in Settings.
 - **`~/.agents` skills** — the portable, cross-tool `~/.agents/skills/<name>/SKILL.md` convention (shared with other agents on the machine), surfaced via a `use_skill` tool.
 - **Local-model reliability** — a tolerant parser recovers tool calls a model emits as text (`<tool_call>…</tool_call>`, fenced JSON) when the server doesn't produce native `tool_calls`, and **progressive disclosure** shows only the most relevant tools per request plus a `find_tools` meta-tool, so a large tool set doesn't overwhelm the model.
@@ -77,32 +80,34 @@ Modelo/
 ├── Theme.swift / ThemePalette.swift  # design tokens + selectable theme palettes
 ├── Models/                      # SwiftData models
 │   ├── Conversation, Message, Server, LMStudioModel
-│   ├── Persona, Preset, Folder, UsageRecord
+│   ├── Persona, Preset, Folder, Project, UsageRecord
 │   ├── GPUSnapshot, ModelContextOverride
 ├── Services/                    # Core logic
 │   ├── ChatSession, ChatSessionStore, ChatProvider, ChatNotifier
 │   ├── LMStudioClient, SSELineParser, Endpoint, ReachabilityMonitor
-│   ├── ServerRegistry, ServerMonitor
+│   ├── ServerRegistry, ServerMonitor, NetworkScanner
 │   ├── ToolRegistry, Tool, ToolCallParser, ToolSelector, FilesystemTools
 │   ├── AgentsLoader, MCPClient, MCPServerManager, MCPServerConfig
+│   ├── MemoryStore, MemoryTools, ProjectStore, FavoritesStore
 │   ├── FirecrawlClient, FirecrawlTools
 │   ├── ArtifactParser, SlashParser, TokenEstimator
 │   ├── ConversationExporter, ConversationGrouping, BranchingMigration
 │   ├── UsageRecorder, UsageMath, UsageRetention, ReportCalculator, MetricsRollup
-│   ├── Benchmark
+│   ├── Benchmark, CrashReporter, Log
 │   ├── GPUMonitor, PrometheusMonitor, PrometheusScrape
 │   ├── OpenRouterCatalog, KeychainStore, Macmon
 ├── Resources/                   # bundled assets (e.g. mermaid.min.js for diagram previews)
 ├── Settings/                    # SettingsView, SamplingControls
 └── Views/                       # UI layers
     ├── SidebarView, ChatView, ModelPickerView, StatusView
+    ├── PersonasManagerView, MemoryManagerView, ProjectLandingView
     ├── ReportingView, BenchmarkView, LauncherView, ModelBrowserView
     ├── ArtifactPanel, ArtifactWebView
     ├── MenuBarChatView
     ├── MessageRow, ServerRow, LoadedModelRow
     ├── ConsoleInspector, ContextBar, ComposerField
     ├── MarkdownText, MetricStat
-    ├── ThroughputChart, TTFTChart
+    ├── ThroughputChart, TTFTChart, ServerStatsView
 
 modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the NVIDIA box)
 ```
@@ -110,3 +115,7 @@ modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the N
 ## Target
 
 macOS 14+, SwiftUI + Swift Charts + Observation framework. Dependencies (SPM): [swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui), [Highlightr](https://github.com/raspu/Highlightr).
+
+## License
+
+MIT — see [LICENSE](LICENSE). Contribution guidelines: [CONTRIBUTING.md](CONTRIBUTING.md).
