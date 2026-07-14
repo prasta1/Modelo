@@ -146,7 +146,7 @@ struct LauncherView: View {
             if showHeader {
                 let loaded = models.filter { $0.model.isLoaded }.count
                 HStack(spacing: 8) {
-                    StatusLED(status: registry.status(for: server), size: 7, breathe: false)
+                    StatusLED(status: registry.status(for: server), size: 7)
                     Eyebrow(server.label, color: Theme.textHi, size: 11)
                     Spacer()
                     Text(loaded > 0 ? "\(loaded) loaded · \(models.count)" : "\(models.count) models")
@@ -361,7 +361,7 @@ private struct ServerTab: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 7) {
-                StatusLED(status: status, size: 6, breathe: false)
+                StatusLED(status: status, size: 6)
                 Text(label)
                     .font(Theme.metric(11))
                     .foregroundStyle(isSelected ? Theme.textHi : Theme.textMid)

@@ -247,10 +247,6 @@ struct SpecStrip: View {
 struct StatusLED: View {
     let status: ServerStatus
     var size: CGFloat = 7
-    /// Whether the "unknown" state breathes. Turn OFF next to content that reflows
-    /// (e.g. a header with a live count): a `repeatForever` animation can otherwise
-    /// leak into the surrounding layout and animate the dot's position.
-    var breathe: Bool = true
     @State private var pulsing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -263,8 +259,8 @@ struct StatusLED: View {
         }
     }
 
-    /// Only breathe for an unknown server, when asked, and never under Reduce Motion.
-    private var isBreathing: Bool { breathe && !reduceMotion && status == .unknown }
+    /// Only breathe for an unknown server, and never under Reduce Motion.
+    private var isBreathing: Bool { !reduceMotion && status == .unknown }
 
     var body: some View {
         Circle()
@@ -280,6 +276,11 @@ struct StatusLED: View {
             // Track the breathing state so the loop stops the moment a server
             // resolves (online/offline), rather than lingering from onAppear.
             .onChange(of: isBreathing, initial: true) { pulsing = isBreathing }
+            // Isolate the dot's geometry from the repeatForever breathing animation:
+            // without this, ancestor layout shifts (e.g. the window settling on
+            // launch) are captured by the running loop and the dot slides/bounces
+            // between its old and new positions.
+            .geometryGroup()
     }
 }
 
