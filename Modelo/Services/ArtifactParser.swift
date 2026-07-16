@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// The kind of an artifact — drives how the panel renders it.
 enum ArtifactKind: String, Sendable, Equatable {
@@ -145,11 +146,27 @@ struct ArtifactGroup: Identifiable, Equatable {
 /// Collects artifacts across a conversation's active path, grouping repeats of the same
 /// id into ordered versions (re-emitting an id = a new version).
 enum ArtifactCollector {
+    /// Per-message extract memo — SwiftUI re-evaluates the chat body per keystroke and
+    /// per streaming delta, and regex-extracting every message each time is measurable
+    /// in long chats. Content only ever grows during streaming (edits and regenerates
+    /// create new messages), so id + length is a reliable change key.
+    /// Main-thread only: called from view bodies.
+    private static var memo: [PersistentIdentifier: (length: Int, artifacts: [Artifact])] = [:]
+
     static func groups(from messages: [Message]) -> [ArtifactGroup] {
+        // ponytail: crude eviction — session-scale cache, clear-all beats bookkeeping.
+        if memo.count > 512 { memo.removeAll() }
         var order: [String] = []
         var byID: [String: [Artifact]] = [:]
         for message in messages where message.role == .assistant {
-            for artifact in ArtifactParser.extract(from: message.content).artifacts {
+            let artifacts: [Artifact]
+            if let hit = memo[message.id], hit.length == message.content.count {
+                artifacts = hit.artifacts
+            } else {
+                artifacts = ArtifactParser.extract(from: message.content).artifacts
+                memo[message.id] = (message.content.count, artifacts)
+            }
+            for artifact in artifacts {
                 if byID[artifact.id] == nil { order.append(artifact.id) }
                 byID[artifact.id, default: []].append(artifact)
             }
