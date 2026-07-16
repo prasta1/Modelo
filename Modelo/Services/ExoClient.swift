@@ -8,7 +8,7 @@ struct ExoInstance {
 
 /// HTTP client for exo's cluster management REST API.
 ///
-/// Handles reading placed instances from `/state`, loading a model via `POST /instance`,
+/// Handles reading placed instances from `/state`, loading a model via `POST /place_instance`,
 /// and unloading via `DELETE /instance/{id}`. The `URLSession` is injected so tests can stub the network.
 final class ExoClient {
     private let session: URLSession
@@ -37,13 +37,17 @@ final class ExoClient {
         }
     }
 
-    /// Tells exo to place (load) a model by POSTing to `/instance`.
+    /// Tells exo to place (load) a model by POSTing to `/place_instance`.
+    ///
+    /// Note: exo also exposes `POST /instance`, but that expects the full placement wrapped
+    /// in an `instance` object; `/place_instance` computes the placement server-side from
+    /// these defaults.
     func placeInstance(modelID: String, endpoint: Endpoint) async throws {
-        guard let url = URL(string: "\(endpoint.baseURL)/instance") else { throw ClientError.invalidURL }
+        guard let url = URL(string: "\(endpoint.baseURL)/place_instance") else { throw ClientError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(["model_id": modelID])
+        request.httpBody = try JSONEncoder().encode(PlaceInstanceRequest(modelID: modelID))
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ClientError.unreachable
@@ -62,6 +66,20 @@ final class ExoClient {
     }
 
     // MARK: - Wire types
+
+    /// exo `/place_instance` request. exo expects snake_case; single-node pipeline defaults.
+    private struct PlaceInstanceRequest: Encodable {
+        let modelID: String
+        let sharding = "Pipeline"
+        let instanceMeta = "MlxRing"
+        let minNodes = 1
+        enum CodingKeys: String, CodingKey {
+            case modelID = "model_id"
+            case sharding
+            case instanceMeta = "instance_meta"
+            case minNodes = "min_nodes"
+        }
+    }
 
     private struct ExoStateResponse: Decodable {
         /// Keyed by instance ID; the inner dict maps the instance type name to its details.
