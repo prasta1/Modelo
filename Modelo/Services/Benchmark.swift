@@ -98,7 +98,10 @@ final class BenchmarkRunner {
                 }
             }
 
-            self.report = BenchmarkReport(results: results, wallSeconds: Date().timeIntervalSince(start))
+            // A cancelled run drains with zero-token "successes" — don't publish those.
+            if !Task.isCancelled {
+                self.report = BenchmarkReport(results: results, wallSeconds: Date().timeIntervalSince(start))
+            }
             self.isRunning = false
         }
     }

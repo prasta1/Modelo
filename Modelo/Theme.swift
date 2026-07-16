@@ -378,16 +378,16 @@ struct ModeloMark: View {
     }
 }
 
-/// 36×21 pill toggle: amber when on, white-12% when off (settings + endpoints).
+/// 36×21 pill toggle: amber when on, low-alpha fill when off (settings + endpoints).
 struct PillToggle: View {
     @Binding var isOn: Bool
     var body: some View {
         Capsule()
-            .fill(isOn ? Theme.amber : Color.white.opacity(0.12))
+            .fill(isOn ? Theme.amber : Theme.fillHi)
             .frame(width: 36, height: 21)
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
-                    .fill(isOn ? .white : Color(hex: 0xCFCDD6))
+                    .fill(isOn ? .white : Theme.textMute)
                     .frame(width: 17, height: 17)
                     .padding(2)
             }

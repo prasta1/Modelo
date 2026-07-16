@@ -39,11 +39,6 @@ struct ServerStatsView: View {
                 }
             }
         }
-        .onAppear {
-            if endpointFilter == nil, let first = servers.first {
-                endpointFilter = first.id
-            }
-        }
     }
 
     // MARK: - Pill strip
@@ -55,7 +50,10 @@ struct ServerStatsView: View {
                     ServerPill(
                         server: server,
                         status: registry.status(for: server),
-                        isActive: endpointFilter == server.id
+                        // Compare against selectedServer (falls back to first) rather than
+                        // seeding endpointFilter onAppear — writing the shared filter here
+                        // silently filtered the Models launcher too.
+                        isActive: selectedServer?.id == server.id
                     ) {
                         endpointFilter = server.id
                     }
@@ -227,24 +225,9 @@ private struct ServerStatsDashboardPanel: View {
                 .font(.mono(9)).tracking(1)
                 .foregroundStyle(Theme.textDim)
         } else {
-            switch status {
-            case .online:
-                Text("LIVE")
-                    .font(.mono(9)).tracking(1)
-                    .foregroundStyle(Theme.green)
-            case .offline:
-                Text("OFFLINE")
-                    .font(.mono(9)).tracking(1)
-                    .foregroundStyle(Theme.textDim)
-            case .unknown:
-                Text("PROBING")
-                    .font(.mono(9)).tracking(1)
-                    .foregroundStyle(Theme.textDim)
-            case .needsKey:
-                Text("NO KEY")
-                    .font(.mono(9)).tracking(1)
-                    .foregroundStyle(Theme.textDim)
-            }
+            Text(status.displayLabel)
+                .font(.mono(9)).tracking(1)
+                .foregroundStyle(status == .online ? Theme.green : Theme.textDim)
         }
     }
 

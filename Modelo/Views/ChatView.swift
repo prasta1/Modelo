@@ -248,8 +248,9 @@ struct ChatView: View {
             }
         }
         // Auto-open the newest artifact when the model produces a new one (Claude-style).
-        .onChange(of: artifactGroups.count) { _, count in
-            if count > 0, let newest = artifactGroups.last { openArtifactID = newest.id }
+        // Only on increase: branch switches can lower the count and must not force the panel open.
+        .onChange(of: artifactGroups.count) { old, new in
+            if new > old, let newest = artifactGroups.last { openArtifactID = newest.id }
         }
         .sheet(item: $pendingSnapshot) { item in
             SnapshotPreviewView(url: item.url)
@@ -301,7 +302,7 @@ struct ChatView: View {
         let live = status == .online
         return HStack(spacing: 6) {
             StatusLED(status: status, size: 6)
-            Text(live ? "LIVE" : status == .offline ? "OFFLINE" : "PROBING")
+            Text(status.displayLabel)
                 .font(.mono(9)).tracking(1)
                 .foregroundStyle(live ? Theme.green : Theme.textMute)
             Text(server.label)
@@ -645,6 +646,10 @@ struct ChatView: View {
                                 ).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
+                                // Visibility of this sentinel = "user is at the bottom".
+                                // Scrolling back down re-arms auto-follow.
+                                .onAppear { isNearBottom = true }
+                                .onDisappear { isNearBottom = false }
                         }
                         .padding(20)
                         // Bottom-align short conversations so the latest turn sits just
@@ -662,9 +667,10 @@ struct ChatView: View {
                     guard session?.isStreaming == true else { return }
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .milliseconds(50))
-                        scrollToBottom(proxy)
+                        // Don't yank the view back down while the user reads scrollback.
+                        if isNearBottom { scrollToBottom(proxy) }
                     }
-                    scrollToBottom(proxy)
+                    if isNearBottom { scrollToBottom(proxy) }
                 }
             }
         }
@@ -688,6 +694,9 @@ struct ChatView: View {
     }
 
     private let bottomAnchor = "BOTTOM"
+
+    /// False while the user has scrolled away from the bottom; gates streaming auto-scroll.
+    @State private var isNearBottom = true
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         proxy.scrollTo(bottomAnchor, anchor: .bottom)

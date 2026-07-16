@@ -1607,7 +1607,9 @@ private struct MCPServerSettingsRow: View {
                         caption: key,
                         value: Binding(
                             get: { envValues[key] ?? "" },
-                            set: { envValues[key] = $0; commit() }
+                            // No commit() here: committing per keystroke persists config and
+                            // relaunches the server process per character. Blur/submit commit.
+                            set: { envValues[key] = $0 }
                         ),
                         focused: $envFocused,
                         focusKey: key

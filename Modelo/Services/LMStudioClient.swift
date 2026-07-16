@@ -164,7 +164,10 @@ final class LMStudioClient: ChatProvider {
     @discardableResult
     func loadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
         let data = try await postModelAction("load", modelID: modelID, endpoint: endpoint)
-        return try JSONDecoder().decode(ModelsResponse.self, from: data).data.first!
+        guard let model = try JSONDecoder().decode(ModelsResponse.self, from: data).data.first else {
+            throw ClientError.serverError("Server returned no model state after load")
+        }
+        return model
     }
 
     /// Unloads a model on an LM Studio server via `POST /api/v0/models/{id}/unload`.
@@ -172,7 +175,10 @@ final class LMStudioClient: ChatProvider {
     @discardableResult
     func unloadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
         let data = try await postModelAction("unload", modelID: modelID, endpoint: endpoint)
-        return try JSONDecoder().decode(ModelsResponse.self, from: data).data.first!
+        guard let model = try JSONDecoder().decode(ModelsResponse.self, from: data).data.first else {
+            throw ClientError.serverError("Server returned no model state after unload")
+        }
+        return model
     }
 
     /// Sets `keep_in_ram` on a loaded model via `POST /api/v0/models/{id}/load`.
