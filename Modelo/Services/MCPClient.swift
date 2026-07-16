@@ -87,10 +87,37 @@ actor MCPClient {
             Task { await self?.ingest(text) }
         }
 
+        // A server that dies mid-session would otherwise leave every in-flight
+        // rpc() suspended forever — fail them all the moment the process exits.
+        p.terminationHandler = { [weak self] _ in
+            Task { await self?.processDied() }
+        }
+
         try p.run()
         process = p
 
-        // MCP handshake: initialize → initialized notification → tools/list
+        // A server that launches but never speaks JSON-RPC (e.g. prints a banner)
+        // would hang the handshake forever — race it against a deadline. cancelAll()
+        // unsticks whichever side lost because rpc() is cancellation-aware.
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { try await self.handshake() }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(15))
+                    throw MCPError.protocolError("Server did not complete MCP handshake within 15s")
+                }
+                try await group.next()
+                group.cancelAll()
+            }
+        } catch {
+            disconnect()  // don't leak the child process on a failed connect
+            throw error
+        }
+        isConnected = true
+    }
+
+    /// MCP handshake: initialize → initialized notification → tools/list.
+    private func handshake() async throws {
         let initResult = try await rpc("initialize", params: [
             "protocolVersion": "2024-11-05",
             "capabilities": [String: Any](),
@@ -105,7 +132,12 @@ actor MCPClient {
         if let raw = toolsResult["tools"] as? [[String: Any]] {
             toolDefs = raw.compactMap(Self.parseTool)
         }
-        isConnected = true
+    }
+
+    /// Called from the process terminationHandler: the server died out from under us.
+    private func processDied() {
+        process = nil  // already dead — nothing left for disconnect() to terminate
+        disconnect()
     }
 
     func disconnect() {
@@ -145,7 +177,23 @@ actor MCPClient {
         var msg: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method]
         if let params { msg["params"] = params }
         try writeMsg(msg)
-        return try await withCheckedThrowingContinuation { pending[id] = $0 }
+        // Cancellation-aware so a cancelled turn (stop button, handshake deadline)
+        // resumes the continuation instead of leaving it suspended forever.
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { cont in
+                if Task.isCancelled {
+                    cont.resume(throwing: CancellationError())
+                } else {
+                    pending[id] = cont
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelPending(id: id) }
+        }
+    }
+
+    private func cancelPending(id: Int) {
+        pending.removeValue(forKey: id)?.resume(throwing: CancellationError())
     }
 
     private func notify(_ method: String, params: [String: Any]? = nil) {
@@ -158,7 +206,10 @@ actor MCPClient {
         guard let handle = stdinHandle else { throw MCPError.notConnected }
         var data = try JSONSerialization.data(withJSONObject: msg)
         data.append(0x0A)  // newline frame delimiter
-        handle.write(data)
+        // The throwing variant: the non-throwing write(_:) raises an uncatchable
+        // ObjC exception on a broken pipe (server exited) and would crash the app.
+        do { try handle.write(contentsOf: data) }
+        catch { throw MCPError.notConnected }
     }
 
     private func ingest(_ text: String) {
