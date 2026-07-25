@@ -34,6 +34,16 @@ struct ServerMonitorTests {
         #expect(monitor.snapshot(for: server) == nil)
     }
 
+    @Test func pollIntervalBacksOffWhileInBackground() {
+        let monitor = ServerMonitor(client: FakeMonitorProvider(),
+                                    activeInterval: .seconds(3), idleInterval: .seconds(60))
+        #expect(monitor.pollInterval == .seconds(3))
+        monitor.setForeground(false)
+        #expect(monitor.pollInterval == .seconds(60))
+        monitor.setForeground(true)
+        #expect(monitor.pollInterval == .seconds(3))
+    }
+
     @Test func pollSetsSnapshotForLoadedModel() async {
         let provider = FakeMonitorProvider()
         provider.modelsJSON = """
