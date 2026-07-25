@@ -85,6 +85,7 @@ struct ContentView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
     @Environment(GPUMonitor.self) private var gpuMonitor
+    @Environment(ReachabilityMonitor.self) private var reachability
     @Environment(\.modelContext) private var context
     @Environment(ProjectStore.self) private var projectStore
     @Query(sort: \Server.sortOrder) private var servers: [Server]
@@ -198,6 +199,10 @@ struct ContentView: View {
             // Restart load-state polling too, so switching a server to exo (or adding one)
             // at runtime begins populating its loaded-model snapshot without an app relaunch.
             monitor.start(servers: activeServers, registry: registry)
+            // Reachability was previously started only at launch (ModeloApp), so a server
+            // added, removed, or (un)paused at runtime kept the stale launch-time probe
+            // set until relaunch — paused servers kept getting probed forever.
+            reachability.start(servers: activeServers)
             await refreshModels()
         }
         .onAppear { restoreRoute(); consumePendingSettings(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground() }

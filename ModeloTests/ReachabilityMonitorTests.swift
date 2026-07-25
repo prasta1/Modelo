@@ -16,6 +16,14 @@ final class ReachabilityMonitorTests: XCTestCase {
         XCTAssertEqual(monitor.pollInterval(for: .offline, kind: .cloudAPI), .seconds(30))
     }
 
+    func test_pollInterval_backsOffToIdleInterval_whileInBackground() {
+        let monitor = ReachabilityMonitor(registry: ServerRegistry(), probe: { _ in true })
+        XCTAssertEqual(monitor.pollInterval(for: .online, kind: .lmStudio, foreground: false),
+                       ReachabilityMonitor.idleInterval)
+        XCTAssertEqual(monitor.pollInterval(for: .offline, kind: .cloudAPI, foreground: false),
+                       ReachabilityMonitor.idleInterval)
+    }
+
     func test_checkOnce_setsOnlineWhenProbeSucceeds() async {
         let registry = ServerRegistry()
         let monitor = ReachabilityMonitor(registry: registry, probe: { _ in true })
