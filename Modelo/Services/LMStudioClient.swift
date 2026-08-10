@@ -53,18 +53,26 @@ final class LMStudioClient: ChatProvider {
             let data = try await authedGet(path: "/models", endpoint: endpoint)
             return try OpenRouterCatalog.models(from: data)
                 .filter { !$0.isEmbeddingModel }
-        case .cloudAPI, .nous:
+        case .cloudAPI:
             let data = try await authedGet(path: "/models", endpoint: endpoint)
             return try JSONDecoder().decode(ModelsResponse.self, from: data).data
                 .filter { !$0.isEmbeddingModel }
+        case .nous:
+            // Nous Research uses a standard OpenAI-compatible models endpoint with no pricing data.
+            // Mark all models isFree so they appear under the free filter — the user has opted in
+            // with their own API key and isn't choosing between free/paid tiers like on OpenRouter.
+            let data = try await authedGet(path: "/models", endpoint: endpoint)
+            return try JSONDecoder().decode(ModelsResponse.self, from: data).data
+                .filter { !$0.isEmbeddingModel }
+                .map { var m = $0; m.isFree = true; return m }
         case .lmStudio:
             if let rich = try? await fetch(path: "/api/v0/models", endpoint: endpoint) {
                 return rich.filter { !$0.isEmbeddingModel }
             }
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
-        case .llamaCpp, .oMLX:
-            // Generic local OpenAI-compatible servers (llama.cpp/llama-swap, oMLX): no /api/v0.
+        case .llamaCpp, .llamaSwap, .oMLX:
+            // Generic local OpenAI-compatible servers (llama.cpp, llama-swap, oMLX): no /api/v0.
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
         case .exo:
@@ -114,7 +122,7 @@ final class LMStudioClient: ChatProvider {
     func probeReachable(endpoint: Endpoint, timeout: TimeInterval = 4) async -> Bool {
         let path: String
         switch endpoint.kind {
-        case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: path = "/v1/models"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
         case .cloudAPI, .openRouter, .nous: path = "/models"
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
@@ -132,7 +140,7 @@ final class LMStudioClient: ChatProvider {
     func probeDetailed(endpoint: Endpoint, timeout: TimeInterval = 4) async -> ProbeResult {
         let path: String
         switch endpoint.kind {
-        case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: path = "/v1/models"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
         case .cloudAPI, .openRouter, .nous: path = "/models"
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
@@ -314,7 +322,7 @@ final class LMStudioClient: ChatProvider {
             // Cloud API bases already end in /v1.
             let chatPath: String
             switch endpoint.kind {
-            case .lmStudio, .llamaCpp, .oMLX, .exo: chatPath = "/v1/chat/completions"
+            case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .exo: chatPath = "/v1/chat/completions"
             case .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
             case .ollama: chatPath = "/v1/chat/completions"
             }
