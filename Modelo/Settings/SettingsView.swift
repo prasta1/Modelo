@@ -268,13 +268,13 @@ struct SettingsView: View {
 
     private func localIcon(for kind: ServerKind) -> String {
         switch kind {
-        case .lmStudio:  return "server.rack"
-        case .llamaCpp:  return "terminal"
-        case .llamaSwap: return "shuffle"
-        case .oMLX:      return "cpu"
-        case .ollama:    return "cylinder"
-        case .exo:       return "point.3.connected.trianglepath.dotted"
-        default:         return "server.rack"
+        case .lmStudio:                    return "server.rack"
+        case .llamaCpp:                    return "terminal"
+        case .llamaSwap:                   return "shuffle"
+        case .oMLX:                        return "cpu"
+        case .ollama:                      return "cylinder"
+        case .exo:                         return "point.3.connected.trianglepath.dotted"
+        case .cloudAPI, .openRouter, .nous: return "server.rack"
         }
     }
 
@@ -1118,8 +1118,8 @@ private struct ServerSettingsRow: View {
         .padding(.vertical, 4)
     }
 
-    /// Runtime selector styled as a chip. Lists the local runtimes only
-    /// (LM Studio, llama.cpp, oMLX); cloud endpoints use a separate tab.
+    /// Runtime selector styled as a chip. Lists local runtimes only (via `ServerKind.localCases`);
+    /// cloud endpoints use a separate tab.
     private var runtimePicker: some View {
         Menu {
             Picker("Runtime", selection: $server.kind) {
