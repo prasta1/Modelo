@@ -44,7 +44,7 @@ final class EndpointTests: XCTestCase {
     }
 
     func test_serverKind_localCases_areTheLocalRuntimes() {
-        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .oMLX, .ollama, .exo])
+        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo])
         XCTAssertTrue(ServerKind.oMLX.isLocal)
         XCTAssertTrue(ServerKind.exo.isLocal)
         XCTAssertFalse(ServerKind.cloudAPI.isLocal)
@@ -72,6 +72,20 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(ServerKind.llamaCpp.defaultPort, 8080)
         XCTAssertTrue(ServerKind.isDefaultLocalPort(8000))
         XCTAssertFalse(ServerKind.isDefaultLocalPort(31337))
+    }
+
+    func test_serverKind_llamaSwap_rawValueAndProperties() {
+        XCTAssertEqual(ServerKind(rawValue: "llamaSwapProxy"), .llamaSwap)
+        XCTAssertEqual(ServerKind.llamaSwap.rawValue, "llamaSwapProxy")
+        XCTAssertEqual(ServerKind.llamaSwap.displayName, "llama-swap")
+        XCTAssertEqual(ServerKind.llamaSwap.defaultPort, 8080)
+        XCTAssertTrue(ServerKind.llamaSwap.isLocal)
+        XCTAssertFalse(ServerKind.llamaSwap.hasFixedURL)
+    }
+
+    func test_baseURL_llamaSwap_usesHostPort() {
+        let s = Server(label: "llama-swap", host: "localhost", port: 8080, kind: .llamaSwap)
+        XCTAssertEqual(s.baseURL, "http://localhost:8080")
     }
 
     // MARK: - Host normalization (regression: doubled-up scheme made the probe fail)
