@@ -262,16 +262,11 @@ private struct QuickChatModelPicker: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(pickedModel?.model.displayName ?? "pick model")
-                    .font(Theme.metric(11))
-                    .foregroundStyle(pickedModel == nil ? Theme.Palette.inkFaint : Theme.Palette.inkDim)
-                    .lineLimit(1)
-                    .frame(maxWidth: 170, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.inkFaint)
-            }
+            Text(pickedModel?.model.displayName ?? "pick model")
+                .font(Theme.metric(11))
+                .foregroundStyle(pickedModel == nil ? Theme.Palette.inkFaint : Theme.Palette.inkDim)
+                .lineLimit(1)
+                .frame(maxWidth: 170, alignment: .leading)
         }
         .menuStyle(.button)
         .buttonStyle(.borderless)
