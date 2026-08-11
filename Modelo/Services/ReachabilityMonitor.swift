@@ -43,7 +43,7 @@ final class ReachabilityMonitor {
         guard foreground else { return Self.idleInterval }
         switch kind {
         case .cloudAPI, .openRouter, .nous: return .seconds(30)
-        case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: return status == .online ? .seconds(10) : .seconds(30)
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: return status == .online ? .seconds(10) : .seconds(30)
         }
     }
 

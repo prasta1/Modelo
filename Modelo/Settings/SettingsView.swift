@@ -268,12 +268,13 @@ struct SettingsView: View {
 
     private func localIcon(for kind: ServerKind) -> String {
         switch kind {
-        case .lmStudio: return "server.rack"
-        case .llamaCpp: return "terminal"
-        case .oMLX:     return "cpu"
-        case .ollama:   return "cylinder"
-        case .exo:      return "point.3.connected.trianglepath.dotted"
-        default:        return "server.rack"
+        case .lmStudio:                    return "server.rack"
+        case .llamaCpp:                    return "terminal"
+        case .llamaSwap:                   return "shuffle"
+        case .oMLX:                        return "cpu"
+        case .ollama:                      return "cylinder"
+        case .exo:                         return "point.3.connected.trianglepath.dotted"
+        case .cloudAPI, .openRouter, .nous: return "server.rack"
         }
     }
 
@@ -1117,8 +1118,8 @@ private struct ServerSettingsRow: View {
         .padding(.vertical, 4)
     }
 
-    /// Runtime selector styled as a chip. Lists the local runtimes only
-    /// (LM Studio, llama.cpp, oMLX); cloud endpoints use a separate tab.
+    /// Runtime selector styled as a chip. Lists local runtimes only (via `ServerKind.localCases`);
+    /// cloud endpoints use a separate tab.
     private var runtimePicker: some View {
         Menu {
             Picker("Runtime", selection: $server.kind) {
@@ -1189,7 +1190,9 @@ private struct LocalSetupHint: View {
         case .ollama:
             return "Install Ollama from ollama.com, then pull a model: ollama pull llama3.2. The server starts automatically. Default port: 11434."
         case .llamaCpp:
-            return "Run the server: llama-server -m model.gguf --port 8080. llama-swap users: point to your proxy's port instead of 8080."
+            return "Run the server: llama-server -m model.gguf --port 8080. Default port: 8080."
+        case .llamaSwap:
+            return "llama-swap is a reverse proxy that manages multiple llama.cpp backends. Point to your llama-swap host and port (default 8080). See github.com/mostlygeek/llama-swap for setup."
         case .oMLX:
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
         case .exo:
@@ -1316,7 +1319,7 @@ private struct CloudServerSettingsRow: View {
                     Text(server.label.isEmpty ? "Unnamed" : server.label)
                         .font(Theme.mono(13, weight: .semibold))
                         .foregroundStyle(Theme.textHi)
-                    Text(verbatim: server.host.isEmpty ? "not configured" : server.host)
+                    Text(verbatim: server.kind.hasFixedURL ? server.baseURL : (server.host.isEmpty ? "not configured" : server.host))
                         .font(Theme.metric(10))
                         .foregroundStyle(Theme.textFaint)
                         .lineLimit(1)
