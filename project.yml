@@ -55,8 +55,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.peregrine.modelo
         PRODUCT_NAME: Modelo
         PRODUCT_MODULE_NAME: Modelo
-        MARKETING_VERSION: "0.2.4"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.3.0"
+        CURRENT_PROJECT_VERSION: "2"
         ENABLE_HARDENED_RUNTIME: YES
         # Keychain access group → forces an embedded provisioning profile with
         # com.apple.application-identifier, required for the data-protection
