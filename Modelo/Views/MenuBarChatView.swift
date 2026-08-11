@@ -272,6 +272,9 @@ private struct QuickChatModelPicker: View {
         .buttonStyle(.borderless)
         .fixedSize()
         .help("Pick a model")
+        // Force the native NSMenu to rebuild whenever the visible list changes.
+        // Without this, macOS caches the menu items and ignores filter updates.
+        .id(filteredModels.map(\.model.id).joined())
     }
 }
 
