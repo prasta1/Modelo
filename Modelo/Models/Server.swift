@@ -58,7 +58,7 @@ final class Server {
     var baseURL: String {
         switch kind {
         // Local runtimes are addressed by host:port.
-        case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: "http://\(Server.normalizedHost(host)):\(port)"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: "http://\(Server.normalizedHost(host)):\(port)"
         case .cloudAPI:   host
         case .openRouter: Endpoint.openRouterBaseURL
         case .nous:       Endpoint.nousBaseURL

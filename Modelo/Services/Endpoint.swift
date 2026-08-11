@@ -3,21 +3,24 @@ import SwiftData
 
 /// Which kind of backend a `Server` row points at.
 /// - `lmStudio`: a local LM Studio machine (host:port over HTTP, no auth, rich `/api/v0`).
-/// - `llamaCpp`: a local llama.cpp server, often fronted by llama-swap
-///   (host:port over HTTP, OpenAI-compatible `/v1`, optional auth, no `/api/v0`).
+/// - `llamaCpp`: a raw llama.cpp server (llama-server; host:port, OpenAI-compatible `/v1`, no `/api/v0`).
+/// - `llamaSwap`: a llama-swap reverse proxy that routes model requests to multiple llama.cpp
+///   backends. Same wire shape as `llamaCpp`; distinct in label, icon, and setup guidance.
 /// - `oMLX`: a local oMLX server (omlx.ai) — an Apple-silicon MLX runtime. Same wire
 ///   shape as `llamaCpp` (host:port, OpenAI-compatible `/v1`); distinct only in label/port.
 /// - `cloudAPI`: any OpenAI-compatible cloud endpoint (user-supplied HTTPS base URL, bearer auth).
 /// - `openRouter`: hardcoded OpenRouter cloud endpoint — user supplies only the API key.
 /// - `nous`: hardcoded Nous Research inference endpoint — user supplies only the API key.
 ///
-/// `lmStudio`, `llamaCpp`, `oMLX`, `ollama`, and `exo` are *local* (self-hosted) — they run on
-/// hardware you control and can have a `modelo-tap` GPU agent next to them. Add new local
-/// runtimes (vLLM, sglang, …) as cases here; everything but LM Studio's `/api/v0` is generic local.
+/// `lmStudio`, `llamaCpp`, `llamaSwap`, `oMLX`, `ollama`, and `exo` are *local* (self-hosted) —
+/// they run on hardware you control and can have a `modelo-tap` GPU agent next to them.
 enum ServerKind: String, Codable, Sendable, CaseIterable {
     case lmStudio
     /// Raw value kept as "llamaSwap" so servers saved before the rename still deserialise.
     case llamaCpp = "llamaSwap"
+    /// Dedicated llama-swap proxy kind. Wire-identical to llamaCpp but
+    /// displayed as "llama-swap" with a proxy-specific setup hint.
+    case llamaSwap = "llamaSwapProxy"
     case oMLX
     /// Local Ollama runtime — OpenAI-compatible /v1, default port 11434.
     case ollama
@@ -36,8 +39,8 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     /// a `modelo-tap` GPU agent. Cloud APIs (`cloudAPI`, `openRouter`, `nous`) are managed endpoints that do not.
     var isLocal: Bool {
         switch self {
-        case .lmStudio, .llamaCpp, .oMLX, .ollama, .exo: true
-        case .cloudAPI, .openRouter, .nous:               false
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: true
+        case .cloudAPI, .openRouter, .nous:                         false
         }
     }
 
@@ -46,6 +49,7 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .lmStudio:   return "LM Studio"
         case .llamaCpp:   return "llama.cpp"
+        case .llamaSwap:  return "llama-swap"
         case .oMLX:       return "oMLX"
         case .ollama:     return "Ollama"
         case .exo:        return "exo"
@@ -60,12 +64,13 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     /// kinds don't use host:port, so they report 0.
     var defaultPort: Int {
         switch self {
-        case .lmStudio:                    return 1234
-        case .llamaCpp:                    return 8080
-        case .oMLX:                        return 8000
-        case .ollama:                      return 11434
-        case .exo:                         return 52415
-        case .cloudAPI, .openRouter, .nous: return 0
+        case .lmStudio:                       return 1234
+        case .llamaCpp:                       return 8080
+        case .llamaSwap:                      return 8080
+        case .oMLX:                           return 8000
+        case .ollama:                         return 11434
+        case .exo:                            return 52415
+        case .cloudAPI, .openRouter, .nous:   return 0
         }
     }
 
