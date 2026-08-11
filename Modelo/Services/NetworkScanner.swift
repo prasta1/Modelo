@@ -1,24 +1,28 @@
 import Foundation
 import Darwin
 
-/// A host discovered to be running LM Studio on the local network.
+/// A server discovered on the local network.
 struct DiscoveredHost: Identifiable, Equatable {
     let id: UUID
     let host: String
     let port: Int
+    let kind: ServerKind
 
-    init(host: String, port: Int) {
+    init(host: String, port: Int, kind: ServerKind) {
         self.id = UUID()
         self.host = host
         self.port = port
+        self.kind = kind
     }
 }
 
-/// Probes the local network for LM Studio instances on a given port.
+/// Probes the local network for OpenAI-compatible LLM servers on all known default ports.
 ///
 /// Scans localhost plus every host in each /24 subnet attached to the machine's
-/// active non-loopback IPv4 interfaces. Up to 40 probes run concurrently;
-/// found hosts stream in as they respond so the UI can show results immediately.
+/// active non-loopback IPv4 interfaces. The candidate list is the cross-product of
+/// hosts × known local ports (1234, 8000, 8080, 11434, 52415). Up to 40 probes run
+/// concurrently; found hosts stream in as they respond so the UI can show results
+/// immediately. Each found host is best-effort classified by kind.
 @Observable
 @MainActor
 final class NetworkScanner {
@@ -39,27 +43,33 @@ final class NetworkScanner {
         self.client = client
     }
 
-    func scan(port: Int = 1234) {
+    func scan() {
         scanTask?.cancel()
         found = []
         state = .scanning(progress: 0)
 
-        let candidates = buildCandidates()
+        // Cross-product of hosts × all known local default ports.
+        let ports = Array(Set(ServerKind.localCases.map(\.defaultPort))).sorted()
+        let hosts = buildCandidates()
+        let candidates: [(String, Int)] = hosts.flatMap { h in ports.map { (h, $0) } }
         let total = max(1, candidates.count)
         // Capture client by value so child tasks don't inherit @MainActor isolation.
         let c = client
 
         scanTask = Task {
             var completed = 0
-            await withTaskGroup(of: Optional<String>.self) { group in
+            await withTaskGroup(of: Optional<DiscoveredHost>.self) { group in
                 let batchSize = min(40, candidates.count)
                 var nextIdx = batchSize
 
                 for i in 0..<batchSize {
-                    let host = candidates[i]
+                    let (host, port) = candidates[i]
                     group.addTask {
-                        let ep = Endpoint(baseURL: "http://\(host):\(port)", kind: .lmStudio, apiKey: nil)
-                        return await c.probeReachable(endpoint: ep, timeout: 1.0) ? host : nil
+                        let baseURL = "http://\(host):\(port)"
+                        let ep = Endpoint(baseURL: baseURL, kind: .lmStudio, apiKey: nil)
+                        guard await c.probeReachable(endpoint: ep, timeout: 1.0) else { return nil }
+                        let kind = await c.classifyKind(baseURL: baseURL, port: port)
+                        return DiscoveredHost(host: host, port: port, kind: kind)
                     }
                 }
 
@@ -70,14 +80,17 @@ final class NetworkScanner {
                     }
                     completed += 1
                     state = .scanning(progress: Double(completed) / Double(total))
-                    if let host = result {
-                        found.append(DiscoveredHost(host: host, port: port))
+                    if let discovered = result {
+                        found.append(discovered)
                     }
                     if nextIdx < candidates.count {
-                        let host = candidates[nextIdx]; nextIdx += 1
+                        let (host, port) = candidates[nextIdx]; nextIdx += 1
                         group.addTask {
-                            let ep = Endpoint(baseURL: "http://\(host):\(port)", kind: .lmStudio, apiKey: nil)
-                            return await c.probeReachable(endpoint: ep, timeout: 1.0) ? host : nil
+                            let baseURL = "http://\(host):\(port)"
+                            let ep = Endpoint(baseURL: baseURL, kind: .lmStudio, apiKey: nil)
+                            guard await c.probeReachable(endpoint: ep, timeout: 1.0) else { return nil }
+                            let kind = await c.classifyKind(baseURL: baseURL, port: port)
+                            return DiscoveredHost(host: host, port: port, kind: kind)
                         }
                     }
                 }

@@ -134,6 +134,40 @@ final class LMStudioClient: ChatProvider {
         return (200..<400).contains(http.statusCode)
     }
 
+    /// Best-effort server-kind fingerprint for a live local host.
+    ///
+    /// Assumes the host already answered GET /v1/models with a 2xx. Probes two
+    /// distinguishing endpoints (LM Studio's `/api/v0/models`, exo's `/state`);
+    /// falls back to port heuristics. llama.cpp and llama-swap are wire-identical —
+    /// port 8080 is reported as `.llamaSwap`; users can override it in the row.
+    func classifyKind(baseURL: String, port: Int) async -> ServerKind {
+        if let url = URL(string: "\(baseURL)/api/v0/models") {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 1.5
+            if let (_, resp) = try? await session.data(for: req),
+               let http = resp as? HTTPURLResponse,
+               (200..<400).contains(http.statusCode) {
+                return .lmStudio
+            }
+        }
+        if let url = URL(string: "\(baseURL)/state") {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 1.5
+            if let (_, resp) = try? await session.data(for: req),
+               let http = resp as? HTTPURLResponse,
+               (200..<400).contains(http.statusCode) {
+                return .exo
+            }
+        }
+        switch port {
+        case 11434: return .ollama
+        case 52415: return .exo
+        case 8000:  return .oMLX
+        case 8080:  return .llamaSwap
+        default:    return .lmStudio
+        }
+    }
+
     /// Like `probeReachable` but returns a `ProbeResult` identifying the failure
     /// mode so the settings UI can show an actionable hint (e.g. "hostname not
     /// found" versus "LM Studio not running on this port").
