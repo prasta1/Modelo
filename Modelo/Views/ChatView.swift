@@ -198,7 +198,7 @@ struct ChatView: View {
                 messageStream
                 footer
             }
-            .frame(minWidth: 0, maxWidth: .infinity)
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
             // Invisible; spans the chat column so the screenshot button knows
             // exactly which region of the window to capture.
             .background(SnapshotProbeView(holder: snapshotProbe))

@@ -205,7 +205,8 @@ struct ContentView: View {
             reachability.start(servers: activeServers)
             await refreshModels()
         }
-        .onAppear { restoreRoute(); consumePendingSettings(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground() }
+        .onAppear { restoreRoute(); consumePendingSettings(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground(); constrainWindowToScreen() }
+        .onChange(of: inspectorOpen) { constrainWindowToScreen() }
         .onChange(of: route) {
             saveRoute(route); syncPickedModel(); updateForeground()
             // Close a console left open on a chat so it doesn't get stuck open
@@ -381,6 +382,22 @@ struct ContentView: View {
             notifier.foreground = id
         } else {
             notifier.foreground = nil
+        }
+    }
+
+    /// Clamps the window's vertical position so its bottom edge never falls below
+    /// the screen's visible frame. Called after appear and inspector toggles because
+    /// the inspector panel can grow the window downward off-screen.
+    private func constrainWindowToScreen() {
+        DispatchQueue.main.async {
+            guard let window = NSApp.windows.first(where: { $0.isKeyWindow }) ?? NSApp.windows.first,
+                  let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+            else { return }
+            var frame = window.frame
+            if frame.minY < visible.minY { frame.origin.y = visible.minY }
+            if frame.maxY > visible.maxY { frame.origin.y = visible.maxY - frame.height }
+            guard frame != window.frame else { return }
+            window.setFrame(frame, display: true, animate: false)
         }
     }
 
