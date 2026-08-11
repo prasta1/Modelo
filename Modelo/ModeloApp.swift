@@ -173,6 +173,7 @@ struct ModeloApp: App {
                 .environment(registry)
                 .environment(serverMonitor)
                 .environment(mcpManager)
+                .environment(favoritesStore)
                 .modelContainer(container)
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)
