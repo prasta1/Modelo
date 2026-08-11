@@ -18,6 +18,7 @@ struct SettingsView: View {
     private let keychain = KeychainStore()
     @SceneStorage("settingsSelectedTab") private var selectedTab = "Endpoints"
     @State private var newlyAddedID: UUID?
+    @State private var scanner = NetworkScanner()
 
     private static let tabTitles = ["Endpoints",
                                     "Presets", "Appearance", "Tools", "Memory", "MCP Servers"]
@@ -130,6 +131,16 @@ struct SettingsView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
+
+                    scanControlRow
+
+                    if !scanner.found.isEmpty {
+                        VStack(spacing: 6) {
+                            ForEach(scanner.found) { host in
+                                discoveredHostRow(host)
+                            }
+                        }
+                    }
                 }
                 .padding(24)
                 .hideScrollIndicators()
@@ -276,6 +287,87 @@ struct SettingsView: View {
         case .exo:                         return "point.3.connected.trianglepath.dotted"
         case .cloudAPI, .openRouter, .nous: return "server.rack"
         }
+    }
+
+    // MARK: Scan UI
+
+    @ViewBuilder
+    private var scanControlRow: some View {
+        switch scanner.state {
+        case .idle, .done:
+            Button {
+                scanner.scan()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(scanner.state == .done && !scanner.found.isEmpty
+                         ? "Scan Again"
+                         : "Scan Network")
+                        .font(Theme.label(11))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity)
+                .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+            }
+            .buttonStyle(.plain)
+        case .scanning(let progress):
+            HStack(spacing: 10) {
+                ProgressView(value: progress)
+                    .tint(Theme.amber)
+                    .frame(maxWidth: .infinity)
+                Button("Cancel") { scanner.cancel() }
+                    .font(Theme.label(11))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+        }
+    }
+
+    @ViewBuilder
+    private func discoveredHostRow(_ host: DiscoveredHost) -> some View {
+        let alreadyAdded = servers.contains {
+            Server.normalizedHost($0.host) == Server.normalizedHost(host.host) && $0.port == host.port
+        }
+        HStack(spacing: 10) {
+            Image(systemName: localIcon(for: host.kind))
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.amber)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(host.host):\(host.port)")
+                    .font(Theme.mono(12))
+                    .foregroundStyle(.primary)
+                Text(host.kind.displayName)
+                    .font(Theme.label(10))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(alreadyAdded ? "Added" : "Add") {
+                if !alreadyAdded { addDiscoveredServer(host) }
+            }
+            .font(Theme.label(11))
+            .foregroundStyle(alreadyAdded ? Theme.amber.opacity(0.3) : Theme.amber)
+            .disabled(alreadyAdded)
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+    }
+
+    private func addDiscoveredServer(_ host: DiscoveredHost) {
+        let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
+        let server = Server(label: host.kind.displayName, host: host.host,
+                            port: host.port, sortOrder: nextOrder, kind: host.kind)
+        context.insert(server)
+        context.saveOrLog()
+        newlyAddedID = server.id
     }
 
 }
