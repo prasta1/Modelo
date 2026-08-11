@@ -103,6 +103,10 @@ struct SettingsView: View {
                                     Label(kind.displayName, systemImage: localIcon(for: kind))
                                 }
                             }
+                            Divider()
+                            Button { scanner.scan() } label: {
+                                Label("Scan Network…", systemImage: "dot.radiowaves.left.and.right")
+                            }
                         }
                         Menu("Cloud API") {
                             Button("Nous Research") { addNousServer() }
@@ -132,14 +136,8 @@ struct SettingsView: View {
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
 
-                    scanControlRow
-
-                    if !scanner.found.isEmpty {
-                        VStack(spacing: 6) {
-                            ForEach(scanner.found) { host in
-                                discoveredHostRow(host)
-                            }
-                        }
+                    if isScanActive {
+                        scanResultsPanel
                     }
                 }
                 .padding(24)
@@ -291,41 +289,50 @@ struct SettingsView: View {
 
     // MARK: Scan UI
 
+    /// True while actively scanning or when previous results are still displayed.
+    private var isScanActive: Bool {
+        if case .scanning = scanner.state { return true }
+        return !scanner.found.isEmpty
+    }
+
     @ViewBuilder
-    private var scanControlRow: some View {
-        switch scanner.state {
-        case .idle, .done:
-            Button {
-                scanner.scan()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(scanner.state == .done && !scanner.found.isEmpty
-                         ? "Scan Again"
-                         : "Scan Network")
+    private var scanResultsPanel: some View {
+        VStack(spacing: 6) {
+            switch scanner.state {
+            case .scanning(let progress):
+                HStack(spacing: 10) {
+                    ProgressView(value: progress)
+                        .tint(Theme.amber)
+                        .frame(maxWidth: .infinity)
+                    Button("Cancel") { scanner.cancel() }
                         .font(Theme.label(11))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(.secondary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
-                .frame(maxWidth: .infinity)
                 .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
-            }
-            .buttonStyle(.plain)
-        case .scanning(let progress):
-            HStack(spacing: 10) {
-                ProgressView(value: progress)
-                    .tint(Theme.amber)
-                    .frame(maxWidth: .infinity)
-                Button("Cancel") { scanner.cancel() }
-                    .font(Theme.label(11))
+            case .idle, .done:
+                if !scanner.found.isEmpty {
+                    Button { scanner.scan() } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "dot.radiowaves.left.and.right")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Scan Again")
+                                .font(Theme.label(11))
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity)
+                        .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+                    }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+            ForEach(scanner.found) { host in
+                discoveredHostRow(host)
+            }
         }
     }
 
@@ -1213,20 +1220,25 @@ private struct ServerSettingsRow: View {
     /// Runtime selector styled as a chip. Lists local runtimes only (via `ServerKind.localCases`);
     /// cloud endpoints use a separate tab.
     private var runtimePicker: some View {
-        Menu {
-            Picker("Runtime", selection: $server.kind) {
-                ForEach(ServerKind.localCases, id: \.self) { kind in
-                    Text(kind.displayName).tag(kind)
+        // Render the chip independently so the Menu wrapper can't wash out its amber tint,
+        // then overlay a transparent Menu on top to capture the tap and show the picker.
+        Chip(text: server.kind.displayName.lowercased(), tint: Theme.amber)
+            .overlay {
+                Menu {
+                    Picker("Runtime", selection: $server.kind) {
+                        ForEach(ServerKind.localCases, id: \.self) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                } label: {
+                    Color.clear.contentShape(Rectangle())
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .onChange(of: server.kind) { _, newKind in reseedDefaults(for: newKind) }
             }
-        } label: {
-            Chip(text: server.kind.displayName.lowercased())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Runtime")
-        .onChange(of: server.kind) { _, newKind in reseedDefaults(for: newKind) }
+            .fixedSize()
+            .help("Runtime")
     }
 
     /// When the user switches runtimes, re-seed the port and label to the new kind's
