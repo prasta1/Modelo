@@ -37,6 +37,9 @@ struct SidebarView: View {
 
     /// Collapsed section IDs, newline-joined for `@AppStorage`. Absent ⇒ expanded.
     @AppStorage("collapsedSidebarSections") private var collapsedRaw = ""
+    @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+    @AppStorage("showPersonasInSidebar") private var showPersonasInSidebar = true
+    private var textScale: CGFloat { messageFontSize / 15 }
 
     var body: some View {
         ScrollView {
@@ -48,7 +51,9 @@ struct SidebarView: View {
 
                 VStack(spacing: 2) {
                     navRow("Models",   icon: "square.grid.2x2",           to: .launcher)
-                    navRow("Personas", icon: "person.2",                  to: .personas)
+                    if showPersonasInSidebar {
+                        navRow("Personas", icon: "person.2",              to: .personas)
+                    }
                     navRow("Status",   icon: "chart.bar",                 to: .status)
                     navRow("Reports",  icon: "chart.line.uptrend.xyaxis", to: .reports)
                     navRow("Settings", icon: "gearshape",                 to: .settings)
@@ -116,7 +121,7 @@ struct SidebarView: View {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 12, weight: .medium))
                 Text("New Chat")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13 * textScale, weight: .medium))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(Theme.amber)
@@ -138,9 +143,9 @@ struct SidebarView: View {
         let active = route == dest
         return HStack(spacing: 11) {
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(.system(size: 13 * textScale))
                 .frame(width: 15, height: 15)
-            Text(title).font(.system(size: 13, weight: .medium))
+            Text(title).font(.system(size: 13 * textScale, weight: .medium))
         }
         .foregroundStyle(active ? Theme.textHi : Theme.textMute)
         .padding(.horizontal, 11)
@@ -215,7 +220,7 @@ struct SidebarView: View {
                 .frame(width: 14)
                 .foregroundStyle(active ? Theme.amber : Theme.textDim)
             Text(project.name)
-                .font(.system(size: 12.5))
+                .font(.system(size: 12.5 * textScale))
                 .foregroundStyle(active ? Theme.textHi : Theme.textSoft)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -360,7 +365,7 @@ struct SidebarView: View {
         let isRenaming = renamingIDs.contains(convo.persistentModelID)
         return HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(convo.displayTitle)
-                .font(.system(size: 12.5))
+                .font(.system(size: 12.5 * textScale))
                 .foregroundStyle(active ? Theme.textHi : Theme.textSoft)
                 .lineLimit(1)
             if isRenaming {
@@ -389,7 +394,7 @@ struct SidebarView: View {
                 .foregroundStyle(Theme.textDim)
             TextField("Search messages", text: $searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(.system(size: 12.5 * textScale))
                 .foregroundStyle(Theme.textHi)
             if !searchText.isEmpty {
                 Button { searchText = "" } label: {
