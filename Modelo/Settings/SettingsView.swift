@@ -789,6 +789,7 @@ private struct FilesystemToolsCard: View {
 private struct AppearanceSettingsTab: View {
     @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    @AppStorage("showPersonasInSidebar") private var showPersonasInSidebar = true
 
     var body: some View {
         ScrollView {
@@ -798,6 +799,14 @@ private struct AppearanceSettingsTab: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Show menu bar icon").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
                             Text("Adds a menu bar item with a quick ephemeral chat popover.")
+                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    Toggle(isOn: $showPersonasInSidebar) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Show Personas in sidebar").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                            Text("Displays the Personas nav item in the sidebar.")
                                 .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                         }
                     }
