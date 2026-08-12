@@ -10,6 +10,15 @@ import SwiftUI
 /// mean widening the gutter silently widened this column too.
 private enum Col {
     static let star: CGFloat = 22
+    /// Name is the only flexible column, but uncapped it swallowed every spare
+    /// point and opened a ~230pt void between a model's name and its capability
+    /// pills. Capped, the leftover goes to a spacer after the pills instead, so
+    /// name + capabilities read as one group and the metrics as another.
+    ///
+    /// A max, not a fixed width — names shorter than this don't pad out to it,
+    /// and the column still shrinks below it on a narrow window. Pure taste:
+    /// raise it if provider names start truncating, lower it to tighten the row.
+    static let nameMax: CGFloat = 260
     static let caps: CGFloat = 148
     static let context: CGFloat = 74
     static let size: CGFloat = 56
@@ -18,7 +27,7 @@ private enum Col {
 }
 
 /// Dense sortable model table: sticky column header + scrollable grouped rows.
-/// Columns: name (flex) | capabilities | context | size | speed | used — see `Col`.
+/// Columns: name (flex, capped) | capabilities | context | size | speed | used — see `Col`.
 /// BENCH column omitted — no external benchmark data source.
 struct ModelTableView: View {
     let vm: ModelCatalogViewModel
@@ -126,9 +135,9 @@ private struct TableColumnHeader: View {
             // stretch to split the VStack's space with the table below it.
             Color.clear.frame(width: Col.star, height: 0)
 
-            // Name — flex, sortable
+            // Name — flexible up to Col.nameMax, sortable
             sortBtn("Name", key: .name)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: Col.nameMax, alignment: .leading)
 
             // Capabilities — fixed width, not sortable
             Text("Capabilities")
@@ -136,6 +145,10 @@ private struct TableColumnHeader: View {
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.caps, alignment: .leading)
+
+            // All spare width pools here, between the name/capabilities group and
+            // the metrics. Collapses to zero on a narrow window.
+            Spacer(minLength: 0)
 
             // Fixed sortable columns
             sortBtn("Context", key: .context).frame(width: Col.context, alignment: .trailing)
@@ -237,12 +250,12 @@ struct ModelTableRow: View {
             .buttonStyle(.plain)
             .frame(width: Col.star)
 
-            // Name (flex)
+            // Name — flexible up to Col.nameMax
             Text(model.shortName)
                 .font(Theme.metric(11))
                 .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: Col.nameMax, alignment: .leading)
 
             // Capabilities
             HStack(spacing: 3) {
@@ -253,6 +266,10 @@ struct ModelTableRow: View {
                 if model.isLoaded         { capPill("local",  Theme.amber) }
             }
             .frame(width: Col.caps, alignment: .leading)
+
+            // Mirrors the header's spacer — both must be in the same position or
+            // the metric columns stop lining up with their labels.
+            Spacer(minLength: 0)
 
             // Context
             Text(contextLabel)
