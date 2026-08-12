@@ -1,7 +1,24 @@
 import SwiftUI
 
+/// Fixed column widths, shared by `TableColumnHeader` and `ModelTableRow`.
+/// These two must agree exactly or the header drifts out of register with the
+/// rows, so they live here rather than as literals in both.
+///
+/// Deliberately separate from `Theme.gutter` — `star` holds the same value
+/// today by coincidence, and the two answer different questions ("how wide is
+/// the star column" vs "how far in does content start"). Merging them would
+/// mean widening the gutter silently widened this column too.
+private enum Col {
+    static let star: CGFloat = 22
+    static let caps: CGFloat = 148
+    static let context: CGFloat = 74
+    static let size: CGFloat = 56
+    static let speed: CGFloat = 66
+    static let used: CGFloat = 52
+}
+
 /// Dense sortable model table: sticky column header + scrollable grouped rows.
-/// Columns: name (flex) | capabilities 148pt | context 74pt | size 56pt | speed 66pt | used 52pt
+/// Columns: name (flex) | capabilities | context | size | speed | used — see `Col`.
 /// BENCH column omitted — no external benchmark data source.
 struct ModelTableView: View {
     let vm: ModelCatalogViewModel
@@ -104,27 +121,34 @@ private struct TableColumnHeader: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: 22)  // star column spacer
+            // Star column spacer. Height must be pinned too — Color is greedy in
+            // both axes, and a height-flexible child here makes the whole header
+            // stretch to split the VStack's space with the table below it.
+            Color.clear.frame(width: Col.star, height: 0)
 
             // Name — flex, sortable
             sortBtn("Name", key: .name)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Capabilities — fixed 148pt, not sortable
+            // Capabilities — fixed width, not sortable
             Text("Capabilities")
                 .font(Theme.label(8))
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
-                .frame(width: 148, alignment: .leading)
+                .frame(width: Col.caps, alignment: .leading)
 
             // Fixed sortable columns
-            sortBtn("Context", key: .context).frame(width: 74, alignment: .trailing)
-            sortBtn("Size",    key: .size)   .frame(width: 56, alignment: .trailing)
-            sortBtn("Speed",   key: .speed)  .frame(width: 66, alignment: .trailing)
-            sortBtn("Used",    key: .used)   .frame(width: 52, alignment: .trailing)
+            sortBtn("Context", key: .context).frame(width: Col.context, alignment: .trailing)
+            sortBtn("Size",    key: .size)   .frame(width: Col.size, alignment: .trailing)
+            sortBtn("Speed",   key: .speed)  .frame(width: Col.speed, alignment: .trailing)
+            sortBtn("Used",    key: .used)   .frame(width: Col.used, alignment: .trailing)
         }
         .padding(.horizontal, Theme.gutter)
-        .padding(.vertical, 3)
+        // Asymmetric on purpose: the 1pt rule below is an overlay, so it draws
+        // inside these bounds. A symmetric inset leaves the labels sitting almost
+        // on the line while the group header underneath gets 11pt of air.
+        .padding(.top, 4)
+        .padding(.bottom, 8)
         .background(Theme.windowBG)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.line).frame(height: 1)
@@ -211,7 +235,7 @@ struct ModelTableRow: View {
                     .foregroundStyle(isFavorite ? Theme.amber : Theme.fillHi)
             }
             .buttonStyle(.plain)
-            .frame(width: 22)
+            .frame(width: Col.star)
 
             // Name (flex)
             Text(model.shortName)
@@ -220,7 +244,7 @@ struct ModelTableRow: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Capabilities (148pt)
+            // Capabilities
             HStack(spacing: 3) {
                 if model.isFree           { capPill("free",   Theme.green) }
                 if model.supportsToolUse  { capPill("tools",  Theme.amber) }
@@ -228,30 +252,30 @@ struct ModelTableRow: View {
                 if model.supportsThinking { capPill("reason", Theme.purple) }
                 if model.isLoaded         { capPill("local",  Theme.amber) }
             }
-            .frame(width: 148, alignment: .leading)
+            .frame(width: Col.caps, alignment: .leading)
 
-            // Context (74pt)
+            // Context
             Text(contextLabel)
                 .font(Theme.mono(10))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
-                .frame(width: 74, alignment: .trailing)
+                .frame(width: Col.context, alignment: .trailing)
 
-            // Size (56pt)
+            // Size
             Text(model.parameterSize ?? "—")
                 .font(Theme.mono(10))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
-                .frame(width: 56, alignment: .trailing)
+                .frame(width: Col.size, alignment: .trailing)
 
-            // Speed (66pt)
+            // Speed
             Text(speedLabel)
                 .font(Theme.mono(10))
                 .monospacedDigit()
                 .foregroundStyle(speedLabel == "—" ? Theme.textFaint : Theme.textLo)
-                .frame(width: 66, alignment: .trailing)
+                .frame(width: Col.speed, alignment: .trailing)
 
-            // Used (52pt)
+            // Used
             Group {
                 if let count = usedCount {
                     Text("\(count)×")
@@ -262,7 +286,7 @@ struct ModelTableRow: View {
             .font(Theme.mono(10))
             .monospacedDigit()
             .foregroundStyle(Theme.textFaint)
-            .frame(width: 52, alignment: .trailing)
+            .frame(width: Col.used, alignment: .trailing)
         }
         .padding(.vertical, 7)
         .background(rowBackground)
