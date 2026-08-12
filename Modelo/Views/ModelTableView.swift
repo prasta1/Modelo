@@ -16,9 +16,14 @@ private enum Col {
     /// name + capabilities read as one group and the metrics as another.
     ///
     /// A max, not a fixed width — names shorter than this don't pad out to it,
-    /// and the column still shrinks below it on a narrow window. Pure taste:
-    /// raise it if provider names start truncating, lower it to tighten the row.
-    static let nameMax: CGFloat = 260
+    /// and the column still shrinks below it on a narrow window.
+    ///
+    /// Sized against the real catalog: of OpenRouter's 406 model names measured
+    /// at SF Pro medium 11pt, the widest is 262.7pt and the next is 198.3pt, so
+    /// 270 clears the single outlier with headroom to spare. Names that do
+    /// overflow ellipsize (`.lineLimit(1)`) rather than break the layout, so a
+    /// future long name degrades quietly — worth re-measuring if that matters.
+    static let nameMax: CGFloat = 270
     static let caps: CGFloat = 148
     static let context: CGFloat = 74
     static let size: CGFloat = 56
