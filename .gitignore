@@ -26,3 +26,6 @@ modelo-tap/Cargo.lock
 
 # Generated code-review reports (dated, regenerable)
 code-review-*.html
+
+# Per-developer signing overrides (each dev keeps their own, uncommitted)
+Developer.xcconfig
