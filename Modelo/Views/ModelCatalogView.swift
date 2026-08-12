@@ -8,8 +8,9 @@ struct ModelCatalogView: View {
     let onLaunch: (DiscoveredModel) -> Void
     var onRefresh: (() async -> Void)? = nil
 
-    @Environment(RotationStore.self)  private var rotation
-    @Environment(FavoritesStore.self) private var favorites
+    @Environment(RotationStore.self)         private var rotation
+    @Environment(FavoritesStore.self)        private var favorites
+    @Environment(CatalogCollapseStore.self)  private var collapse
 
     @Query(sort: \UsageRecord.timestamp, order: .reverse)
     private var usageRecords: [UsageRecord]
@@ -27,7 +28,7 @@ struct ModelCatalogView: View {
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
                         RotationTierView(vm: vm, rotation: rotation)
-                        ModelTableView(vm: vm, rotation: rotation, favorites: favorites)
+                        ModelTableView(vm: vm, rotation: rotation, favorites: favorites, collapse: collapse)
                     }
                     if showInspector {
                         ModelInspectorView(vm: vm, rotation: rotation, onLaunch: { model in
@@ -82,6 +83,9 @@ struct ModelCatalogView: View {
         .onChange(of: discovered, initial: true) { _, new in
             vm.allModels = new
             vm.onLaunch = onLaunch
+        }
+        .onChange(of: collapse.toggled, initial: true) { _, new in
+            vm.toggledGroups = new
         }
         .onChange(of: usageRecords, initial: true) { _, new in
             vm.usageRecords = new
