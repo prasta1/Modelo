@@ -56,28 +56,32 @@ struct ModelTableView: View {
         .id(item.id)
     }
 
-    /// A vendor bucket: its header plus rows, unless collapsed. Unnamed buckets
-    /// (local endpoints, no `org/` prefix) render bare — no header, no collapse.
+    /// A vendor bucket: its header plus rows, unless collapsed.
     @ViewBuilder
     private func vendorContent(endpoint: EndpointGroup, vendor: VendorGroup) -> some View {
-        if let name = vendor.name {
-            let isCollapsed = vm.isVendorCollapsed(endpoint.label, name)
+        // A lone unnamed bucket *is* the whole endpoint — local servers, or a
+        // remote one whose IDs carry no prefix. Heading it "other" would add a
+        // click and tell the reader nothing. It earns a header only when named
+        // vendors sit beside it, where the loose rows would otherwise read as
+        // strays above the groups.
+        if vendor.name == nil, endpoint.vendors.count == 1 {
+            ForEach(vendor.models) { item in
+                row(item)
+            }
+        } else {
+            let isCollapsed = vm.isVendorCollapsed(endpoint.label, vendor.id)
             VendorGroupHeader(
-                name: name,
+                name: vendor.name ?? ModelCatalogViewModel.unprefixedVendorLabel,
                 count: vendor.models.count,
                 isCollapsed: isCollapsed,
                 onToggle: {
-                    collapse.toggle(ModelCatalogViewModel.vendorKey(endpoint.label, name))
+                    collapse.toggle(ModelCatalogViewModel.vendorKey(endpoint.label, vendor.id))
                 }
             )
             if !isCollapsed {
                 ForEach(vendor.models) { item in
                     row(item)
                 }
-            }
-        } else {
-            ForEach(vendor.models) { item in
-                row(item)
             }
         }
     }

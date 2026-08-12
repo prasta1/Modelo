@@ -290,8 +290,9 @@ final class ModelCatalogViewModel {
     }
 
     /// Splits an endpoint's models on `providerID` (the `org/` prefix of an
-    /// OpenRouter-style ID). Models without a prefix are returned first in a
-    /// single unnamed bucket so local endpoints keep rendering as a flat list.
+    /// OpenRouter-style ID). Models without a prefix collect in a single unnamed
+    /// bucket, returned *last* — it renders as "other", and an "other" entry at
+    /// the top of a list reads as an error rather than a catch-all.
     ///
     /// Named buckets are alphabetical, following the Name sort direction — the
     /// vendor list is an index, and an index that reorders itself is unusable.
@@ -312,16 +313,15 @@ final class ModelCatalogViewModel {
             buckets[vendor]!.append(item)
         }
 
-        var groups: [VendorGroup] = []
-        if !unprefixed.isEmpty { groups.append(VendorGroup(name: nil, models: unprefixed)) }
         let sortedVendors = order.sorted {
             sortDescending
                 ? $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
                 : $0.localizedCaseInsensitiveCompare($1) == .orderedDescending
         }
-        groups += sortedVendors.compactMap { vendor in
+        var groups = sortedVendors.compactMap { vendor in
             buckets[vendor].map { VendorGroup(name: vendor, models: $0) }
         }
+        if !unprefixed.isEmpty { groups.append(VendorGroup(name: nil, models: unprefixed)) }
         return groups
     }
 
@@ -330,11 +330,18 @@ final class ModelCatalogViewModel {
         groups.flatMap { endpoint -> [DiscoveredModel] in
             guard !isEndpointCollapsed(endpoint.label) else { return [] }
             return endpoint.vendors.flatMap { vendor -> [DiscoveredModel] in
-                guard let name = vendor.name else { return vendor.models }
-                return isVendorCollapsed(endpoint.label, name) ? [] : vendor.models
+                // Mirrors ModelTableView.vendorContent: a lone unnamed bucket
+                // renders bare with no header, so it can never be collapsed.
+                if vendor.name == nil, endpoint.vendors.count == 1 { return vendor.models }
+                return isVendorCollapsed(endpoint.label, vendor.id) ? [] : vendor.models
             }
         }
     }
+
+    /// Display name for the bucket holding models whose IDs carry no `org/`
+    /// prefix. Only a label — the collapse key uses `VendorGroup.id` (the empty
+    /// string here), so a provider genuinely named "other" doesn't collide.
+    static let unprefixedVendorLabel = "other"
 
     // MARK: - Grouping / collapse policy
 
