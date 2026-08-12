@@ -84,7 +84,7 @@ struct ModelTableView: View {
                             .padding(.top, 48)
                         }
                     }
-                    .padding(.horizontal, 22)
+                    .padding(.horizontal, Theme.gutter)
                 }
                 .scrollIndicators(.hidden)
                 .hideScrollIndicators()
@@ -123,7 +123,7 @@ private struct TableColumnHeader: View {
             sortBtn("Speed",   key: .speed)  .frame(width: 66, alignment: .trailing)
             sortBtn("Used",    key: .used)   .frame(width: 52, alignment: .trailing)
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, Theme.gutter)
         .padding(.vertical, 3)
         .background(Theme.windowBG)
         .overlay(alignment: .bottom) {

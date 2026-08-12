@@ -2,9 +2,9 @@ import SwiftUI
 import AppKit
 
 /// Centralized design tokens for Modelo's "instrument" look — a dark,
-/// telemetry-forward control surface for local inference. Colors, fonts, and the
-/// shared chrome views all live here so the whole app stays consistent and a
-/// palette tweak happens in exactly one place.
+/// telemetry-forward control surface for local inference. Colors, fonts, layout
+/// metrics, and the shared chrome views all live here so the whole app stays
+/// consistent and a palette tweak happens in exactly one place.
 enum Theme {
 
     // MARK: Palette
@@ -43,6 +43,26 @@ enum Theme {
         static var stroke: Color       { active.stroke }
         static var strokeStrong: Color { active.strokeStrong }
     }
+
+    // MARK: Layout
+
+    /// Horizontal inset from the window edge for top-level content rows.
+    ///
+    /// Every row of a screen must use the same value — the shared left edge is
+    /// what visually aligns the search field, filter chips, rotation cards, and
+    /// table rows into one column. A single row opting out is immediately
+    /// obvious, so this is a token rather than a per-view literal.
+    ///
+    /// Not to be reused for insets *within* a component (card padding, column
+    /// widths); those are independent decisions that may match by coincidence.
+    /// `Col.star` in ModelTableView is 22 today for exactly that reason and is
+    /// deliberately not this token — widening the gutter must not widen a column.
+    ///
+    /// **When adding a new screen or top-level row, use this instead of typing a
+    /// literal.** The token only holds alignment together if every site reads it;
+    /// one hard-coded `22` looks correct today and then silently stops matching
+    /// the first time this value changes.
+    static let gutter: CGFloat = 22
 
     // MARK: Type
     // Per design preference the whole UI uses SF Pro (the system font) for one

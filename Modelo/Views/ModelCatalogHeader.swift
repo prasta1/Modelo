@@ -16,7 +16,7 @@ struct ModelCatalogHeader: View {
                 refreshButton(onRefresh)
             }
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, Theme.gutter)
         .padding(.top, 18)
         .padding(.bottom, 10)
     }

@@ -27,7 +27,7 @@ struct ModelFilterChipsView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, Theme.gutter)
         .padding(.bottom, 10)
     }
 
