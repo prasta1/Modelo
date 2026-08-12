@@ -14,6 +14,41 @@ struct ProjectLandingView: View {
     @AppStorage(MemoryStore.enabledKey) private var memoryEnabled = false
 
     var body: some View {
+        // The landing content sits in a ScrollView so its natural height stops
+        // acting as a *minimum* the window has to satisfy — without it, a project
+        // with a long file listing grew the window past the bottom of the screen.
+        // `minHeight: proxy.size.height` keeps the content vertically centered
+        // while it still fits, matching how the empty states elsewhere read.
+        GeometryReader { proxy in
+            ScrollView(.vertical) {
+                landing
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+        }
+        .background(Theme.Palette.panel)
+        .task { loadEntries(); loadMemories() }
+        .sheet(isPresented: $showMemoryManager, onDismiss: loadMemories) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Memories — \(project.name)")
+                        .font(Theme.mono(13, weight: .semibold))
+                        .foregroundStyle(Theme.textHi)
+                    Spacer()
+                    Button("Done") { showMemoryManager = false }
+                        .font(Theme.metric(11))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                Divider().overlay(Theme.line)
+                MemoryManagerView(scope: .project(path: project.path))
+            }
+            .frame(width: 700, height: 480)
+            .background(Theme.windowBG)
+        }
+    }
+
+    /// Folder header, directory listing, and memory card, centered as a group.
+    private var landing: some View {
         VStack(spacing: 0) {
             Spacer()
             VStack(spacing: 28) {
@@ -137,27 +172,6 @@ struct ProjectLandingView: View {
             }
             .padding(48)
             Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.Palette.panel)
-        .task { loadEntries(); loadMemories() }
-        .sheet(isPresented: $showMemoryManager, onDismiss: loadMemories) {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Memories — \(project.name)")
-                        .font(Theme.mono(13, weight: .semibold))
-                        .foregroundStyle(Theme.textHi)
-                    Spacer()
-                    Button("Done") { showMemoryManager = false }
-                        .font(Theme.metric(11))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                Divider().overlay(Theme.line)
-                MemoryManagerView(scope: .project(path: project.path))
-            }
-            .frame(width: 700, height: 480)
-            .background(Theme.windowBG)
         }
     }
 
