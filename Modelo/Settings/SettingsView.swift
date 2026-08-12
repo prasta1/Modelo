@@ -795,22 +795,28 @@ private struct AppearanceSettingsTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 SettingsSection("General") {
-                    Toggle(isOn: $showMenuBarIcon) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Show menu bar icon").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                            Text("Adds a menu bar item with a quick ephemeral chat popover.")
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Show menu bar icon").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                                Text("Adds a menu bar item with a quick ephemeral chat popover.")
+                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Show Personas in sidebar").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                                Text("Displays the Personas nav item in the sidebar.")
+                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                            }
+                        }
+                        VStack(spacing: 10) {
+                            Toggle("", isOn: $showMenuBarIcon)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                            Toggle("", isOn: $showPersonasInSidebar)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
                         }
                     }
-                    .toggleStyle(.switch)
-                    Toggle(isOn: $showPersonasInSidebar) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Show Personas in sidebar").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                            Text("Displays the Personas nav item in the sidebar.")
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                        }
-                    }
-                    .toggleStyle(.switch)
                 }
                 SettingsSection("Theme") {
                     VStack(spacing: 8) {

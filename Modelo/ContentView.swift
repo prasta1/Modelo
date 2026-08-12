@@ -88,6 +88,7 @@ struct ContentView: View {
     @Environment(ReachabilityMonitor.self) private var reachability
     @Environment(\.modelContext) private var context
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(RotationStore.self) private var rotationStore
     @Query(sort: \Server.sortOrder) private var servers: [Server]
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @State private var route: SidebarRoute?
@@ -260,13 +261,9 @@ struct ContentView: View {
     }
 
     private var launcher: some View {
-        LauncherView(
+        ModelCatalogView(
             discovered: discoveredWithLiveState,
-            endpointFilter: $endpointFilter,
             onLaunch: { model in Task { await launch(model: model) } },
-            onUnload: handleModelEject,
-            onPin: { item in await handleModelPin(server: item.server, modelID: item.model.id) },
-            onUnpin: { item in await handleModelUnpin(server: item.server, modelID: item.model.id) },
             onRefresh: { await refreshModels() }
         )
     }
@@ -424,7 +421,7 @@ struct ContentView: View {
     private func restoreRoute() {
         guard route == nil else { return }
         if storedRoute.isEmpty {
-            route = .status
+            route = .launcher
             return
         }
         switch storedRoute {
@@ -529,8 +526,10 @@ struct ContentView: View {
 
     /// `discovered` overlaid with live loaded/keepInRam state from the 3-second monitor poll.
     /// Since `monitor` is @Observable, SwiftUI re-renders the launcher automatically each poll cycle.
+    /// Filters paused servers here (not just in refreshModels) so the UI responds immediately when
+    /// isPaused is toggled, without waiting for the async refresh to complete.
     private var discoveredWithLiveState: [DiscoveredModel] {
-        discovered.map { item in
+        discovered.filter { !$0.server.isPaused }.map { item in
             guard item.server.kind == .lmStudio || item.server.kind == .exo else { return item }
             let snapshot = monitor.snapshot(for: item.server)
             let liveModel = snapshot?.models.first(where: { $0.id == item.model.id })

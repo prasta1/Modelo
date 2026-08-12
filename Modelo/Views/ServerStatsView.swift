@@ -11,8 +11,10 @@ struct ServerStatsView: View {
     @Environment(ServerRegistry.self) private var registry
     @Environment(ServerMonitor.self) private var monitor
 
+    private var activeServers: [Server] { servers.filter { !$0.isPaused } }
+
     private var selectedServer: Server? {
-        servers.first { $0.id == endpointFilter } ?? servers.first
+        activeServers.first { $0.id == endpointFilter } ?? activeServers.first
     }
 
     var body: some View {
@@ -46,11 +48,11 @@ struct ServerStatsView: View {
     private var pillStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(servers) { server in
+                ForEach(activeServers) { server in
                     ServerPill(
                         server: server,
                         status: registry.status(for: server),
-                        // Compare against selectedServer (falls back to first) rather than
+                        // Compare against selectedServer (falls back to first active) rather than
                         // seeding endpointFilter onAppear — writing the shared filter here
                         // silently filtered the Models launcher too.
                         isActive: selectedServer?.id == server.id

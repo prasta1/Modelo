@@ -15,6 +15,7 @@ struct ModeloApp: App {
     @State private var prometheusMonitor = PrometheusMonitor()
     @State private var mcpManager = MCPServerManager()
     @State private var favoritesStore = FavoritesStore()
+    @State private var rotationStore = RotationStore()
     @State private var projectStore = ProjectStore()
     // Owned here, not in ContentView, so the notification-center delegate it holds
     // outlives any window: the app keeps running menu-bar-only after the main window
@@ -108,6 +109,7 @@ struct ModeloApp: App {
                 .environment(prometheusMonitor)
                 .environment(mcpManager)
                 .environment(favoritesStore)
+                .environment(rotationStore)
                 .environment(projectStore)
                 .environment(reachabilityMonitor)
                 .environment(notifier)
@@ -121,6 +123,8 @@ struct ModeloApp: App {
                         if let window = NSApp.keyWindow {
                             window.center()
                             window.titlebarAppearsTransparent = true
+                            window.backgroundColor = NSColor(Theme.windowBG)
+                            window.appearance = NSAppearance(named: .darkAqua)
                         }
                     }
                 }
@@ -174,6 +178,7 @@ struct ModeloApp: App {
                 .environment(serverMonitor)
                 .environment(mcpManager)
                 .environment(favoritesStore)
+                .environment(rotationStore)
                 .modelContainer(container)
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)
