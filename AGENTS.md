@@ -58,9 +58,12 @@ Full rationale in `Modelo/Modelo.entitlements`.
 
 ```bash
 xcodegen generate   # only needed if files were added/removed
-# Local team ID from the dev certificate (OU field):
+# Local team ID from the dev certificate (OU field). openssl 3 prints a
+# comma-separated subject (`..., OU=XXXXXXXXXX, O=...`), so stop at the comma —
+# grabbing to the next `/` swallows O= and C= and xcodebuild then fails with
+# "No Account for Team".
 TEAM_ID=$(security find-certificate -c "Apple Development" -p \
-  | openssl x509 -noout -subject | sed -n 's/.*OU=\([^\/]*\).*/\1/p')
+  | openssl x509 -noout -subject | sed -n 's/.*OU *= *\([^,/]*\).*/\1/p')
 xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Release \
   -destination 'platform=macOS' -derivedDataPath build-release build \
   -allowProvisioningUpdates DEVELOPMENT_TEAM="$TEAM_ID"
