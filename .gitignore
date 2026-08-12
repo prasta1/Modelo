@@ -23,3 +23,6 @@ modelo-tap/Cargo.lock
 /build/
 /build-release/
 .worktrees/
+
+# Generated code-review reports (dated, regenerable)
+code-review-*.html
