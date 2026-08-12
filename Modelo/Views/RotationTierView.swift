@@ -23,7 +23,7 @@ struct RotationTierView: View {
                         .font(Theme.metric(9))
                         .foregroundStyle(Theme.textFaint.opacity(0.45))
                 }
-                .padding(.horizontal, 22)
+                .padding(.horizontal, Theme.gutter)
 
                 HStack(spacing: 9) {
                     ForEach(0..<4, id: \.self) { slot in
@@ -45,7 +45,7 @@ struct RotationTierView: View {
                         .frame(maxWidth: .infinity)
                     }
                 }
-                .padding(.horizontal, 22)
+                .padding(.horizontal, Theme.gutter)
             }
             .padding(.top, 4)
             .padding(.bottom, 10)
@@ -59,7 +59,7 @@ struct RotationTierView: View {
                     .font(Theme.metric(9))
                     .foregroundStyle(Theme.textFaint.opacity(0.3))
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, Theme.gutter)
             .padding(.vertical, 7)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(Theme.line.opacity(0.4)).frame(height: 1)
