@@ -16,9 +16,15 @@ enum OpenRouterCatalog {
             || id.hasSuffix(":free")
         let tools = e.supported_parameters?.contains("tools") ?? false
         let vision = e.architecture?.input_modalities?.contains("image") ?? false
+        // `output_modalities == ["embeddings"]` is the authoritative embedding
+        // signal, and `type` must carry it: LMStudioModel.isEmbeddingModel trusts
+        // `type` exclusively when set, so anything else here silently disables the
+        // embedding filter at every call site. It also beats the id heuristic the
+        // nil-type path falls back to — that misses bge/e5-style names entirely.
+        let isEmbedding = e.architecture?.output_modalities == ["embeddings"]
         return LMStudioModel(
             id: id, object: "model",
-            type: vision ? "vlm" : "llm",
+            type: isEmbedding ? "embeddings" : (vision ? "vlm" : "llm"),
             arch: nil, quantization: nil, state: nil,
             maxContextLength: e.context_length,
             publisher: nil,
@@ -37,5 +43,8 @@ enum OpenRouterCatalog {
         let supported_parameters: [String]?
     }
     private struct Pricing: Decodable { let prompt: String?; let completion: String? }
-    private struct Architecture: Decodable { let input_modalities: [String]? }
+    private struct Architecture: Decodable {
+        let input_modalities: [String]?
+        let output_modalities: [String]?
+    }
 }
