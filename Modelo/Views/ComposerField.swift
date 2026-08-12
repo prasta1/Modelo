@@ -16,6 +16,10 @@ struct ComposerField: NSViewRepresentable {
     /// consume the key (the cursor doesn't move); nil/false lets the text view handle it.
     var onMoveUp: (() -> Bool)? = nil
     var onMoveDown: (() -> Bool)? = nil
+    /// Called when the user pastes (⌘V) an image (e.g. a screenshot). Return true to
+    /// consume the paste so the image becomes a chat attachment instead of an inline
+    /// text character; nil/false lets the text view paste normally.
+    var onPasteImage: ((NSImage) -> Bool)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -33,6 +37,7 @@ struct ComposerField: NSViewRepresentable {
         tv.onFocusChange = { focused in
             DispatchQueue.main.async { if isFocused != focused { isFocused = focused } }
         }
+        tv.onPasteImage = onPasteImage
         // Let the text view grow vertically inside the scroll view while its width
         // tracks the visible area (so lines wrap instead of scrolling horizontally).
         tv.isVerticallyResizable = true
@@ -57,6 +62,7 @@ struct ComposerField: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let tv = scroll.documentView as? PlaceholderTextView else { return }
         context.coordinator.parent = self
+        tv.onPasteImage = onPasteImage
         if tv.string != text { tv.string = text }
         if tv.font?.pointSize != fontSize { tv.font = .systemFont(ofSize: fontSize) }
         tv.placeholder = placeholder
@@ -114,6 +120,9 @@ struct ComposerField: NSViewRepresentable {
 final class PlaceholderTextView: NSTextView {
     var placeholder: String = ""
     var onFocusChange: ((Bool) -> Void)?
+    /// Called when the user pastes (⌘V) an image. Returning true consumes the paste
+    /// (the image becomes a chat attachment); false/nil falls back to text paste.
+    var onPasteImage: ((NSImage) -> Bool)? = nil
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
@@ -124,6 +133,27 @@ final class PlaceholderTextView: NSTextView {
         let ok = super.resignFirstResponder()
         if ok { onFocusChange?(false) }
         return ok
+    }
+
+    /// Keep the Paste command (and ⌘V) enabled when the clipboard holds only an image
+    /// (e.g. a screenshot). The plain-text text view disables Paste by default when
+    /// no text is present, which would stop `paste(_:)` from ever firing on the vision
+    /// path. `canReadObject` is a non-consuming check, safe to call on menu validation.
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(paste(_:)),
+           NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: [:]) {
+            return true
+        }
+        return super.validateMenuItem(menuItem)
+    }
+
+    /// Intercept ⌘V: if an image (e.g. a screenshot) is on the clipboard, hand it to
+    /// `onPasteImage` so it lands as a chat attachment instead of inline text. Text
+    /// pastes fall through to the default NSTextView behavior unchanged.
+    override func paste(_ sender: Any?) {
+        let images = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: [:]) as? [NSImage]
+        if let image = images?.first, onPasteImage?(image) == true { return }
+        super.paste(sender)
     }
 
     override func draw(_ dirtyRect: NSRect) {
