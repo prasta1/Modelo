@@ -243,15 +243,20 @@ private struct CatalogGroupHeader: View {
     var isCollapsed: Bool? = nil
     var onToggle: (() -> Void)? = nil
 
-    var body: some View {
+    private var content: some View {
         HStack(spacing: 5) {
-            if let isCollapsed {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(Theme.textFaint)
-                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                    .frame(width: 8)
+            // Reserve the gutter whether or not a chevron is drawn — the LOADED
+            // section passes no chevron, and without this its label lands 13pt
+            // left of every other endpoint header.
+            Group {
+                if let isCollapsed {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Theme.textFaint)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                }
             }
+            .frame(width: 8)
 
             Circle()
                 .fill(isLocal ? Theme.amber : Theme.textFaint)
@@ -272,15 +277,34 @@ private struct CatalogGroupHeader: View {
         .padding(.vertical, 7)
         .padding(.top, 4)
         .background(Theme.windowBG)
-        .contentShape(Rectangle())
-        .onTapGesture { onToggle?() }
+    }
+
+    var body: some View {
+        // Only a control when it can actually collapse. The LOADED section has no
+        // vendor tree, so it stays plain text rather than a full-width tap target
+        // that does nothing.
+        if let isCollapsed, let onToggle {
+            Button(action: onToggle) { content }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(label), \(count) models")
+                .accessibilityHint(isCollapsed ? "Expand" : "Collapse")
+                .accessibilityAddTraits(isCollapsed ? [] : .isSelected)
+        } else {
+            content
+        }
     }
 }
 
 // MARK: - Vendor Group Header
 
-/// Second-level header inside an endpoint (`anthropic`, `openai`, …). Indented
-/// to the Name column so the vendor list reads as an index of what's beneath it.
+/// Second-level header inside an endpoint (`anthropic`, `openai`, …).
+///
+/// The chevron occupies the star column rather than sitting inside an inset, so
+/// the vendor name lands on the same 22pt spine as the model names below it, the
+/// endpoint label above it, and the `Name` column header. Indenting it instead
+/// put the header 13pt to the *right* of the rows it contains — inverted nesting.
+/// The rows can't move to fix that: `TableColumnHeader` reserves `Col.star`, so
+/// shifting names breaks column alignment. Depth is carried by type and colour.
 private struct VendorGroupHeader: View {
     let name: String
     let count: Int
@@ -290,29 +314,33 @@ private struct VendorGroupHeader: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 7, weight: .bold))
-                .foregroundStyle(Theme.textFaint.opacity(0.7))
-                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                .frame(width: 8)
+        Button(action: onToggle) {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(Theme.textFaint.opacity(0.7))
+                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    .frame(width: Col.star)
 
-            Text(name)
-                .font(Theme.metric(10))
-                .foregroundStyle(isCollapsed ? Theme.textFaint : Theme.textMid)
+                Text(name)
+                    .font(Theme.metric(10))
+                    .foregroundStyle(isCollapsed ? Theme.textFaint : Theme.textMid)
 
-            Text("\(count)")
-                .font(Theme.mono(9))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textFaint.opacity(0.5))
+                Text("\(count)")
+                    .font(Theme.mono(9))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textFaint.opacity(0.5))
 
-            Spacer()
+                Spacer()
+            }
+            .padding(.vertical, 5)
+            .background(hovering ? Theme.fillHi : .clear)
+            .contentShape(Rectangle())
         }
-        .padding(.leading, Col.star)
-        .padding(.vertical, 5)
-        .background(hovering ? Theme.fillHi : .clear)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onToggle)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(name), \(count) models")
+        .accessibilityHint(isCollapsed ? "Expand" : "Collapse")
+        .accessibilityAddTraits(isCollapsed ? [] : .isSelected)
         .onHover { hovering = $0 }
     }
 }
