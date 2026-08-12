@@ -38,6 +38,49 @@ struct ModelTableView: View {
     let vm: ModelCatalogViewModel
     let rotation: RotationStore
     let favorites: FavoritesStore
+    let collapse: CatalogCollapseStore
+
+    /// One model row. Extracted because it is emitted from three places
+    /// (flattened, loaded, and inside a vendor group) with identical wiring.
+    @ViewBuilder
+    private func row(_ item: DiscoveredModel) -> some View {
+        ModelTableRow(
+            item: item,
+            isSelected: vm.selectedID == item.id,
+            isFavorite: favorites.isFavorite(item.model.id),
+            speedLabel: vm.speedLabel(for: item.id),
+            usedCount: vm.usageCount(for: item.id),
+            onSelect: { vm.selectedID = item.id },
+            onToggleFav: { favorites.toggle(item.model.id) }
+        )
+        .id(item.id)
+    }
+
+    /// A vendor bucket: its header plus rows, unless collapsed. Unnamed buckets
+    /// (local endpoints, no `org/` prefix) render bare — no header, no collapse.
+    @ViewBuilder
+    private func vendorContent(endpoint: EndpointGroup, vendor: VendorGroup) -> some View {
+        if let name = vendor.name {
+            let isCollapsed = vm.isVendorCollapsed(endpoint.label, name)
+            VendorGroupHeader(
+                name: name,
+                count: vendor.models.count,
+                isCollapsed: isCollapsed,
+                onToggle: {
+                    collapse.toggle(ModelCatalogViewModel.vendorKey(endpoint.label, name))
+                }
+            )
+            if !isCollapsed {
+                ForEach(vendor.models) { item in
+                    row(item)
+                }
+            }
+        } else {
+            ForEach(vendor.models) { item in
+                row(item)
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,51 +91,47 @@ struct ModelTableView: View {
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
 
-                        // LOADED ON <hostname>
-                        if !vm.loadedModels.isEmpty {
-                            Section {
-                                ForEach(vm.loadedModels) { item in
-                                    ModelTableRow(
-                                        item: item,
-                                        isSelected: vm.selectedID == item.id,
-                                        isFavorite: favorites.isFavorite(item.model.id),
-                                        speedLabel: vm.speedLabel(for: item.id),
-                                        usedCount: vm.usageCount(for: item.id),
-                                        onSelect: { vm.selectedID = item.id },
-                                        onToggleFav: { favorites.toggle(item.model.id) }
-                                    )
-                                    .id(item.id)
-                                }
-                            } header: {
-                                CatalogGroupHeader(
-                                    label: "Loaded on \(vm.localHostname)".uppercased(),
-                                    count: vm.loadedModels.count,
-                                    isLocal: true
-                                )
+                        // Metric sorts dissolve grouping into one global ranking.
+                        if vm.isFlattened {
+                            ForEach(vm.flatRows) { item in
+                                row(item)
                             }
-                        }
-
-                        // Remote provider groups
-                        ForEach(vm.groupedRemote, id: \.name) { group in
-                            Section {
-                                ForEach(group.models) { item in
-                                    ModelTableRow(
-                                        item: item,
-                                        isSelected: vm.selectedID == item.id,
-                                        isFavorite: favorites.isFavorite(item.model.id),
-                                        speedLabel: vm.speedLabel(for: item.id),
-                                        usedCount: vm.usageCount(for: item.id),
-                                        onSelect: { vm.selectedID = item.id },
-                                        onToggleFav: { favorites.toggle(item.model.id) }
+                        } else {
+                            // LOADED ON <hostname>
+                            if !vm.loadedModels.isEmpty {
+                                Section {
+                                    ForEach(vm.loadedModels) { item in
+                                        row(item)
+                                    }
+                                } header: {
+                                    CatalogGroupHeader(
+                                        label: "Loaded on \(vm.localHostname)".uppercased(),
+                                        count: vm.loadedModels.count,
+                                        isLocal: true
                                     )
-                                    .id(item.id)
                                 }
-                            } header: {
-                                CatalogGroupHeader(
-                                    label: group.name.uppercased(),
-                                    count: group.models.count,
-                                    isLocal: false
-                                )
+                            }
+
+                            // Endpoint groups, each holding vendor sub-groups.
+                            // Only the endpoint header is a Section header, so it
+                            // is the one that stays pinned while scrolling; vendor
+                            // headers scroll with their rows.
+                            ForEach(vm.groupedRemote) { endpoint in
+                                Section {
+                                    if !vm.isEndpointCollapsed(endpoint.label) {
+                                        ForEach(endpoint.vendors) { vendor in
+                                            vendorContent(endpoint: endpoint, vendor: vendor)
+                                        }
+                                    }
+                                } header: {
+                                    CatalogGroupHeader(
+                                        label: endpoint.label.uppercased(),
+                                        count: endpoint.modelCount,
+                                        isLocal: endpoint.isLocal,
+                                        isCollapsed: vm.isEndpointCollapsed(endpoint.label),
+                                        onToggle: { collapse.toggle(ModelCatalogViewModel.endpointKey(endpoint.label)) }
+                                    )
+                                }
                             }
                         }
 
@@ -196,9 +235,20 @@ private struct CatalogGroupHeader: View {
     let label: String
     let count: Int
     let isLocal: Bool
+    /// nil for the LOADED section, which has no vendor tree and never collapses.
+    var isCollapsed: Bool? = nil
+    var onToggle: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 5) {
+            if let isCollapsed {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(Theme.textFaint)
+                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    .frame(width: 8)
+            }
+
             Circle()
                 .fill(isLocal ? Theme.amber : Theme.textFaint)
                 .frame(width: 4, height: 4)
@@ -218,6 +268,48 @@ private struct CatalogGroupHeader: View {
         .padding(.vertical, 7)
         .padding(.top, 4)
         .background(Theme.windowBG)
+        .contentShape(Rectangle())
+        .onTapGesture { onToggle?() }
+    }
+}
+
+// MARK: - Vendor Group Header
+
+/// Second-level header inside an endpoint (`anthropic`, `openai`, …). Indented
+/// to the Name column so the vendor list reads as an index of what's beneath it.
+private struct VendorGroupHeader: View {
+    let name: String
+    let count: Int
+    let isCollapsed: Bool
+    let onToggle: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 7, weight: .bold))
+                .foregroundStyle(Theme.textFaint.opacity(0.7))
+                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                .frame(width: 8)
+
+            Text(name)
+                .font(Theme.metric(10))
+                .foregroundStyle(isCollapsed ? Theme.textFaint : Theme.textMid)
+
+            Text("\(count)")
+                .font(Theme.mono(9))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textFaint.opacity(0.5))
+
+            Spacer()
+        }
+        .padding(.leading, Col.star)
+        .padding(.vertical, 5)
+        .background(hovering ? Theme.fillHi : .clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggle)
+        .onHover { hovering = $0 }
     }
 }
 

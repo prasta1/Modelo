@@ -17,6 +17,27 @@ enum CatalogSort: String, CaseIterable, Identifiable {
     }
 }
 
+/// A vendor bucket inside an endpoint (`anthropic`, `openai`, …).
+///
+/// `name` is nil for models whose IDs carry no `org/` prefix — local servers —
+/// which render directly under the endpoint with no intermediate level rather
+/// than inside a pointless one-bucket group.
+struct VendorGroup: Identifiable {
+    let name: String?
+    let models: [DiscoveredModel]
+    var id: String { name ?? "" }
+}
+
+/// One registered endpoint and its models, bucketed by vendor.
+struct EndpointGroup: Identifiable {
+    let label: String
+    let isLocal: Bool
+    /// Total across all vendors, shown on the header while collapsed.
+    let modelCount: Int
+    let vendors: [VendorGroup]
+    var id: String { label }
+}
+
 /// All filter/sort/selection state for ModelCatalogView. Derived collections
 /// are cached in didSet so ForEach never sorts/filters inline.
 @Observable @MainActor
@@ -27,6 +48,10 @@ final class ModelCatalogViewModel {
     var allModels: [DiscoveredModel] = []    { didSet { recompute() } }
     var usageRecords: [UsageRecord] = []     { didSet { recomputeUsage(); recompute() } }
     var favoriteIDs: Set<String> = []        { didSet { recompute() } }
+    /// Group keys the user has toggled away from their default state, mirrored in
+    /// from `CatalogCollapseStore`. Drives which rows exist at all, so it has to
+    /// recompute — collapsed rows must not be reachable by keyboard either.
+    var toggledGroups: Set<String> = []      { didSet { recompute() } }
 
     // MARK: - Filter / sort state
 
@@ -47,7 +72,12 @@ final class ModelCatalogViewModel {
     // MARK: - Cached derived collections
 
     private(set) var loadedModels: [DiscoveredModel] = []
-    private(set) var groupedRemote: [(name: String, models: [DiscoveredModel])] = []
+    private(set) var groupedRemote: [EndpointGroup] = []
+    /// Populated only while `isFlattened` — the single global ranking that
+    /// replaces all grouping under a metric sort. Empty otherwise.
+    private(set) var flatRows: [DiscoveredModel] = []
+    /// Every row the user can actually see, in visual order. Drives ↑/↓ nav, so
+    /// it deliberately excludes anything inside a collapsed group.
     private(set) var flatVisible: [DiscoveredModel] = []
 
     // MARK: - Usage-derived stats (keyed by LMStudioModel.id)
@@ -200,26 +230,141 @@ final class ModelCatalogViewModel {
         let filtered = applyFilters(allModels)
         let sorted = applySort(filtered)
 
+        // Metric sorts dissolve the grouping entirely. Ranking inside 59 vendor
+        // buckets would answer "the fastest anthropic model" 59 times over
+        // rather than "the fastest model", which is what sorting by Speed means.
+        guard !isFlattened else {
+            loadedModels = []
+            groupedRemote = []
+            flatRows = sorted
+            flatVisible = sorted
+            return
+        }
+
         let loaded = sorted.filter { $0.model.isLoaded }
         let notLoaded = sorted.filter { !$0.model.isLoaded }
 
-        var groupMap: [String: [DiscoveredModel]] = [:]
-        var groupOrder: [String] = []
-        for item in notLoaded {
+        let groups = buildGroups(notLoaded)
+        loadedModels = loaded
+        groupedRemote = groups
+        flatRows = []
+        flatVisible = loaded + visibleModels(in: groups)
+    }
+
+    /// Buckets models by endpoint, then by vendor within each endpoint.
+    ///
+    /// Local endpoints are hoisted above remote ones; within each half, order
+    /// follows first appearance in the sorted list. Partitioned with two filters
+    /// rather than a sort predicate because `sorted(by:)` is not guaranteed
+    /// stable, and that would scramble the within-half ordering.
+    private func buildGroups(_ items: [DiscoveredModel]) -> [EndpointGroup] {
+        var order: [String] = []
+        var byEndpoint: [String: [DiscoveredModel]] = [:]
+        var localFlags: [String: Bool] = [:]
+
+        for item in items {
             let key = item.server.label
-            if groupMap[key] == nil {
-                groupMap[key] = []
-                groupOrder.append(key)
+            if byEndpoint[key] == nil {
+                byEndpoint[key] = []
+                order.append(key)
+                localFlags[key] = item.server.kind.isLocal
             }
-            groupMap[key]!.append(item)
+            byEndpoint[key]!.append(item)
         }
 
-        loadedModels = loaded
-        groupedRemote = groupOrder.compactMap { name in
-            guard let models = groupMap[name], !models.isEmpty else { return nil }
-            return (name: name, models: models)
+        let groups: [EndpointGroup] = order.compactMap { label in
+            guard let models = byEndpoint[label], !models.isEmpty else { return nil }
+            let isLocal = localFlags[label] ?? false
+            // Local endpoints never sub-group. Their IDs can carry a slash too
+            // (`mlx-community/Qwen2.5-7B-Instruct`), so bucketing on the prefix
+            // would file the models you actually run behind a vendor group that
+            // defaults to collapsed. A handful of local models is not a wall.
+            return EndpointGroup(
+                label: label,
+                isLocal: isLocal,
+                modelCount: models.count,
+                vendors: isLocal ? [VendorGroup(name: nil, models: models)] : bucketByVendor(models)
+            )
         }
-        flatVisible = loaded + notLoaded
+        return groups.filter(\.isLocal) + groups.filter { !$0.isLocal }
+    }
+
+    /// Splits an endpoint's models on `providerID` (the `org/` prefix of an
+    /// OpenRouter-style ID). Models without a prefix are returned first in a
+    /// single unnamed bucket so local endpoints keep rendering as a flat list.
+    ///
+    /// Named buckets are alphabetical, following the Name sort direction — the
+    /// vendor list is an index, and an index that reorders itself is unusable.
+    private func bucketByVendor(_ models: [DiscoveredModel]) -> [VendorGroup] {
+        var order: [String] = []
+        var buckets: [String: [DiscoveredModel]] = [:]
+        var unprefixed: [DiscoveredModel] = []
+
+        for item in models {
+            guard let vendor = item.model.providerID else {
+                unprefixed.append(item)
+                continue
+            }
+            if buckets[vendor] == nil {
+                buckets[vendor] = []
+                order.append(vendor)
+            }
+            buckets[vendor]!.append(item)
+        }
+
+        var groups: [VendorGroup] = []
+        if !unprefixed.isEmpty { groups.append(VendorGroup(name: nil, models: unprefixed)) }
+        let sortedVendors = order.sorted {
+            sortDescending
+                ? $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+                : $0.localizedCaseInsensitiveCompare($1) == .orderedDescending
+        }
+        groups += sortedVendors.compactMap { vendor in
+            buckets[vendor].map { VendorGroup(name: vendor, models: $0) }
+        }
+        return groups
+    }
+
+    /// Flattens the groups down to only what is on screen, for keyboard nav.
+    private func visibleModels(in groups: [EndpointGroup]) -> [DiscoveredModel] {
+        groups.flatMap { endpoint -> [DiscoveredModel] in
+            guard !isEndpointCollapsed(endpoint.label) else { return [] }
+            return endpoint.vendors.flatMap { vendor -> [DiscoveredModel] in
+                guard let name = vendor.name else { return vendor.models }
+                return isVendorCollapsed(endpoint.label, name) ? [] : vendor.models
+            }
+        }
+    }
+
+    // MARK: - Grouping / collapse policy
+
+    /// Grouping applies only under the Name sort; every metric sort flattens.
+    var isFlattened: Bool { sortKey != .name }
+
+    /// A live query expands everything. A collapsed group swallowing matches
+    /// reads as "no results", which is worse than a long list.
+    var isSearching: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    static func endpointKey(_ label: String) -> String { "ep|\(label)" }
+    static func vendorKey(_ endpoint: String, _ vendor: String) -> String { "v|\(endpoint)|\(vendor)" }
+
+    /// Endpoints default to expanded — folding one away is a deliberate act.
+    func isEndpointCollapsed(_ label: String) -> Bool {
+        guard !isSearching else { return false }
+        return toggledGroups.contains(Self.endpointKey(label))
+    }
+
+    /// Vendor groups also default to expanded.
+    ///
+    /// Defaulting them collapsed was tried and reverted: 59 header rows with no
+    /// models under them reads as a screen that failed to load, not as an index.
+    /// Grouping stays purely additive — everything is visible on open, and the
+    /// user folds away what they don't want, which then persists.
+    func isVendorCollapsed(_ endpoint: String, _ vendor: String) -> Bool {
+        guard !isSearching else { return false }
+        return toggledGroups.contains(Self.vendorKey(endpoint, vendor))
     }
 
     private func applyFilters(_ models: [DiscoveredModel]) -> [DiscoveredModel] {

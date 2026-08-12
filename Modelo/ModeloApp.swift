@@ -16,6 +16,7 @@ struct ModeloApp: App {
     @State private var mcpManager = MCPServerManager()
     @State private var favoritesStore = FavoritesStore()
     @State private var rotationStore = RotationStore()
+    @State private var catalogCollapseStore = CatalogCollapseStore()
     @State private var projectStore = ProjectStore()
     // Owned here, not in ContentView, so the notification-center delegate it holds
     // outlives any window: the app keeps running menu-bar-only after the main window
@@ -110,6 +111,7 @@ struct ModeloApp: App {
                 .environment(mcpManager)
                 .environment(favoritesStore)
                 .environment(rotationStore)
+                .environment(catalogCollapseStore)
                 .environment(projectStore)
                 .environment(reachabilityMonitor)
                 .environment(notifier)
@@ -179,6 +181,7 @@ struct ModeloApp: App {
                 .environment(mcpManager)
                 .environment(favoritesStore)
                 .environment(rotationStore)
+                .environment(catalogCollapseStore)
                 .modelContainer(container)
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)
