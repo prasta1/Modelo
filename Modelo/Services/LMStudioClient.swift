@@ -378,6 +378,15 @@ final class LMStudioClient: ChatProvider {
             let (bytes, response) = try await session.bytes(for: request)
             guard let http = response as? HTTPURLResponse else { throw ClientError.unreachable }
             guard (200..<300).contains(http.statusCode) else {
+                // Classify auth the way the GET path above does, so an expired or
+                // revoked key surfaces as "needs an API key" instead of whatever the
+                // provider happens to call it — OpenRouter answers a bad key with
+                // "User not found.", which reads like a model error, not a key one.
+                // Deliberately 401/403 only: OpenRouter uses 402 for exhausted
+                // credits, whose real message is worth passing through.
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    throw ClientError.authRequired
+                }
                 // Read the error body to surface the actual message (e.g. model-specific
                 // rejections from Gemma or other strict backends).
                 var errorData = Data()

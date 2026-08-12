@@ -286,7 +286,14 @@ final class ChatSession {
                     assistant.content += pendingContent
                 }
             } catch {
-                Log.chat.error("Turn failed: \(error.localizedDescription, privacy: .public)")
+                // Name the server and model: the message alone can't be traced back
+                // to an endpoint, and provider wording ("User not found.") gives no
+                // hint which one answered.
+                Log.chat.error("""
+                    Turn failed on \(server.label, privacy: .public) \
+                    model=\(conversation.modelID, privacy: .public): \
+                    \(error.localizedDescription, privacy: .public)
+                    """)
                 errorText = (error as? ClientError)?.errorDescription ?? error.localizedDescription
                 if assistant.content.isEmpty && assistant.toolCallsJSON == nil {
                     conversation.dropLeaf(assistant)
