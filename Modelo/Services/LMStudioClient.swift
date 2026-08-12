@@ -58,13 +58,18 @@ final class LMStudioClient: ChatProvider {
             return try JSONDecoder().decode(ModelsResponse.self, from: data).data
                 .filter { !$0.isEmbeddingModel }
         case .nous:
-            // Nous Research uses a standard OpenAI-compatible models endpoint with no pricing data.
-            // Mark all models isFree so they appear under the free filter — the user has opted in
-            // with their own API key and isn't choosing between free/paid tiers like on OpenRouter.
+            // Nous returns the OpenRouter `/models` schema — pricing, context_length,
+            // supported_parameters, architecture — so decode it the same way.
+            //
+            // This previously used the plain OpenAI decode and force-set isFree on every
+            // model, on the assumption that the endpoint carried no pricing. It does:
+            // all 358 models price out, and the 5 free ones are marked both by a "0"
+            // price and a `:free` suffix, which is exactly what OpenRouterCatalog reads.
+            // The old path also lost maxContextLength (it looks for `max_context_length`;
+            // Nous sends `context_length`) and the authoritative tool-use flag.
             let data = try await authedGet(path: "/models", endpoint: endpoint)
-            return try JSONDecoder().decode(ModelsResponse.self, from: data).data
+            return try OpenRouterCatalog.models(from: data)
                 .filter { !$0.isEmbeddingModel }
-                .map { var m = $0; m.isFree = true; return m }
         case .lmStudio:
             if let rich = try? await fetch(path: "/api/v0/models", endpoint: endpoint) {
                 return rich.filter { !$0.isEmbeddingModel }
