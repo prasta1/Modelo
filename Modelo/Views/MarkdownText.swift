@@ -47,6 +47,28 @@ extension MarkdownUI.Theme {
             .codeBlock { configuration in
                 ModeloCodeBlock(configuration: configuration, fontSize: fontSize)
             }
+            .table { configuration in
+                ModeloTable(configuration: configuration)
+            }
+            .tableCell { configuration in
+                configuration.label
+                    .markdownTextStyle {
+                        if configuration.row == 0 {
+                            FontWeight(.semibold)
+                            FontSize(fontSize * 0.8)
+                            ForegroundColor(Theme.textDim)
+                        }
+                        // Inline code inherits `fillHi`, which double-tints against
+                        // the header/zebra row fills.
+                        BackgroundColor(nil)
+                    }
+                    .textCase(configuration.row == 0 ? .uppercase : nil)
+                    // Let a cell grow vertically to fit wrapped text rather than
+                    // forcing every row to one line.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 11)
+            }
     }
 }
 
@@ -104,6 +126,82 @@ private struct ModeloCodeBlock: View {
             try? await Task.sleep(for: .seconds(1.2))
             copied = false
         }
+    }
+}
+
+// MARK: - Tables
+
+/// A Markdown table as a self-contained panel: tinted header row, hairline rules
+/// between rows, no vertical rules, and a copy button revealed on hover.
+///
+/// Deliberately *not* wrapped in a horizontal `ScrollView`. A scroll view proposes
+/// an unbounded width to its content, so the underlying `Grid` would size every
+/// cell to one unwrapped line. Left alone, the grid inherits the message column's
+/// definite width and wraps cells to fit — which is what we want for the
+/// prose-heavy tables models actually emit.
+private struct ModeloTable: View {
+    let configuration: BlockConfiguration
+    @Environment(\.openWindow) private var openWindow
+    @State private var hovering = false
+    @State private var copied = false
+
+    var body: some View {
+        configuration.label
+            .markdownTableBorderStyle(
+                TableBorderStyle(.insideHorizontalBorders, color: Theme.line, width: 1)
+            )
+            .markdownTableBackgroundStyle(
+                .alternatingRows(Theme.fill, .clear, header: Theme.fillHi)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.line))
+            .overlay(alignment: .topTrailing) { toolbar }
+            .onHover { hovering = $0 }
+            .markdownMargin(top: 8, bottom: 8)
+    }
+
+    /// Expand + copy, revealed on hover. Both carry real titles rather than bare
+    /// icons: `.help()` supplies a tooltip but leaves VoiceOver reading an
+    /// unlabeled button, so the title stays and only the glyph is drawn.
+    @ViewBuilder
+    private var toolbar: some View {
+        if hovering {
+            HStack(spacing: 4) {
+                Button("Expand table", systemImage: "arrow.up.left.and.arrow.down.right") {
+                    openWindow(id: ModeloApp.tableWindowID, value: TablePayload(markdown: source))
+                }
+                .help("Open in a resizable window")
+
+                Button("Copy table", systemImage: copied ? "checkmark" : "doc.on.doc", action: copy)
+                    .foregroundStyle(copied ? Theme.green : Theme.textDim)
+                    .help("Copy as TSV")
+            }
+            .labelStyle(.iconOnly)
+            .font(Theme.code(10))
+            .foregroundStyle(Theme.textDim)
+            .buttonStyle(.plain)
+            .padding(5)
+            .background(Theme.fillHi, in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.line))
+            .padding(6)
+            .transition(.opacity)
+        }
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(MarkdownTable.tsv(from: source), forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            copied = false
+        }
+    }
+
+    /// The table's own Markdown source, used both for copying and as the payload
+    /// the expanded window re-renders.
+    private var source: String {
+        configuration.content.renderMarkdown()
     }
 }
 
