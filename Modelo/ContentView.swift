@@ -212,8 +212,18 @@ struct ContentView: View {
         .background(WindowAccessor { hostWindow = $0 }.frame(width: 0, height: 0))
         .onAppear { restoreRoute(); consumePendingSettings(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground(); constrainWindowToScreen() }
         .onChange(of: inspectorOpen) { constrainWindowToScreen() }
-        .onChange(of: route) { oldRoute in
-            saveRoute(route); syncPickedModel(); updateForeground()
+        // Navigating can swap in a taller detail view, which SwiftUI satisfies by
+        // growing the window; re-clamp so it can't run off the screen. The
+        // hostWindow trigger covers the first clamp, which fires before the
+        // window has been resolved from the view hierarchy.
+        .onChange(of: route) { constrainWindowToScreen() }
+        .onChange(of: hostWindow) { constrainWindowToScreen() }
+        // Two-parameter `onChange` is load-bearing: a single-parameter closure binds
+        // to the deprecated `onChange(of:perform:)`, whose argument is the *new*
+        // value. The empty-chat reclaim below then deleted the chat just navigated
+        // to rather than the one navigated away from.
+        .onChange(of: route) { oldRoute, newRoute in
+            saveRoute(newRoute); syncPickedModel(); updateForeground()
             // Close a console left open on a chat so it doesn't get stuck open
             // (with no toolbar button to dismiss it) on Settings / Reports / Status.
             if !routeSupportsConsole { inspectorOpen = false }
