@@ -413,6 +413,17 @@ final class ModelCatalogViewModel {
 
     private func applySort(_ models: [DiscoveredModel]) -> [DiscoveredModel] {
         models.sorted { a, b in
+            // Starred models float to the top of whichever list they land in —
+            // but only while grouped. A metric sort is a ranking, and a slow
+            // favourite sitting above a fast non-favourite would make "sort by
+            // Speed" lie. Same rule that keeps local endpoints from being
+            // hoisted once the list flattens.
+            if !isFlattened {
+                let aFav = favoriteIDs.contains(a.model.id)
+                let bFav = favoriteIDs.contains(b.model.id)
+                if aFav != bFav { return aFav }
+            }
+
             let result: Bool
             switch sortKey {
             case .name:
