@@ -105,6 +105,9 @@ struct ContentView: View {
     @State private var discovered: [DiscoveredModel] = []
     @State private var endpointFilter: UUID?
     @State private var renamingIDs: Set<PersistentIdentifier> = []
+    /// This view's own window, resolved from the view hierarchy so screen-clamping
+    /// can't target the expanded-table window instead.
+    @State private var hostWindow: NSWindow?
     @AppStorage("consoleInspectorOpen") private var inspectorOpen: Bool = false
     /// Observed so flipping Settings ▸ Memory drops all sessions — their memory tools
     /// and index injection are fixed at build, so each chat rebuilds on its next message.
@@ -206,13 +209,25 @@ struct ContentView: View {
             reachability.start(servers: activeServers)
             await refreshModels()
         }
+        .background(WindowAccessor { hostWindow = $0 }.frame(width: 0, height: 0))
         .onAppear { restoreRoute(); consumePendingSettings(); consumeTappedConversation(); notifier.requestAuthorization(); updateForeground(); constrainWindowToScreen() }
         .onChange(of: inspectorOpen) { constrainWindowToScreen() }
-        .onChange(of: route) {
+        .onChange(of: route) { oldRoute in
             saveRoute(route); syncPickedModel(); updateForeground()
             // Close a console left open on a chat so it doesn't get stuck open
             // (with no toolbar button to dismiss it) on Settings / Reports / Status.
             if !routeSupportsConsole { inspectorOpen = false }
+            // Delete a chat that was never used: if the user navigated away from
+            // a conversation that has no messages, reclaim it so the sidebar
+            // doesn't accumulate empty "New Chat" stubs. A chat that received a
+            // send (even a failed one) has ≥1 messages and survives.
+            if case .conversation(let id) = oldRoute,
+               let convo = conversations.first(where: { $0.persistentModelID == id }),
+               convo.messages.isEmpty {
+                sessionStore.discard(convo.persistentModelID)
+                context.delete(convo)
+                context.saveOrLog()
+            }
         }
         // A tapped reply notification routes here. Handled in onAppear too, so a tap
         // that re-opens a closed window (menu-bar mode) still lands on the chat.
@@ -387,7 +402,9 @@ struct ContentView: View {
     /// the inspector panel can grow the window downward off-screen.
     private func constrainWindowToScreen() {
         DispatchQueue.main.async {
-            guard let window = NSApp.windows.first(where: { $0.isKeyWindow }) ?? NSApp.windows.first,
+            // Must be *this* window, not whichever is key: with an expanded-table
+            // window open and focused, the old key-window lookup clamped that one.
+            guard let window = hostWindow,
                   let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
             else { return }
             var frame = window.frame

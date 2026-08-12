@@ -37,6 +37,9 @@ struct ModeloApp: App {
     /// menu-bar-only mode (and find it via its NSWindow identifier prefix).
     static let mainWindowID = "main"
 
+    /// Scene id for the expanded-table window.
+    static let tableWindowID = "table"
+
     /// Applies the stored theme to `Theme.active` and returns it. Called in each scene
     /// body (before its `.id(themeID)` subtree builds) so colors repaint on change.
     private var palette: ThemePalette { Theme.applyStored(themeID) }
@@ -120,16 +123,7 @@ struct ModeloApp: App {
                 .task { mcpManager.startAll() }
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)   // rebuild the tree so static Theme.* reads repaint (§3.5)
-                .onAppear {
-                    DispatchQueue.main.async {
-                        if let window = NSApp.keyWindow {
-                            window.center()
-                            window.titlebarAppearsTransparent = true
-                            window.backgroundColor = NSColor(Theme.windowBG)
-                            window.appearance = NSAppearance(named: .darkAqua)
-                        }
-                    }
-                }
+                .modeloWindowChrome(center: true)
                 .alert("Chat database was reset", isPresented: $showStoreRecoveryAlert) {
                     Button("OK") { }
                 } message: {
@@ -173,6 +167,20 @@ struct ModeloApp: App {
                     .keyboardShortcut("0", modifiers: .command)
             }
         }
+
+        // A chat table, expanded into its own resizable window. Keyed on the
+        // payload so re-expanding the same table focuses the window already
+        // showing it rather than opening a duplicate.
+        WindowGroup(id: Self.tableWindowID, for: TablePayload.self) { $payload in
+            if let payload {
+                TableWindowView(payload: payload)
+                    .preferredColorScheme(palette.scheme)
+                    .id(themeID)   // repaint on theme change, as the main window does
+                    .frame(minWidth: 480, minHeight: 300)
+            }
+        }
+        .defaultSize(width: 1000, height: 640)
+        .defaultPosition(.center)
 
         MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarChatView()
