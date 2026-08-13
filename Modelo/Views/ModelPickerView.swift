@@ -246,7 +246,7 @@ private struct ModelPickerList: View {
             .padding(.horizontal, 13)
         }
         .scrollIndicators(.hidden)
-        .frame(height: 34)
+        .frame(height: 26)
     }
 
     var body: some View {
@@ -292,7 +292,7 @@ private struct ModelPickerList: View {
                 .help("Clear search")
             }
         }
-        .padding(.horizontal, 12).frame(height: 34)
+        .padding(.horizontal, 12).frame(height: 28)
         .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.line))
         .padding(13)
@@ -308,7 +308,7 @@ private struct ModelPickerList: View {
             Text("\(count)")
                 .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
         }
-        .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
+        .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
 
     private var favoritesHeader: some View {
@@ -323,7 +323,7 @@ private struct ModelPickerList: View {
             Text("\(favoriteItems.count)")
                 .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
         }
-        .padding(.horizontal, 8).padding(.top, 11).padding(.bottom, 6)
+        .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
 
     /// Favorited models matching the current search + filters, loaded models floated first.
@@ -454,7 +454,7 @@ private struct ModelPickerList: View {
             ModelSortMenu(sort: $sortKey)
         }
         .padding(.horizontal, 13)
-        .frame(height: 34)
+        .frame(height: 26)
     }
 
     /// Local servers list in full; cloud catalogs stay behind search
