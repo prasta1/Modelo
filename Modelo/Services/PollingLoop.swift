@@ -24,7 +24,7 @@ struct PollingLoop<ID: Hashable> {
 
     /// Spawns one polling task per item where each tick returns the next sleep interval.
     /// Use when cadence varies per iteration (e.g. online/offline backoff, foreground/background).
-    mutating func start(for items: [(key: ID, tick: @Sendable () async -> Duration)]) {
+    mutating func start(for items: [(key: ID, tick: @MainActor @Sendable () async -> Duration)]) {
         stop()
         for (key, tick) in items {
             tasks[key] = Task {

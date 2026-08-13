@@ -105,7 +105,7 @@ final class ReachabilityMonitor {
     }
 
     private func restartLoops() {
-        let items = servers.map { server -> (key: PersistentIdentifier, tick: () async -> Duration) in
+        let items = servers.map { server -> (key: PersistentIdentifier, tick: @MainActor @Sendable () async -> Duration) in
             (key: server.persistentModelID, tick: { [weak self] in
                 guard let self else { return Self.idleInterval }
                 await self.checkOnce(server)

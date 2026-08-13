@@ -88,7 +88,7 @@ final class ServerMonitor {
         guard let registry else { return }
         let items = servers
             .filter { $0.kind == .lmStudio || $0.kind == .exo }
-            .map { server -> (key: PersistentIdentifier, tick: () async -> Duration) in
+            .map { server -> (key: PersistentIdentifier, tick: @MainActor @Sendable () async -> Duration) in
                 (key: server.persistentModelID, tick: { [weak self] in
                     guard let self else { return .seconds(3) }
                     if registry.isOnline(server) {
