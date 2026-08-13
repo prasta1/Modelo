@@ -264,13 +264,13 @@ private struct CatalogGroupHeader: View {
                 .shadow(color: isLocal ? Theme.amber.opacity(0.8) : .clear, radius: 4)
 
             Text(label)
-                .font(Theme.label(8))
-                .tracking(1)
+                .font(Theme.label(13))
+                .tracking(0.6)
                 .foregroundStyle(isLocal ? Theme.amber : Theme.textFaint)
 
             Spacer()
 
-            Text("\(count) model\(count == 1 ? "" : "s")\(isLocal ? " · no network" : "")")
+            Text("\(count) model\(count == 1 ? "" : "s") · \(isLocal ? "local" : "cloud")")
                 .font(Theme.metric(8))
                 .foregroundStyle(Theme.textFaint.opacity(0.45))
         }

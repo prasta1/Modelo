@@ -277,7 +277,7 @@ struct ContentView: View {
             }
         case .conversation:
             if let convo = selectedConversation {
-                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
+                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChat)
                     .id(convo.persistentModelID)
             } else {
                 launcher

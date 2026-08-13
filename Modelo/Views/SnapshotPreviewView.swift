@@ -23,7 +23,9 @@ struct SnapshotPreviewView: View {
                         .scaledToFit()
                         .frame(maxWidth: 700)
                         .padding(16)
+                        .frame(maxWidth: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text("Preview unavailable")
                     .foregroundStyle(Theme.Palette.inkFaint)

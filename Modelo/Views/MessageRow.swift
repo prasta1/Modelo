@@ -29,6 +29,7 @@ struct MessageRow: View {
     // Shared with the composer and the View menu; default kept in sync across sites.
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
     @State private var copied = false
+    @State private var saved = false
 
     private var isUser: Bool { message.role == .user }
 
@@ -194,25 +195,35 @@ struct MessageRow: View {
             }
             branchNav
             Spacer(minLength: 0)
-            // Regenerate is hidden on the actively-streaming turn (nothing to re-run yet).
-            if let onRegenerate, !isLiveStreaming {
-                Button { onRegenerate(message) } label: {
-                    Text("Regenerate").foregroundStyle(Theme.textDim)
+            HStack(spacing: 1) {
+                // Regenerate is hidden on the actively-streaming turn (nothing to re-run yet).
+                if let onRegenerate, !isLiveStreaming {
+                    iconButton("arrow.clockwise", help: "Regenerate this response on a new branch") {
+                        onRegenerate(message)
+                    }
+                }
+                iconButton(copied ? "checkmark" : "doc.on.doc",
+                           help: "Copy response",
+                           tint: copied ? Theme.green : Theme.textMute,
+                           action: copy)
+                iconButton(saved ? "checkmark" : "arrow.down.doc",
+                           help: "Save to Downloads as Markdown",
+                           tint: saved ? Theme.green : Theme.textMute,
+                           action: saveToDownloads)
+                ShareLink(item: message.content) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textMute)
+                        .frame(width: 22, height: 17)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Regenerate this response on a new branch")
+                .help("Share")
             }
-            Button(action: copy) {
-                Text(copied ? "Copied" : "Copy")
-                    .foregroundStyle(copied ? Theme.green : Theme.textDim)
-            }
-            .buttonStyle(.plain)
-            .help("Copy response")
-            ShareLink(item: message.content) {
-                Text("Share").foregroundStyle(Theme.textDim)
-            }
-            .buttonStyle(.plain)
-            .help("Share")
+            .padding(.horizontal, 4)
+            .padding(.vertical, 3)
+            .background(Theme.fillHi, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 0.5))
         }
         .font(.mono(10))
         .monospacedDigit()
@@ -326,10 +337,27 @@ struct MessageRow: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(message.content, forType: .string)
         copied = true
-        // Flip the icon back to the copy glyph after a beat.
         Task {
             try? await Task.sleep(for: .seconds(1.2))
             copied = false
+        }
+    }
+
+    private func saveToDownloads() {
+        let fm = FileManager.default
+        guard let dir = try? fm.url(for: .downloadsDirectory, in: .userDomainMask,
+                                    appropriateFor: nil, create: false) else { return }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        let stamp = f.string(from: message.createdAt)
+        let url = dir.appending(path: "message-\(stamp).md")
+        guard (try? message.content.write(to: url, atomically: true, encoding: .utf8)) != nil else { return }
+        saved = true
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            saved = false
         }
     }
 }

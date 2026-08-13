@@ -21,6 +21,10 @@ struct ThroughputChart: View {
                     .interpolationMethod(.catmullRom)
             }
         }
+        // Pad domain by ±0.5 so a single-point chart has a non-zero x-extent.
+        // Without this, a lone data point collapses the inferred domain to [0,0]
+        // and Charts logs "Falling back to a fixed dimension size for a mark."
+        .chartXScale(domain: -0.5...Double(max(values.count - 1, 0)) + 0.5)
         .chartXAxis(.hidden)
         // No Y axis: the LAST/AVG/PEAK stat block sits directly above each chart
         // and carries the scale. The old `.inset` axis drew its labels inside the
