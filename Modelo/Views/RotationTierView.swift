@@ -16,7 +16,7 @@ struct RotationTierView: View {
 
     var body: some View {
         if hasPins {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     Eyebrow("Your Rotation", color: Theme.textFaint, size: 9)
                     Text("⌥1–4 to switch mid-chat")
@@ -47,7 +47,7 @@ struct RotationTierView: View {
                 }
                 .padding(.horizontal, Theme.gutter)
             }
-            .padding(.top, 4)
+            .padding(.top, 24)
             .padding(.bottom, 10)
         } else {
             HStack(spacing: 6) {
