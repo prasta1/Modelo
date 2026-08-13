@@ -2,15 +2,13 @@ import Foundation
 import SwiftUI
 
 /// Polls each local server's Prometheus `/metrics` endpoint and publishes the latest
-/// `PrometheusSnapshot` (§2.3). Mirrors `GPUMonitor`: one cancellable `Task` per
-/// server, `@MainActor` state, `start(servers:)` / `stop()`. Only local servers with
-/// a non-empty `prometheusURL` are polled.
+/// `PrometheusSnapshot` (§2.3). Only local servers with a non-empty `prometheusURL` are polled.
 @Observable
 @MainActor
 final class PrometheusMonitor {
     private(set) var snapshots: [UUID: PrometheusSnapshot] = [:]
 
-    private var loops: [UUID: Task<Void, Never>] = [:]
+    private var loop = PollingLoop<UUID>()
     private let session: URLSession
     private let interval: Duration
 
@@ -28,26 +26,20 @@ final class PrometheusMonitor {
 
     func snapshot(for server: Server) -> PrometheusSnapshot? { snapshots[server.id] }
 
-    /// (Re)start polling for the given servers. Cancels any previous loops first.
     func start(servers: [Server]) {
-        stop()
-        for server in servers where server.kind.isLocal {
-            guard let raw = server.prometheusURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !raw.isEmpty else { continue }
-            let id = server.id
-            loops[id] = Task { [weak self] in
-                guard let self else { return }
-                while !Task.isCancelled {
-                    await self.poll(id: id, url: raw)
-                    try? await Task.sleep(for: self.interval)
-                }
+        let items = servers
+            .filter { $0.kind.isLocal }
+            .compactMap { server -> (key: UUID, tick: () async -> Void)? in
+                guard let raw = server.prometheusURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !raw.isEmpty else { return nil }
+                let id = server.id
+                return (key: id, tick: { [weak self] in await self?.poll(id: id, url: raw) })
             }
-        }
+        loop.start(for: items, interval: interval)
     }
 
     func stop() {
-        for task in loops.values { task.cancel() }
-        loops.removeAll()
+        loop.stop()
     }
 
     private func poll(id: UUID, url: String) async {
