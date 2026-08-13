@@ -26,6 +26,10 @@ struct ModelFilterChipsView: View {
                 chipButton(chip)
             }
             Spacer(minLength: 0)
+            Text("\(vm.totalVisible) models")
+                .font(Theme.metric(9))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textFaint)
         }
         .padding(.horizontal, Theme.gutter)
         .padding(.bottom, 10)

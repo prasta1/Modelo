@@ -22,24 +22,28 @@ struct ModelCatalogView: View {
     var body: some View {
         ZStack {
             Theme.windowBG.ignoresSafeArea()
-            VStack(spacing: 0) {
-                ModelCatalogHeader(vm: vm, onRefresh: onRefresh, searchFocused: $searchFocused)
-                ModelFilterChipsView(vm: vm)
-                HStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        RotationTierView(vm: vm, rotation: rotation)
-                        ModelTableView(vm: vm, rotation: rotation, favorites: favorites, collapse: collapse)
-                    }
-                    if showInspector {
-                        ModelInspectorView(vm: vm, rotation: rotation, onLaunch: { model in
-                            onLaunch(model)
-                        })
-                        .frame(width: 326)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
+            // Inspector is a full-height sibling of the content column — both sit
+            // directly in this HStack so the rail spans top-to-bottom, not just
+            // the area below the toolbar band.
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    ModelCatalogHeader(vm: vm, onRefresh: onRefresh, searchFocused: $searchFocused)
+                    ModelFilterChipsView(vm: vm)
+                    RotationTierView(vm: vm, rotation: rotation)
+                    ModelTableView(vm: vm, rotation: rotation, favorites: favorites, collapse: collapse)
                 }
-                .animation(.easeOut(duration: 0.2), value: showInspector)
+                .frame(minWidth: 620, maxWidth: .infinity)
+
+                if showInspector {
+                    ModelInspectorView(vm: vm, rotation: rotation, onLaunch: { model in
+                        onLaunch(model)
+                    })
+                    .frame(width: 326)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
+            .animation(.easeOut(duration: 0.2), value: showInspector)
         }
         // Hide inspector when window is narrow
         .onGeometryChange(for: CGFloat.self, of: \.size.width) { w in

@@ -25,10 +25,8 @@ private enum Col {
     /// future long name degrades quietly — worth re-measuring if that matters.
     static let nameMax: CGFloat = 270
     static let caps: CGFloat = 148
-    static let context: CGFloat = 74
-    static let size: CGFloat = 56
-    static let speed: CGFloat = 66
-    static let used: CGFloat = 52
+    /// Merged metrics cell: size · speed · used×, omitting missing values.
+    static let metrics: CGFloat = 148
 }
 
 /// Dense sortable model table: sticky column header + scrollable grouped rows.
@@ -198,11 +196,12 @@ private struct TableColumnHeader: View {
             // the metrics. Collapses to zero on a narrow window.
             Spacer(minLength: 0)
 
-            // Fixed sortable columns
-            sortBtn("Context", key: .context).frame(width: Col.context, alignment: .trailing)
-            sortBtn("Size",    key: .size)   .frame(width: Col.size, alignment: .trailing)
-            sortBtn("Speed",   key: .speed)  .frame(width: Col.speed, alignment: .trailing)
-            sortBtn("Used",    key: .used)   .frame(width: Col.used, alignment: .trailing)
+            // Single merged metrics column header
+            Text("Metrics")
+                .font(Theme.label(8))
+                .tracking(0.8)
+                .foregroundStyle(Theme.textFaint)
+                .frame(width: Col.metrics, alignment: .trailing)
         }
         .padding(.horizontal, Theme.gutter)
         // Asymmetric on purpose: the 1pt rule below is an overlay, so it draws
@@ -368,6 +367,15 @@ struct ModelTableRow: View {
         return "\(c)"
     }
 
+    /// size · speed t/s · count×, omitting whichever values are unavailable.
+    private var metricsLabel: String {
+        var parts: [String] = []
+        if let sz = model.parameterSize { parts.append(sz) }
+        if speedLabel != "—" { parts.append(speedLabel + " t/s") }
+        if let count = usedCount { parts.append("\(count)×") }
+        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
+    }
+
     var body: some View {
         HStack(spacing: 0) {  // UNARY root
             // Star toggle
@@ -397,42 +405,16 @@ struct ModelTableRow: View {
             .frame(width: Col.caps, alignment: .leading)
 
             // Mirrors the header's spacer — both must be in the same position or
-            // the metric columns stop lining up with their labels.
+            // the metric column stops lining up with its label.
             Spacer(minLength: 0)
 
-            // Context
-            Text(contextLabel)
+            // Merged metrics: size · speed · used×
+            Text(metricsLabel)
                 .font(Theme.mono(10))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
-                .frame(width: Col.context, alignment: .trailing)
-
-            // Size
-            Text(model.parameterSize ?? "—")
-                .font(Theme.mono(10))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textFaint)
-                .frame(width: Col.size, alignment: .trailing)
-
-            // Speed
-            Text(speedLabel)
-                .font(Theme.mono(10))
-                .monospacedDigit()
-                .foregroundStyle(speedLabel == "—" ? Theme.textFaint : Theme.textLo)
-                .frame(width: Col.speed, alignment: .trailing)
-
-            // Used
-            Group {
-                if let count = usedCount {
-                    Text("\(count)×")
-                } else {
-                    Text("—")
-                }
-            }
-            .font(Theme.mono(10))
-            .monospacedDigit()
-            .foregroundStyle(Theme.textFaint)
-            .frame(width: Col.used, alignment: .trailing)
+                .frame(width: Col.metrics, alignment: .trailing)
+                .lineLimit(1)
         }
         .padding(.vertical, 7)
         .background(rowBackground)

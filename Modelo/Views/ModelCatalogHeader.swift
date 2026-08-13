@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Band 1: search field, sort pill, refresh button.
+/// Band 1: section title band, search field, refresh button.
 struct ModelCatalogHeader: View {
     @Bindable var vm: ModelCatalogViewModel
     var onRefresh: (() async -> Void)? = nil
@@ -9,17 +9,57 @@ struct ModelCatalogHeader: View {
     @State private var isRefreshing = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            searchField
-            sortPill
-            if let onRefresh {
-                refreshButton(onRefresh)
+        VStack(spacing: 0) {
+            pageHeader
+            HStack(spacing: 10) {
+                searchField
+                    .frame(maxWidth: .infinity)
+                if let onRefresh {
+                    refreshButton(onRefresh)
+                }
+            }
+            .padding(.horizontal, Theme.gutter)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
+
+            if searchFocused {
+                Text("Try ctx>200k · tools · speed>85 to filter by spec")
+                    .font(Theme.metric(9))
+                    .foregroundStyle(Theme.textFaint.opacity(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Theme.gutter)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
             }
         }
-        .padding(.horizontal, Theme.gutter)
-        .padding(.top, 18)
-        .padding(.bottom, 10)
+        .animation(.easeInOut(duration: 0.15), value: searchFocused)
     }
+
+    // MARK: – Page header
+
+    private var pageHeader: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Models")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                Spacer()
+                let n = vm.groupedRemote.count
+                if n > 0 {
+                    Text("\(n) provider\(n == 1 ? "" : "s")")
+                        .font(Theme.metric(9))
+                        .foregroundStyle(Theme.textFaint)
+                }
+            }
+            .padding(.horizontal, Theme.gutter)
+            .padding(.vertical, 10)
+            Rectangle()
+                .fill(Theme.line)
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: – Search field
 
     private var searchField: some View {
         HStack(spacing: 7) {
@@ -27,29 +67,13 @@ struct ModelCatalogHeader: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.textFaint)
 
-            TextField("Search models — or type ctx>200k tools speed>85", text: $vm.searchQuery)
+            TextField("Search models", text: $vm.searchQuery)
                 .textFieldStyle(.plain)
                 .font(Theme.metric(11))
                 .foregroundStyle(Theme.textMid)
                 .focused($searchFocused)
 
             Spacer(minLength: 0)
-
-            Text("\(vm.totalVisible) of \(vm.totalAll)")
-                .font(Theme.metric(9))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textFaint)
-
-            Text("⌘K")
-                .font(Theme.code(9))
-                .foregroundStyle(Theme.textFaint)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Theme.fillHi, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .strokeBorder(Theme.line, lineWidth: 1)
-                )
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -60,28 +84,7 @@ struct ModelCatalogHeader: View {
         )
     }
 
-    private var sortPill: some View {
-        Menu {
-            ForEach(CatalogSort.allCases) { sort in
-                Button(sort.label) { vm.sortKey = sort }
-            }
-        } label: {
-            Text("\(vm.sortKey.label) ▾")
-                .font(Theme.label(9))
-                .tracking(0.5)
-                .foregroundStyle(Theme.textMid)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(Theme.line, lineWidth: 1)
-        )
-        .fixedSize()
-    }
+    // MARK: – Refresh button
 
     private func refreshButton(_ action: @escaping () async -> Void) -> some View {
         Button {
@@ -101,9 +104,9 @@ struct ModelCatalogHeader: View {
         }
         .buttonStyle(.plain)
         .frame(width: 30, height: 30)
-        .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(Theme.fill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .strokeBorder(Theme.line, lineWidth: 1)
         )
         .disabled(isRefreshing)
