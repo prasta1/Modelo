@@ -43,10 +43,14 @@ struct ContextBar: View {
                         .fill(barColor)
                         .frame(width: max(4, geo.size.width * fraction))
                         .shadow(color: barColor.opacity(0.6), radius: 4)
-                        .animation(.easeOut(duration: 0.3), value: fraction)
                 }
             }
             .frame(height: 5)
+            // Animate the color transition (green→amber→red) at the container level.
+            // Animating frame-width inside GeometryReader at 20fps (the streaming
+            // flush rate) opens a new CA transaction during an in-flight commit,
+            // producing NSCGS "Invalid attempt to open a new transaction" warnings.
+            .animation(.easeOut(duration: 0.3), value: barColor)
         }
     }
 }

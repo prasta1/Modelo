@@ -14,6 +14,8 @@ struct ChatView: View {
     let onModelSelect: ((DiscoveredModel) async -> Bool)?
     /// Callback fired when the user ejects a loaded model.
     let onModelEject: ((DiscoveredModel) async -> Void)?
+    /// Callback fired when the user double-clicks a model row to start a new chat.
+    let onNewChat: (() -> Void)?
     @Environment(ServerRegistry.self) private var registry
     @Environment(MCPServerManager.self) private var mcpManager
     @Environment(ChatSessionStore.self) private var sessionStore
@@ -262,7 +264,7 @@ struct ChatView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject)
+                ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject, onNewChat: onNewChat)
                 if pickedModel?.model.supportsToolUse == true {
                     Toggle("Tools", isOn: $conversation.toolsEnabled)
                         .toggleStyle(ChipToggleStyle())
@@ -648,8 +650,12 @@ struct ChatView: View {
                             Color.clear.frame(height: 1).id(bottomAnchor)
                                 // Visibility of this sentinel = "user is at the bottom".
                                 // Scrolling back down re-arms auto-follow.
-                                .onAppear { isNearBottom = true }
-                                .onDisappear { isNearBottom = false }
+                                // Defer state mutation past the current layout pass —
+                                // onAppear/onDisappear inside LazyVStack can fire during
+                                // layout, and a synchronous write here can open a new CA
+                                // transaction mid-commit.
+                                .onAppear { Task { @MainActor in isNearBottom = true } }
+                                .onDisappear { Task { @MainActor in isNearBottom = false } }
                         }
                         .padding(20)
                         // Bottom-align short conversations so the latest turn sits just

@@ -108,6 +108,8 @@ struct ModelPickerView: View {
     let onModelSelect: ((DiscoveredModel) async -> Bool)?
     /// Optional callback fired when the user taps the eject button on a loaded model.
     let onModelEject: ((DiscoveredModel) async -> Void)?
+    /// Optional callback fired when the user double-clicks a model row to start a new chat.
+    let onNewChat: (() -> Void)?
     @State private var hovering = false
     @State private var showingPopover = false
 
@@ -141,7 +143,8 @@ struct ModelPickerView: View {
                             selection: selection,
                             onEject: onModelEject == nil ? nil : { item in
                                 Task { await onModelEject?(item) }
-                            }) { item in
+                            },
+                            onNewChat: onNewChat) { item in
                 // Reflect the pick immediately. Selection must NOT be gated on the
                 // load below: an OpenAI-compatible server (oMLX, vLLM…) classified as
                 // LM Studio can't be "loaded" and would otherwise fail, leaving the
@@ -200,6 +203,7 @@ private struct ModelPickerList: View {
     let isEmpty: Bool
     let selection: DiscoveredModel?
     let onEject: ((DiscoveredModel) -> Void)?
+    let onNewChat: (() -> Void)?
     let onSelect: (DiscoveredModel) -> Void
     @State private var loadingID: String?
     @State private var ejectingID: String?
@@ -298,8 +302,8 @@ private struct ModelPickerList: View {
         HStack(spacing: 10) {
             Text(server.kind == .cloudAPI ? "\(server.label.uppercased()) · CLOUD"
                                          : server.label.uppercased())
-                .font(.mono(9.5)).tracking(1.2)
-                .foregroundStyle(Theme.textDim)
+                .font(.system(size: 13, weight: .semibold)).tracking(0.6)
+                .foregroundStyle(Theme.textLo)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(count)")
                 .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
@@ -396,7 +400,8 @@ private struct ModelPickerList: View {
                         try? await Task.sleep(for: .seconds(5))
                         if ejectingID == item.id { ejectingID = nil }
                     }
-                 }) {
+                 },
+                 onNewChat: onNewChat) {
             loadingID = item.id
             onSelect(item)
             Task { @MainActor in
@@ -519,6 +524,7 @@ private struct ModelRow: View {
     let isLoading: Bool
     let isEjecting: Bool
     let onEject: (() -> Void)?
+    let onNewChat: (() -> Void)?
     let onSelect: () -> Void
     @State private var hovering = false
     @Environment(FavoritesStore.self) private var favorites
@@ -575,9 +581,10 @@ private struct ModelRow: View {
         .padding(.horizontal, 10).padding(.vertical, 9)
         .background(rowFill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) { if !busy { onSelect(); onNewChat?() } }
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
-        .help("Select \(model.familyName)")
+        .help("Select \(model.familyName) · Double-click to open in new chat")
     }
 
     private var starButton: some View {
