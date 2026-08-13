@@ -124,19 +124,6 @@ extension View {
     }
 }
 
-/// App-wide backdrop: a near-black base lifted by a faint top glow so large dark
-/// surfaces don't read as a flat void.
-struct InstrumentBackground: View {
-    var body: some View {
-        Theme.Palette.bg
-            .overlay(alignment: .top) {
-                LinearGradient(colors: [Theme.active.glow, .clear],
-                               startPoint: .top, endPoint: .center)
-            }
-            .ignoresSafeArea()
-    }
-}
-
 // MARK: - Shared chrome views
 
 /// A small uppercase, letter-spaced monospaced caption — the "eyebrow" label that
