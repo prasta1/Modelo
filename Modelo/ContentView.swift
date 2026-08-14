@@ -124,9 +124,9 @@ struct ContentView: View {
         return conversations.first { $0.persistentModelID == id }
     }
 
-    /// The console inspector shows live model metrics, so it's only meaningful
-    /// inside a conversation. Hidden everywhere else — the panel has nothing live
-    /// to show outside an active chat.
+    /// The console inspector shows live model metrics, so it's only meaningful on
+    /// chat-style routes. Hidden on Settings / Reports / Status, where it's useless
+    /// and (when open) shoves the window off-screen as it grows.
     private var routeSupportsConsole: Bool {
         switch route {
         case .conversation: true
@@ -598,36 +598,152 @@ struct ContentView: View {
 
         // A server that just returned a model list is, by definition, reachable —
         // mark it online so its dot turns green without waiting for the next probe.
-        for (index, models) in modelsByIndex where !models.isEmpty {
-            registry.markOnline(targets[index].server)
+        // Exception: cloud servers with no key are reachable via public endpoints
+        // but can't be used for chat — keep them in .needsKey rather than .online.
+        for (index, target) in targets.enumerated() where !(modelsByIndex[index] ?? []).isEmpty {
+            if !target.server.kind.isLocal, target.endpoint.apiKey == nil { continue }
+            registry.setStatus(.online, for: target.server)
         }
 
-        discovered = targets.enumerated().flatMap { (index, target) -> [DiscoveredModel] in
+        discovered = targets.enumerated().flatMap { index, target in
             (modelsByIndex[index] ?? []).map { DiscoveredModel(server: target.server, model: $0) }
         }
     }
 
-    private func handleModelSelection(_ model: DiscoveredModel) {
-        pickedModel = model
-        if case .conversation(let id) = route,
-           let convo = conversations.first(where: { $0.persistentModelID == id }) {
-            convo.modelID = model.model.id
-            convo.serverID = model.server.id
-            context.saveOrLog()
+    /// Unloads a model on LM Studio and clears the selection if it was the active model.
+    private func handleModelEject(_ item: DiscoveredModel) async {
+        let endpoint = Endpoint(server: item.server, keychain: keychain)
+        if item.server.kind == .exo {
+            let loaded = (try? await exoClient.loadedInstances(endpoint: endpoint)) ?? []
+            guard let instance = loaded.first(where: { $0.modelID == item.model.id }) else { return }
+            do {
+                try await exoClient.deleteInstance(instanceID: instance.instanceID, endpoint: endpoint)
+                await refreshModels()
+                if pickedModel?.model.id == item.model.id { pickedModel = nil }
+            } catch {
+                Log.network.error("exo unload failed for \(item.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+            return
+        }
+        do {
+            _ = try await client.unloadModel(modelID: item.model.id, endpoint: endpoint)
+            await refreshModels()
+            if pickedModel?.model.id == item.model.id {
+                pickedModel = nil
+            }
+        } catch {
+            // State will reconcile on next refresh.
+            Log.network.error("Model eject failed for \(item.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    private func handleModelEject() {
-        guard case .conversation(let id) = route,
-              let convo = conversations.first(where: { $0.persistentModelID == id }),
-              let serverID = convo.serverID,
-              let server = servers.first(where: { $0.id == serverID }),
-              server.kind == .lmStudio
-        else { return }
-        Task {
-            let endpoint = Endpoint(server: server, keychain: keychain)
-            try? await client.ejectModel(endpoint: endpoint)
+    /// Pins a model on LM Studio so it won't be auto-evicted when another model loads.
+    private func handleModelPin(server: Server, modelID: String) async {
+        let endpoint = Endpoint(server: server, keychain: keychain)
+        do {
+            try await client.setKeepInRam(modelID: modelID, keepInRam: true, endpoint: endpoint)
             await refreshModels()
+        } catch {
+            // State will reconcile on next refresh.
+            Log.network.error("Model pin failed for \(modelID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Unpins a model on LM Studio so it may be evicted when another model loads.
+    private func handleModelUnpin(server: Server, modelID: String) async {
+        let endpoint = Endpoint(server: server, keychain: keychain)
+        do {
+            try await client.setKeepInRam(modelID: modelID, keepInRam: false, endpoint: endpoint)
+            await refreshModels()
+        } catch {
+            // State will reconcile on next refresh.
+            Log.network.error("Model unpin failed for \(modelID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Handles model selection in the picker: loads the model on LM Studio if needed.
+    /// Returns true if selection should proceed, false if loading failed.
+    private func handleModelSelection(_ item: DiscoveredModel) async -> Bool {
+        // Only LM Studio models support load/unload
+        guard item.server.kind == .lmStudio else { return true }
+
+        // Already loaded? Nothing to do.
+        if item.model.isLoaded { return true }
+
+        // Load the model
+        let endpoint = Endpoint(server: item.server, keychain: keychain)
+        do {
+            _ = try await client.loadModel(modelID: item.model.id, endpoint: endpoint)
+            // Refresh to reflect the new loaded state
+            await refreshModels()
+            return true
+        } catch {
+            // Loading failed - don't change selection
+            Log.network.error("Model load on selection failed for \(item.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 }
+
+// MARK: - Menu bar commands
+
+/// File ▸ New Chat — replaces the default "New Window" item so ⌘N is discoverable
+/// in the menu bar, not just bound to the toolbar button.
+struct NewChatCommand: View {
+    @FocusedValue(\.modeloCommands) private var commands
+
+    var body: some View {
+        Button("New Chat") { commands?.newChat() }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(commands == nil)
+    }
+}
+
+/// Go ▸ jump to the app's main sections from the menu bar (⌘1/⌘2/⌘3).
+struct GoCommands: View {
+    @FocusedValue(\.modeloCommands) private var commands
+
+    var body: some View {
+        Group {
+            Button("Models") { commands?.goToLauncher() }
+                .keyboardShortcut("1", modifiers: .command)
+            Button("Status") { commands?.goToStatus() }
+                .keyboardShortcut("2", modifiers: .command)
+            Button("Reports") { commands?.goToReports() }
+                .keyboardShortcut("3", modifiers: .command)
+        }
+        .disabled(commands == nil)
+    }
+}
+
+/// App menu ▸ Settings… (⌘,) — routes the main window to the in-app settings
+/// pane. There is no separate Settings window: with the main window closed
+/// (menu-bar-only mode) this reopens it, landing directly on settings.
+///
+/// Unlike the Go commands this doesn't use `@FocusedValue` — that would be nil
+/// with no focused window, exactly the case ⌘, must still work in. The navigator
+/// is handed in by `ModeloApp`, which owns it.
+struct SettingsCommand: View {
+    let navigator: SettingsNavigator
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Settings…") {
+            navigator.open()
+            // Reuse the existing main window if one is around (even miniaturized);
+            // only create one when none exists. Modelo is deliberately
+            // single-window — File ▸ New Window is replaced by New Chat — so
+            // openWindow(id:) on the WindowGroup must stay the last resort: it
+            // would add a second instance if a window already existed.
+            if let window = NSApp.windows.first(where: {
+                $0.identifier?.rawValue.hasPrefix(ModeloApp.mainWindowID) == true
+            }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(id: ModeloApp.mainWindowID)
+            }
+        }
+        .keyboardShortcut(",", modifiers: .command)
+    }
+}
+
