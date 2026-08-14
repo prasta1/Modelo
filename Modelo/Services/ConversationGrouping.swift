@@ -33,7 +33,7 @@ enum ConversationGrouping {
         for convo in conversations {
             let d = convo.createdAt
             let bucket: DateBucket
-            if cal.isDateInToday(d) {
+            if cal.isDate(d, inSameDayAs: now) {
                 bucket = .today
             } else if cal.isDate(d, equalTo: now, toGranularity: .weekOfYear) {
                 bucket = .thisWeek
