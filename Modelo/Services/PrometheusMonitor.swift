@@ -29,7 +29,7 @@ final class PrometheusMonitor {
     func start(servers: [Server]) {
         let items = servers
             .filter { $0.kind.isLocal }
-            .compactMap { server -> (key: UUID, tick: () async -> Void)? in
+            .compactMap { server -> (key: UUID, tick: @MainActor @Sendable () async -> Void)? in
                 guard let raw = server.prometheusURL?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !raw.isEmpty else { return nil }
                 let id = server.id
