@@ -929,7 +929,7 @@ private struct ServerSettingsRow: View {
         VStack(alignment: .leading, spacing: 14) {
             // Header: always visible — tap to expand/collapse
             HStack(spacing: 8) {
-                StatusLED(status: registry.status(for: server))
+                StatusLED(status: server.isPaused ? .offline : registry.status(for: server))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(server.label.isEmpty ? "Unnamed" : server.label)
                         .font(Theme.mono(13, weight: .semibold))
@@ -1433,7 +1433,7 @@ private struct CloudServerSettingsRow: View {
         VStack(alignment: .leading, spacing: 14) {
             // Header: always visible — tap to expand/collapse
             HStack(spacing: 8) {
-                StatusLED(status: registry.status(for: server))
+                StatusLED(status: server.isPaused ? .offline : registry.status(for: server))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(server.label.isEmpty ? "Unnamed" : server.label)
                         .font(Theme.mono(13, weight: .semibold))

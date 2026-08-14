@@ -129,8 +129,8 @@ struct ContentView: View {
     /// and (when open) shoves the window off-screen as it grows.
     private var routeSupportsConsole: Bool {
         switch route {
-        case .conversation, .launcher, .project, nil: true
-        case .status, .reports, .settings, .personas: false
+        case .conversation: true
+        case .launcher, .project, .status, .reports, .settings, .personas, nil: false
         }
     }
 
@@ -143,7 +143,10 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
         } detail: {
             detailView
-                .inspector(isPresented: $inspectorOpen) {
+                .inspector(isPresented: Binding(
+                    get: { inspectorOpen && routeSupportsConsole },
+                    set: { inspectorOpen = $0 }
+                )) {
                     inspectorContent
                         .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
                         // The console polls GPU/usage stats on a timer, re-rendering this
@@ -277,7 +280,7 @@ struct ContentView: View {
             }
         case .conversation:
             if let convo = selectedConversation {
-                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject)
+                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChat)
                     .id(convo.persistentModelID)
             } else {
                 launcher

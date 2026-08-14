@@ -79,6 +79,8 @@ final class ModelCatalogViewModel {
     /// Every row the user can actually see, in visual order. Drives ↑/↓ nav, so
     /// it deliberately excludes anything inside a collapsed group.
     private(set) var flatVisible: [DiscoveredModel] = []
+    /// Count of models passing the current filters (chips + query), regardless of collapse state.
+    private(set) var filteredCount: Int = 0
 
     // MARK: - Usage-derived stats (keyed by LMStudioModel.id)
 
@@ -105,7 +107,7 @@ final class ModelCatalogViewModel {
         return h
     }
 
-    var totalVisible: Int { flatVisible.count }
+    var totalVisible: Int { filteredCount }
     var totalAll: Int { allModels.count }
     var maxSpeedMedian: Double { speedMedians.values.max() ?? 1 }
     var maxContextLength: Int { allModels.compactMap { $0.model.maxContextLength }.max() ?? 1 }
@@ -228,6 +230,7 @@ final class ModelCatalogViewModel {
 
     private func recompute() {
         let filtered = applyFilters(allModels)
+        filteredCount = filtered.count
         let sorted = applySort(filtered)
 
         // Metric sorts dissolve the grouping entirely. Ranking inside 59 vendor

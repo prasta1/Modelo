@@ -22,7 +22,7 @@ final class ReachabilityMonitor {
     /// from the model on the main actor (in `checkOnce`) so this closure — which
     /// runs off-main — never touches a non-Sendable SwiftData object.
     private let probe: (Endpoint) async -> Bool
-    private var loops: [PersistentIdentifier: Task<Void, Never>] = [:]
+    private var loop = PollingLoop<PersistentIdentifier>()
     /// Last `start(servers:)` argument, kept so a foreground change can restart
     /// the loops without the caller re-supplying it.
     private var servers: [Server] = []
@@ -79,8 +79,7 @@ final class ReachabilityMonitor {
     }
 
     func stop() {
-        loops.values.forEach { $0.cancel() }
-        loops.removeAll()
+        loop.stop()
     }
 
     /// App activate/deactivate hook. Returning to the foreground restarts the
@@ -90,8 +89,7 @@ final class ReachabilityMonitor {
     func setForeground(_ foreground: Bool) {
         guard foreground != isForeground else { return }
         isForeground = foreground
-        // Restart only when loops are live: don't resurrect an explicit stop().
-        if foreground && !loops.isEmpty { restartLoops() }
+        if foreground && loop.isRunning { restartLoops() }
     }
 
     private func observeAppActivation() {
@@ -107,18 +105,15 @@ final class ReachabilityMonitor {
     }
 
     private func restartLoops() {
-        stop()
-        for server in servers {
-            loops[server.persistentModelID] = Task { [weak self] in
-                guard let self else { return }
-                while !Task.isCancelled {
-                    await self.checkOnce(server)
-                    let interval = self.pollInterval(for: self.registry.status(for: server),
-                                                     kind: server.kind,
-                                                     foreground: self.isForeground)
-                    try? await Task.sleep(for: interval)
-                }
-            }
+        let items = servers.map { server -> (key: PersistentIdentifier, tick: @MainActor @Sendable () async -> Duration) in
+            (key: server.persistentModelID, tick: { [weak self] in
+                guard let self else { return Self.idleInterval }
+                await self.checkOnce(server)
+                return self.pollInterval(for: self.registry.status(for: server),
+                                         kind: server.kind,
+                                         foreground: self.isForeground)
+            })
         }
+        loop.start(for: items)
     }
 }

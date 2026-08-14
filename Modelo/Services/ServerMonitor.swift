@@ -22,7 +22,7 @@ struct ModelSnapshot: Equatable {
 final class ServerMonitor {
     private(set) var snapshots: [PersistentIdentifier: ModelSnapshot] = [:]
 
-    private var loops: [PersistentIdentifier: Task<Void, Never>] = [:]
+    private var loop = PollingLoop<PersistentIdentifier>()
     private let client: any ChatProvider
     private let exoClient: ExoClient
     private let activeInterval: Duration
@@ -59,8 +59,7 @@ final class ServerMonitor {
     }
 
     func stop() {
-        loops.values.forEach { $0.cancel() }
-        loops.removeAll()
+        loop.stop()
     }
 
     /// App activate/deactivate hook. Returning to the foreground restarts the
@@ -70,8 +69,7 @@ final class ServerMonitor {
     func setForeground(_ foreground: Bool) {
         guard foreground != isForeground else { return }
         isForeground = foreground
-        // Restart only when loops are live: don't resurrect an explicit stop().
-        if foreground && !loops.isEmpty { restartLoops() }
+        if foreground && loop.isRunning { restartLoops() }
     }
 
     private func observeAppActivation() {
@@ -87,22 +85,21 @@ final class ServerMonitor {
     }
 
     private func restartLoops() {
-        stop()
         guard let registry else { return }
-        for server in servers where server.kind == .lmStudio || server.kind == .exo {
-            loops[server.persistentModelID] = Task { [weak self] in
-                guard let self else { return }
-                while !Task.isCancelled {
+        let items = servers
+            .filter { $0.kind == .lmStudio || $0.kind == .exo }
+            .map { server -> (key: PersistentIdentifier, tick: @MainActor @Sendable () async -> Duration) in
+                (key: server.persistentModelID, tick: { [weak self] in
+                    guard let self else { return .seconds(3) }
                     if registry.isOnline(server) {
                         await self.poll(server)
                     } else {
-                        // Clear stale snapshot so offline servers don't show models as loaded.
-                        snapshots.removeValue(forKey: server.persistentModelID)
+                        self.snapshots.removeValue(forKey: server.persistentModelID)
                     }
-                    try? await Task.sleep(for: self.pollInterval)
-                }
+                    return self.pollInterval
+                })
             }
-        }
+        loop.start(for: items)
     }
 
     /// Fetches the model list and stores whichever ones report `state == "loaded"`.

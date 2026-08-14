@@ -124,19 +124,6 @@ extension View {
     }
 }
 
-/// App-wide backdrop: a near-black base lifted by a faint top glow so large dark
-/// surfaces don't read as a flat void.
-struct InstrumentBackground: View {
-    var body: some View {
-        Theme.Palette.bg
-            .overlay(alignment: .top) {
-                LinearGradient(colors: [Theme.active.glow, .clear],
-                               startPoint: .top, endPoint: .center)
-            }
-            .ignoresSafeArea()
-    }
-}
-
 // MARK: - Shared chrome views
 
 /// A small uppercase, letter-spaced monospaced caption — the "eyebrow" label that
@@ -504,17 +491,16 @@ private struct ScrollIndicatorHider: NSViewRepresentable {
 }
 
 /// Zero-size probe that finds the nearest `NSScrollView` and disables its
-/// scrollers. Hooks into `layout()` so the lookup runs once the view is
-/// actually in the hierarchy — more reliable than
+/// scrollers. Hooks into `layout()` — more reliable than
 /// `DispatchQueue.main.async` which can fire before the superview chain is built.
+/// Re-applied on every layout pass so dynamic-height content (LazyVStack,
+/// live-data updates) can't make the scroller reappear between renders.
 private class ScrollHiderProbe: NSView {
     override var acceptsFirstResponder: Bool { false }
-    private var didHide = false
 
     override func layout() {
         super.layout()
-        guard !didHide, window != nil else { return }
-        didHide = true
+        guard window != nil else { return }
         hideIfNeeded()
     }
 
