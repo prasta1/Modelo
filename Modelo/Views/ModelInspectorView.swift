@@ -163,8 +163,8 @@ private struct DetailPanel: View {
             SpecRow(label: "Size", value: sizeStr, rank: nil, barFrac: sizeFrac, barAccent: false)
 
             // COST
-            let costStr = m.isLoaded
-                ? "free — runs on your Mac"
+            let costStr = (m.isLoaded || model.server.kind.isLocal)
+                ? "free — runs locally"
                 : (m.isFree ? "free" : "paid · \(model.server.label)")
             SpecRow(label: "Cost", value: costStr, rank: nil, barFrac: 0, barAccent: false)
         }
@@ -391,10 +391,12 @@ private struct ComparePanel: View {
                                v2: m2.displaySizeFormatted ?? "—",
                                winner: nil)
 
+                    let cost1IsFree = model1.server.kind.isLocal || m1.isFree
+                    let cost2IsFree = model2.server.kind.isLocal || m2.isFree
                     compareRow("Cost",
-                               v1: m1.isFree ? "free" : "paid",
-                               v2: m2.isFree ? "free" : "paid",
-                               winner: m1.isFree && !m2.isFree ? 0 : !m1.isFree && m2.isFree ? 1 : nil)
+                               v1: cost1IsFree ? "free" : "paid",
+                               v2: cost2IsFree ? "free" : "paid",
+                               winner: cost1IsFree && !cost2IsFree ? 0 : !cost1IsFree && cost2IsFree ? 1 : nil)
 
                     verdictView.padding(.top, 14)
                 }
