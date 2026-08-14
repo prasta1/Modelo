@@ -4,7 +4,7 @@
 
 A native macOS client for running inference against local and cloud LLMs.
 
-Connects to **LM Studio**, **Ollama**, **llama.cpp**, and **oMLX** over your local network or Tailscale, and to any **OpenAI-compatible cloud API** (OpenRouter, Together, Mistral, etc.). Built with SwiftUI and SwiftData.
+Connects to **LM Studio**, **Ollama**, **llama.cpp**, **llama-swap**, **oMLX**, and **exo** over your local network or **Tailscale**, and to the cloud via **Nous Research**, **OpenRouter**, **OpenAI**, **Groq**, **Together.ai**, **DeepSeek**, **Mistral**, or any OpenAI-compatible base URL — all in one picker. See [Endpoints](#endpoints). Built with SwiftUI and SwiftData.
 
 > The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
 
@@ -13,15 +13,15 @@ Connects to **LM Studio**, **Ollama**, **llama.cpp**, and **oMLX** over your loc
 - **Chat** — streaming responses, Markdown rendering with syntax-highlighted and copyable code blocks, per-message token metrics, slash commands (`/model`, `/temp`, `/system`, `/export`, `/skills`, …) with an autocomplete popup, queue messages while a reply streams, branch & regenerate any turn, adjustable text size
 - **Artifacts** — substantial model output (HTML, SVG, Mermaid, code, documents) opens in a Claude-style side panel with live preview — see [below](#artifacts)
 - **Tools & agents** — opt-in first-party filesystem + shell tools, MCP servers, `~/.agents` skills, with reliability tuned for local models — see [below](#tools--agents)
-- **Multi-backend model picker** — per-server tabs in the launcher; groups by LM Studio, Ollama, llama.cpp, oMLX, and cloud; per-model load state (selected / loaded / idle / cloud); Models page shows every server Status-style for a full fleet overview
-- **Endpoints** — quick-setup hints guide you through adding a new server, workspace binding scopes file-tool access per endpoint, connectivity LED on each row shows reachability at a glance, and an Advanced section collapses rarely-touched options
+- **Multi-backend model picker** — per-server tabs in the launcher; grouped by server across every runtime (LM Studio, Ollama, llama.cpp, llama-swap, oMLX, exo) and cloud provider; per-model load state (selected / loaded / idle / cloud); Models page shows every server Status-style for a full fleet overview
+- **Endpoints** — six local runtimes plus dedicated Nous Research / OpenRouter endpoints and one-click presets for OpenAI, Groq, Together.ai, DeepSeek, and Mistral — see [below](#endpoints). Quick-setup hints guide you through adding a new server, **Scan Network…** finds local ones for you, workspace binding scopes file-tool access per endpoint, a connectivity LED on each row shows reachability at a glance, and an Advanced section collapses rarely-touched options
 - **Memory** — opt-in persistent memory across conversations: the model saves and recalls named notes (`save_memory` / `read_memory`) stored as hand-editable Markdown under `~/.modelo/memory`, with global and per-project scopes; manage entries in **Settings ▸ Memory** or per project — off by default
 - **Projects** — attach local directories as sidebar projects with project-scoped chats, filesystem tools, and memory
 - **Server Status** — live latency, throughput, and request sparklines with a streaming console
 - **Reports** — throughput and TTFT charts (Swift Charts), sortable per-model and per-server usage tables, and configurable usage retention
 - **Notifications** — foreground banners appear when a reply finishes while you're in another app; tapping one deep-links straight into the relevant chat
 - **Themes** — Dark (default), Light, Lager (light), Negra (dark), and Catppuccin Latte / Frappé / Macchiato / Mocha, switchable live in Settings ▸ Appearance
-- **Settings** — LM Studio endpoints; cloud endpoints via provider presets (OpenAI, Groq, OpenRouter, Together, DeepSeek, Mistral) or any custom OpenAI-compatible base URL; presets/personas with icon picker; filesystem/shell tools; memory; Firecrawl key; MCP servers
+- **Settings** — local endpoints (LM Studio, Ollama, llama.cpp, llama-swap, oMLX, exo); cloud endpoints via provider presets (Nous Research, OpenRouter, OpenAI, Groq, Together.ai, DeepSeek, Mistral) or any custom OpenAI-compatible base URL; presets/personas with icon picker; filesystem/shell tools; memory; Firecrawl key; MCP servers
 - **Personas** — system prompt presets with icons and taglines, managed from their own sidebar section and applied per-chat from the composer
 - **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
 - **Menu bar mini chat** — quick-access popover from the menu bar
@@ -47,6 +47,40 @@ Like Claude Desktop — and deliberately **not** one artifact per code block. Wh
 - **Versions** — re-emitting the same identifier adds a revision with `◀ v/n ▶` navigation; a **picker** in the header switches between multiple artifacts.
 - A header button toggles the panel (shown once a chat has artifacts); the panel is **resizable** and its width persists. Copy + download included.
 
+## Endpoints
+
+Everything Modelo talks to speaks the OpenAI-compatible `/v1` wire protocol, so local runtimes and cloud providers sit side by side in the same model picker and you can switch mid-conversation. Add one from **Settings ▸ Endpoints ▸ Add Endpoint**, or let **Scan Network…** discover local servers on your subnet.
+
+### Local runtimes
+
+Self-hosted backends addressed by `host:port` — no API key, no data leaving your hardware. Each can have a [`modelo-tap`](#remote-gpu-telemetry-modelo-tap) agent beside it for live GPU telemetry.
+
+| Runtime | Default port | Notes |
+| --- | --- | --- |
+| [LM Studio](https://lmstudio.ai) | 1234 | Load a model, then start the server from LM Studio's Developer tab. Modelo also reads LM Studio's richer `/api/v0` for load state and true context sizes. |
+| [Ollama](https://ollama.com) | 11434 | `ollama pull llama3.2` — the server runs on its own. |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | 8080 | `llama-server -m model.gguf --port 8080` |
+| [llama-swap](https://github.com/mostlygeek/llama-swap) | 8080 | Reverse proxy that hot-swaps between several llama.cpp backends behind one address. |
+| [oMLX](https://omlx.ai) | 8000 | Apple-silicon MLX runtime — load a model in the app and tap Start Server. |
+| [exo](https://exolabs.net) | 52415 | Clusters several Macs into one runtime. Launch models from exo's dashboard first. |
+
+Because these are plain `host:port` entries, the machine doesn't have to be on your LAN. A box on your **[Tailscale](https://tailscale.com)** tailnet works identically — enter its tailnet IP or MagicDNS name (`gpu-box.tailnet-name.ts.net`) as the host and the desktop rig at home serves the laptop from anywhere, with no ports exposed to the internet.
+
+### Cloud APIs
+
+Bearer-token endpoints; keys are stored in the macOS Keychain, never in SwiftData or plaintext.
+
+| Provider | Setup |
+| --- | --- |
+| [Nous Research](https://nousresearch.com) | Dedicated endpoint — base URL is fixed (`inference-api.nousresearch.com/v1`), so you only paste a key. |
+| [OpenRouter](https://openrouter.ai) | Dedicated endpoint — key only. Modelo pulls OpenRouter's catalog for context length, tool/vision capability, and free-tier flags. |
+| [OpenAI](https://platform.openai.com) | Preset — `api.openai.com/v1` |
+| [Groq](https://groq.com) | Preset — `api.groq.com/openai/v1` |
+| [Together.ai](https://together.ai) | Preset — `api.together.xyz/v1` |
+| [DeepSeek](https://deepseek.com) | Preset — `api.deepseek.com/v1` |
+| [Mistral](https://mistral.ai) | Preset — `api.mistral.ai/v1` |
+| **Custom…** | Any other OpenAI-compatible base URL (Fireworks, Cerebras, Hyperbolic, a corporate gateway, …). |
+
 ## Remote GPU telemetry (`modelo-tap`)
 
 When your inference runs on a remote NVIDIA box (a DGX Spark, vLLM host, etc.), the
@@ -60,7 +94,8 @@ Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**
 ## Requirements
 
 - macOS 14.0+
-- A local inference backend is optional — cloud APIs work standalone. Supported backends: [LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com), [llama.cpp](https://github.com/ggerganov/llama.cpp), [oMLX](https://github.com/nidalhaddad/omlx)
+- A local inference backend is optional — cloud APIs work standalone, and vice versa. Supported local runtimes: [LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com), [llama.cpp](https://github.com/ggml-org/llama.cpp), [llama-swap](https://github.com/mostlygeek/llama-swap), [oMLX](https://omlx.ai), [exo](https://exolabs.net) — reachable on your LAN or over [Tailscale](https://tailscale.com)
+- Cloud providers: [Nous Research](https://nousresearch.com), [OpenRouter](https://openrouter.ai), [OpenAI](https://platform.openai.com), [Groq](https://groq.com), [Together.ai](https://together.ai), [DeepSeek](https://deepseek.com), [Mistral](https://mistral.ai), or any OpenAI-compatible base URL — see [Endpoints](#endpoints)
 
 ## Building
 
