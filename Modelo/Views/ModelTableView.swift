@@ -192,16 +192,16 @@ private struct TableColumnHeader: View {
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.caps, alignment: .leading)
 
-            // All spare width pools here, between the name/capabilities group and
-            // the metrics. Collapses to zero on a narrow window.
-            Spacer(minLength: 0)
-
             // Single merged metrics column header
             Text("Metrics")
                 .font(Theme.label(8))
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
+
+            // All spare width pools after the metrics group so the content
+            // cluster stays left rather than pushing metrics to the window edge.
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, Theme.gutter)
         // Asymmetric on purpose: the 1pt rule below is an overlay, so it draws
@@ -404,10 +404,6 @@ struct ModelTableRow: View {
             }
             .frame(width: Col.caps, alignment: .leading)
 
-            // Mirrors the header's spacer — both must be in the same position or
-            // the metric column stops lining up with its label.
-            Spacer(minLength: 0)
-
             // Merged metrics: size · speed · used×
             Text(metricsLabel)
                 .font(Theme.mono(10))
@@ -415,6 +411,10 @@ struct ModelTableRow: View {
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
                 .lineLimit(1)
+
+            // Mirrors the header's spacer — absorbs spare width after metrics
+            // so the content cluster stays left rather than spreading edge-to-edge.
+            Spacer(minLength: 0)
         }
         .padding(.vertical, 7)
         .background(rowBackground)
@@ -441,6 +441,8 @@ struct ModelTableRow: View {
         Text(label.uppercased())
             .font(Theme.label(7.5))
             .tracking(0.4)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .foregroundStyle(tint)
             .padding(.horizontal, 4)
             .padding(.vertical, 1)
