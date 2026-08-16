@@ -377,8 +377,34 @@ struct SidebarView: View {
         let textScale: CGFloat
         let onTap: () -> Void
 
+        @State private var hasUnviewedCompletion = false
+        @State private var pulseOpacity: Double = 1.0
+
+        private static let limeGreen = Color(red: 0.6, green: 1.0, blue: 0.0)
+
+        /// True when this conversation's session is actively streaming.
+        private var isStreaming: Bool {
+            sessionStore.session(for: convo.persistentModelID)?.isStreaming ?? false
+        }
+
+        /// Show the dot only for background chats that are streaming or have an
+        /// unread completion. Active (selected) chats already show state in the
+        /// chat view itself.
+        private var showDot: Bool { !active && (isStreaming || hasUnviewedCompletion) }
+
         var body: some View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
+                // Fixed-width container keeps the title position stable in all states.
+                ZStack {
+                    if showDot {
+                        Circle()
+                            .fill(Self.limeGreen)
+                            .frame(width: 5, height: 5)
+                            .opacity(isStreaming ? pulseOpacity : 1.0)
+                    }
+                }
+                .frame(width: 9)
+
                 Text(convo.displayTitle)
                     .font(.system(size: 12.5 * textScale))
                     .foregroundStyle(active ? Theme.textHi : Theme.textSoft)
@@ -400,6 +426,30 @@ struct SidebarView: View {
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
             .help("Open conversation")
+            // Start pulse immediately if the row appears while already streaming.
+            .onAppear {
+                guard isStreaming && !active else { return }
+                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                    pulseOpacity = 0.2
+                }
+            }
+            // React to streaming transitions:
+            // true→false in background → mark unviewed completion, stop pulse.
+            // false→true in background → start pulse.
+            .onChange(of: isStreaming) { wasStreaming, nowStreaming in
+                if wasStreaming && !nowStreaming && !active {
+                    hasUnviewedCompletion = true
+                }
+                withAnimation(nowStreaming && !active
+                    ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                    : .default) {
+                    pulseOpacity = (nowStreaming && !active) ? 0.2 : 1.0
+                }
+            }
+            // Opening the chat clears the unviewed-completion badge.
+            .onChange(of: active) { _, nowActive in
+                if nowActive { hasUnviewedCompletion = false }
+            }
         }
 
         // MARK: - Timestamp
