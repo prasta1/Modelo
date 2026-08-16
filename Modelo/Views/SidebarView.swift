@@ -355,36 +355,72 @@ struct SidebarView: View {
     @ViewBuilder
     private func conversationList(_ convos: [Conversation]) -> some View {
         ForEach(convos, id: \.persistentModelID) { convo in
-            conversationRow(convo)
-                .contextMenu { rowMenu(convo) }
+            ConversationRowView(
+                convo: convo,
+                active: route == .conversation(convo.persistentModelID),
+                isRenaming: renamingIDs.contains(convo.persistentModelID),
+                textScale: textScale,
+                onTap: { route = .conversation(convo.persistentModelID) }
+            )
+            .contextMenu { rowMenu(convo) }
         }
     }
 
-    private func conversationRow(_ convo: Conversation) -> some View {
-        let active = route == .conversation(convo.persistentModelID)
-        let isRenaming = renamingIDs.contains(convo.persistentModelID)
-        return HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(convo.displayTitle)
-                .font(.system(size: 12.5 * textScale))
-                .foregroundStyle(active ? Theme.textHi : Theme.textSoft)
-                .lineLimit(1)
-            if isRenaming {
-                ProgressView()
-                    .controlSize(.mini)
-                    .scaleEffect(0.7)
+    /// A single conversation row. Extracted to a struct so each row can hold
+    /// its own @State for streaming/completion indicators.
+    private struct ConversationRowView: View {
+        @Environment(ChatSessionStore.self) private var sessionStore
+
+        let convo: Conversation
+        let active: Bool
+        let isRenaming: Bool
+        let textScale: CGFloat
+        let onTap: () -> Void
+
+        var body: some View {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(convo.displayTitle)
+                    .font(.system(size: 12.5 * textScale))
+                    .foregroundStyle(active ? Theme.textHi : Theme.textSoft)
+                    .lineLimit(1)
+                if isRenaming {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                }
+                Spacer(minLength: 0)
+                Text(timestampLabel(for: convo.createdAt))
+                    .font(.mono(9.5))
+                    .foregroundStyle(Theme.textFaint)
             }
-            Spacer(minLength: 0)
-            Text(timestampLabel(for: convo.createdAt))
-                .font(.mono(9.5))
-                .foregroundStyle(Theme.textFaint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background(active ? Theme.fill : .clear,
+                        in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
+            .onTapGesture { onTap() }
+            .help("Open conversation")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
-        .background(active ? Theme.fill : .clear,
-                    in: RoundedRectangle(cornerRadius: 7))
-        .contentShape(Rectangle())
-        .onTapGesture { route = .conversation(convo.persistentModelID) }
-        .help("Open conversation")
+
+        // MARK: - Timestamp
+
+        private static let shortDateFormatter: DateFormatter = {
+            let f = DateFormatter(); f.dateFormat = "MMM d"; return f
+        }()
+
+        private static let longDateFormatter: DateFormatter = {
+            let f = DateFormatter(); f.dateFormat = "MMM d, yyyy"; return f
+        }()
+
+        private func timestampLabel(for date: Date) -> String {
+            let cal = Calendar.current
+            if cal.isDateInToday(date) { return Theme.timeFormatter.string(from: date) }
+            let year = cal.component(.year, from: date)
+            let thisYear = cal.component(.year, from: Date())
+            return year == thisYear
+                ? Self.shortDateFormatter.string(from: date)
+                : Self.longDateFormatter.string(from: date)
+        }
     }
 
     private var searchField: some View {
@@ -582,31 +618,4 @@ struct SidebarView: View {
         context.saveOrLog()
     }
 
-    // MARK: - Timestamps
-
-    /// HH:mm for today, "MMM d" within this year, "MMM d, yyyy" beyond. Independent
-    /// of grouping so rows read the same in any section.
-    private func timestampLabel(for date: Date) -> String {
-        let cal = Calendar.current
-        if cal.isDateInToday(date) {
-            return Theme.timeFormatter.string(from: date)
-        }
-        let year = cal.component(.year, from: date)
-        let thisYear = cal.component(.year, from: Date())
-        return year == thisYear
-            ? Self.shortDateFormatter.string(from: date)
-            : Self.longDateFormatter.string(from: date)
-    }
-
-    private static let shortDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
-
-    private static let longDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, yyyy"
-        return f
-    }()
 }
