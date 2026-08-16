@@ -403,7 +403,7 @@ struct SidebarView: View {
                             .opacity(isStreaming ? pulseOpacity : 1.0)
                     }
                 }
-                .frame(width: 9)
+                .frame(width: 9, height: 9)
 
                 Text(convo.displayTitle)
                     .font(.system(size: 12.5 * textScale))
