@@ -1022,7 +1022,8 @@ struct ChatView: View {
                               fontSize: messageFontSize,
                               onSubmit: submitComposer,
                               onMoveUp: { moveSlashSelection(-1) },
-                              onMoveDown: { moveSlashSelection(1) })
+                              onMoveDown: { moveSlashSelection(1) },
+                              onPasteImage: pasteImage)
                     .frame(height: composerHeight)
                     .onChange(of: draft) { slashSelection = 0 }
                     .padding(.horizontal, 14)
@@ -1175,15 +1176,33 @@ struct ChatView: View {
             if provider.canLoadObject(ofClass: NSImage.self) {
                 _ = provider.loadObject(ofClass: NSImage.self) { obj, _ in
                     guard let nsImage = obj as? NSImage,
-                          let tiff = nsImage.tiffRepresentation,
-                          let bmp = NSBitmapImageRep(data: tiff),
-                          let png = bmp.representation(using: .png, properties: [:]) else { return }
-                    let att = MessageAttachment(data: png, mimeType: "image/png", fileName: "image.png")
+                          let att = Self.attachment(from: nsImage) else { return }
                     Task { @MainActor in pendingAttachments.append(att) }
                 }
             }
         }
         return true
+    }
+
+    /// Paste (⌘V) an image from the clipboard as a pending chat attachment, e.g. a
+    /// screenshot just captured to the clipboard — hands it to the vision path.
+    private func pasteImage(_ image: NSImage) -> Bool {
+        guard let att = Self.attachment(from: image) else {
+            flash("Couldn't paste that image.")
+            return true
+        }
+        pendingAttachments.append(att)
+        composerFocused = true
+        return true
+    }
+
+    /// PNG-encodes an in-memory `NSImage` (from a paste or a drag) into a chat
+    /// attachment. Shared by `pasteImage` (clipboard screenshots) and `handleDrop`.
+    static func attachment(from image: NSImage, fileName: String = "image.png") -> MessageAttachment? {
+        guard let tiff = image.tiffRepresentation,
+              let bmp = NSBitmapImageRep(data: tiff),
+              let png = bmp.representation(using: .png, properties: [:]) else { return nil }
+        return MessageAttachment(data: png, mimeType: "image/png", fileName: fileName)
     }
 
     private func mimeType(for url: URL) -> String {
