@@ -151,8 +151,13 @@ final class PlaceholderTextView: NSTextView {
     /// `onPasteImage` so it lands as a chat attachment instead of inline text. Text
     /// pastes fall through to the default NSTextView behavior unchanged.
     override func paste(_ sender: Any?) {
-        let images = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: [:]) as? [NSImage]
-        if let image = images?.first, onPasteImage?(image) == true { return }
+        // Rich copies (web image + caption, Numbers cells) put both flavors on the
+        // pasteboard; only treat it as an image paste when there's no text, so the
+        // user's text still pastes. Screenshots are image-only, so they still attach.
+        let pb = NSPasteboard.general
+        let hasText = pb.canReadObject(forClasses: [NSString.self], options: [:])
+        let images = pb.readObjects(forClasses: [NSImage.self], options: [:]) as? [NSImage]
+        if !hasText, let image = images?.first, onPasteImage?(image) == true { return }
         super.paste(sender)
     }
 
