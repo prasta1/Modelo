@@ -303,7 +303,7 @@ final class ChatSession {
                 return
             }
 
-            totalCompletionTokens += roundCompletion
+            totalCompletionTokens = max(totalCompletionTokens, roundCompletion)
             lastCompletionTokens = roundCompletion
 
             // Stopped mid-stream: don't execute tools or start another round.
@@ -364,11 +364,11 @@ final class ChatSession {
             return
         }
 
-        // tok/s is decode speed: measured from the first token, not from send.
-        // Excluding prefill + network round-trip (the TTFT window) matches how
-        // LM Studio reports generation rate — folding TTFT in makes a fast model
-        // read slow, especially over the network or with a long prompt to prefill.
-        let elapsed = Date().timeIntervalSince(firstTokenAt ?? start)
+        // tok/s is measured over the full request lifecycle (from send to stream
+        // end) to align with llama-swap's gen_speed, which divides tokens by total
+        // request duration including prefill and TTFT. This makes the client-side
+        // reading directly comparable to the server's reported figure.
+        let elapsed = Date().timeIntervalSince(start)
         let tps = UsageMath.tokensPerSecond(completionTokens: totalCompletionTokens, elapsed: elapsed)
         let ttft = UsageMath.millis((firstTokenAt ?? start).timeIntervalSince(start))
         lastAssistant?.tokenCount = totalCompletionTokens

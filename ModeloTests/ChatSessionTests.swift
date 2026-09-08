@@ -314,6 +314,29 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertNil(session.errorText)
     }
 
+    func test_send_multiRoundUsageAccumulatesCumulatively() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: "echo", arguments: "{\"text\":\"hi\"}")]), .usage(promptTokens: 40, completionTokens: 50)],
+            [.delta("Final"), .usage(promptTokens: 60, completionTokens: 130)],
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([EchoTool(reply: "X")]))
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "qwen3", serverID: server.id); context.insert(convo)
+
+        await session.send("use a tool", in: convo, server: server, modelSupportsTools: true)
+
+        let usage = try context.fetch(FetchDescriptor<UsageRecord>())
+        XCTAssertEqual(usage.count, 1)
+        // Round 1 reported 50 completion tokens; round 2 reported 130 (cumulative).
+        // The UsageRecord should store the highest value (130), not the summed (180).
+        XCTAssertEqual(usage.first?.completionTokens, 130)
+        let assistant = convo.messages.first { $0.role == .assistant && $0.content == "Final" }
+        XCTAssertEqual(assistant?.tokenCount, 130)
+    }
+
     func test_withoutYolo_mutatingToolStillPrompts() async throws {
         let context = try makeContext()
         let provider = FakeProvider(scripts: [
