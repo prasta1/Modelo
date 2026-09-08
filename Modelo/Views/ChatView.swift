@@ -1022,7 +1022,8 @@ struct ChatView: View {
                               fontSize: messageFontSize,
                               onSubmit: submitComposer,
                               onMoveUp: { moveSlashSelection(-1) },
-                              onMoveDown: { moveSlashSelection(1) })
+                              onMoveDown: { moveSlashSelection(1) },
+                              onPasteImage: pasteImage)
                     .frame(height: composerHeight)
                     .onChange(of: draft) { slashSelection = 0 }
                     .padding(.horizontal, 14)
@@ -1183,6 +1184,18 @@ struct ChatView: View {
                 }
             }
         }
+        return true
+    }
+
+    /// Paste (⌘V) an image from the clipboard as a pending chat attachment, e.g. a
+    /// screenshot just captured to the clipboard — hands it to the vision path.
+    private func pasteImage(_ image: NSImage) -> Bool {
+        guard let data = Self.normalizeImageData(image) else {
+            flash("Couldn't paste that image.")
+            return true
+        }
+        pendingAttachments.append(MessageAttachment(data: data, mimeType: "image/jpeg", fileName: "image.jpg"))
+        composerFocused = true
         return true
     }
 
