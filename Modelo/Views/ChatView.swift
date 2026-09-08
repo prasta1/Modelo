@@ -1161,11 +1161,13 @@ struct ChatView: View {
         panel.allowedContentTypes = [.jpeg, .png, .gif, .webP, .heif, .heic]
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
-            guard let data = try? Data(contentsOf: url) else { continue }
+            guard let image = NSImage(contentsOf: url),
+                  let data = Self.normalizeImageData(image) else { continue }
+            let baseName = url.deletingPathExtension().lastPathComponent
             pendingAttachments.append(MessageAttachment(
                 data: data,
-                mimeType: mimeType(for: url),
-                fileName: url.lastPathComponent
+                mimeType: "image/jpeg",
+                fileName: baseName + ".jpg"
             ))
         }
     }
@@ -1175,15 +1177,48 @@ struct ChatView: View {
             if provider.canLoadObject(ofClass: NSImage.self) {
                 _ = provider.loadObject(ofClass: NSImage.self) { obj, _ in
                     guard let nsImage = obj as? NSImage,
-                          let tiff = nsImage.tiffRepresentation,
-                          let bmp = NSBitmapImageRep(data: tiff),
-                          let png = bmp.representation(using: .png, properties: [:]) else { return }
-                    let att = MessageAttachment(data: png, mimeType: "image/png", fileName: "image.png")
+                          let data = Self.normalizeImageData(nsImage) else { return }
+                    let att = MessageAttachment(data: data, mimeType: "image/jpeg", fileName: "image.jpg")
                     Task { @MainActor in pendingAttachments.append(att) }
                 }
             }
         }
         return true
+    }
+
+    /// Draws `image` into an explicit RGBA8 sRGB CGBitmapContext so the stored
+    /// data is always in a pixel format CoreGraphics can handle without errors.
+    /// Source images with non-standard layouts (e.g. 3-component RGB padded to
+    /// 32 bpp) cause CGBitmapContextCreateWithData failures on every SwiftUI
+    /// re-render; normalizing at ingestion time eliminates that entirely.
+    /// Transparent areas are composited over white. Dimensions are capped at
+    /// 2048 px on the long edge for vision-model compatibility.
+    private static func normalizeImageData(_ image: NSImage, maxSide: CGFloat = 2048) -> Data? {
+        let src = image.size
+        guard src.width > 0, src.height > 0 else { return nil }
+
+        let scale = min(1.0, min(maxSide / src.width, maxSide / src.height))
+        let w = Int((src.width  * scale).rounded())
+        let h = Int((src.height * scale).rounded())
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let ctx = CGContext(data: nil, width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: colorSpace, bitmapInfo: bitmapInfo.rawValue)
+        else { return nil }
+
+        // White background so transparent pixels don't go black in JPEG output.
+        ctx.setFillColor(CGColor.white)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        guard let normalized = ctx.makeImage() else { return nil }
+        let rep = NSBitmapImageRep(cgImage: normalized)
+        let props: [NSBitmapImageRep.PropertyKey: Any] = [.compressionFactor: 0.85]
+        return rep.representation(using: .jpeg, properties: props)
     }
 
     private func mimeType(for url: URL) -> String {
