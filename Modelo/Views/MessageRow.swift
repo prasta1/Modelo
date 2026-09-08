@@ -362,13 +362,21 @@ struct MessageRow: View {
     }
 }
 
-/// Collapsible card for a tool call or result. Collapsed by default.
+/// Collapsible card for a tool call or result. Initial expansion follows the
+/// "toolCallsExpandedByDefault" AppStorage preference; individual cards can still be toggled.
 private struct ToolCard: View {
     let title: String
     let detail: String
     /// Explicit language hint for syntax highlighting. Pass nil to auto-detect JSON.
     var language: String? = nil
-    @State private var expanded = false
+    @State private var expanded: Bool
+
+    init(title: String, detail: String, language: String? = nil) {
+        self.title = title
+        self.detail = detail
+        self.language = language
+        self._expanded = State(initialValue: UserDefaults.standard.bool(forKey: "toolCallsExpandedByDefault"))
+    }
 
     /// Sniffs the content for JSON if no language is supplied.
     private var effectiveLanguage: String? {

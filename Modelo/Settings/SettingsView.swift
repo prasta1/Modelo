@@ -790,6 +790,7 @@ private struct AppearanceSettingsTab: View {
     @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage("showPersonasInSidebar") private var showPersonasInSidebar = true
+    @AppStorage("toolCallsExpandedByDefault") private var toolCallsExpandedByDefault = false
 
     var body: some View {
         ScrollView {
@@ -807,12 +808,20 @@ private struct AppearanceSettingsTab: View {
                                 Text("Displays the Personas nav item in the sidebar.")
                                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                             }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Expand tool call details by default").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                                Text("Show tool call arguments and results expanded in new messages.")
+                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                            }
                         }
                         VStack(spacing: 10) {
                             Toggle("", isOn: $showMenuBarIcon)
                                 .toggleStyle(.switch)
                                 .labelsHidden()
                             Toggle("", isOn: $showPersonasInSidebar)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                            Toggle("", isOn: $toolCallsExpandedByDefault)
                                 .toggleStyle(.switch)
                                 .labelsHidden()
                         }
