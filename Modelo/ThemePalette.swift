@@ -142,6 +142,17 @@ extension ThemePalette {
         blue: 0x89B4FA, purple: 0xCBA6F7, vision: 0x74C7EC, think: 0xB4BEFE
     )
 
+    /// One Dark Pro — the VS Code theme's classic ramp (atom/One Dark, binaryify/One
+    /// Dark Pro): blue #61AFEF accent on the #282C34 editor surface.
+    static let oneDark = build(
+        scheme: .dark,
+        crust: 0x1B1D22, mantle: 0x21252B, base: 0x282C34, surface0: 0x2C313A,
+        text: 0xABB2BF, subtext1: 0x9AA2B4, subtext0: 0x7F848E, overlay1: 0x5C6370, overlay0: 0x4B5263,
+        accent: 0x61AFEF, accentName: 0xE5C07B, accentDeep: 0x4E78C8,
+        green: 0x98C379, idle: 0xE5C07B, offline: 0x5C6370, alert: 0xE06C75,
+        blue: 0x61AFEF, purple: 0xC678DD, vision: 0x56B6C2, think: 0xC678DD
+    )
+
     /// Light mode with a naval blue surface ramp, gold interactive accents, and
     /// lime-green status indicators on a paper-white content canvas.
     static let lager = build(
@@ -167,7 +178,7 @@ extension ThemePalette {
 
 /// The user-selectable themes (§3.5). Raw values persist in `@AppStorage("themeID")`.
 enum ThemeID: String, CaseIterable, Identifiable {
-    case dark, light, latte, frappe, macchiato, mocha, lager, negra
+    case dark, light, latte, frappe, macchiato, mocha, lager, negra, oneDark
 
     var id: String { rawValue }
 
@@ -181,6 +192,7 @@ enum ThemeID: String, CaseIterable, Identifiable {
         case .mocha:     return "Catppuccin Mocha"
         case .lager:     return "Lager"
         case .negra:     return "Negra"
+        case .oneDark:   return "One Dark Pro"
         }
     }
 
@@ -194,6 +206,7 @@ enum ThemeID: String, CaseIterable, Identifiable {
         case .mocha:     return .mocha
         case .lager:     return .lager
         case .negra:     return .negra
+        case .oneDark:   return .oneDark
         }
     }
 
