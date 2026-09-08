@@ -29,3 +29,6 @@ code-review-*.html
 
 # Generated archify architecture diagram (715 KB, regenerable)
 docs/modelo-architecture.html
+
+# Per-developer signing overrides (each dev keeps their own, uncommitted)
+Developer.xcconfig
