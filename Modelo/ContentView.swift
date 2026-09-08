@@ -280,7 +280,7 @@ struct ContentView: View {
             }
         case .conversation:
             if let convo = selectedConversation {
-                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChat)
+                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChatFromPicker)
                     .id(convo.persistentModelID)
             } else {
                 launcher
@@ -334,6 +334,18 @@ struct ContentView: View {
             route = .conversation(blank.persistentModelID)
             return
         }
+        let convo = Conversation(modelID: pickedModel?.model.id ?? "",
+                                 serverID: pickedModel?.server.id)
+        context.insert(convo)
+        context.saveOrLog()
+        route = .conversation(convo.persistentModelID)
+    }
+
+    /// Picker double-click — always creates a fresh conversation with the currently
+    /// selected model. Intentionally skips blank-conversation reuse: the user
+    /// explicitly asked for a new chat, so navigating to the same blank they're
+    /// already in (a no-op) would silently swallow the action.
+    private func newChatFromPicker() {
         let convo = Conversation(modelID: pickedModel?.model.id ?? "",
                                  serverID: pickedModel?.server.id)
         context.insert(convo)

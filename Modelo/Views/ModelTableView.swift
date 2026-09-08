@@ -49,6 +49,7 @@ struct ModelTableView: View {
             speedLabel: vm.speedLabel(for: item.id),
             usedCount: vm.usageCount(for: item.id),
             onSelect: { vm.selectedID = item.id },
+            onLaunch: { vm.onLaunch?(item) },
             onToggleFav: { favorites.toggle(item.model.id) }
         )
         .id(item.id)
@@ -354,6 +355,7 @@ struct ModelTableRow: View {
     let speedLabel: String
     let usedCount: Int?
     let onSelect: () -> Void
+    let onLaunch: () -> Void
     let onToggleFav: () -> Void
 
     @State private var hovering = false
@@ -419,8 +421,10 @@ struct ModelTableRow: View {
         .padding(.vertical, 7)
         .background(rowBackground)
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) { onLaunch() }
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
+        .help("Double-click to open in new chat")
     }
 
     @ViewBuilder private var rowBackground: some View {
