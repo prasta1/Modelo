@@ -26,3 +26,6 @@ modelo-tap/Cargo.lock
 
 # Generated code-review reports (dated, regenerable)
 code-review-*.html
+
+# Generated archify architecture diagram (715 KB, regenerable)
+docs/modelo-architecture.html
