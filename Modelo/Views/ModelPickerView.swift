@@ -263,7 +263,7 @@ private struct ModelPickerList: View {
             Divider().overlay(Theme.line)
             footer
         }
-        .frame(width: 418)
+        .frame(width: 440)
         .frame(maxHeight: 560)
         .background(Theme.popoverBG)
     }
@@ -533,50 +533,24 @@ private struct ModelRow: View {
     private var busy: Bool { isLoading || isEjecting }
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 8) {
             indicator.frame(width: 16)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(model.familyName)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(nameColor)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                SpecStrip(model: model)
-            }
+            Text(model.familyName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(nameColor)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 0)
+            // Fixed-width metric columns so values register across all rows.
+            metricCell(model.parameterSize, width: 30)
+            metricCell(model.quantization, width: 58)
+            metricCell(model.maxContextLength.map { contextLabel($0) }, width: 30)
+            metricCell(model.displaySizeFormatted, width: 44)
 
-            if busy {
-                ProgressView().controlSize(.mini).scaleEffect(0.7)
-            } else {
-                if let ctx = model.maxContextLength {
-                    Text(contextLabel(ctx))
-                        .font(.mono(10.5))
-                        .foregroundStyle(Theme.textFaint)
-                }
-                starButton
-                if model.isLoaded {
-                    if let onEject {
-                        Button(action: onEject) {
-                            Image(systemName: "eject.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(Theme.textMute)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Unload model")
-                    }
-                } else if !isSelected {
-                    Button(action: onSelect) {
-                        Text("Load")
-                            .font(.mono(10)).foregroundStyle(Theme.amber)
-                            .padding(.horizontal, 9).padding(.vertical, 4)
-                            .background(Theme.amberFill, in: RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Load this model")
-                }
-            }
+            // Fixed frames keep the name column stable regardless of which action renders.
+            starButton.frame(width: 20)
+            actionArea.frame(width: 52, alignment: .trailing)
         }
         .padding(.horizontal, 10).padding(.vertical, 9)
         .background(rowFill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
@@ -585,6 +559,37 @@ private struct ModelRow: View {
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
         .help("Select \(model.familyName) · Double-click to open in new chat")
+    }
+
+    private func metricCell(_ value: String?, width: CGFloat) -> some View {
+        Text(value ?? "—")
+            .font(Theme.mono(9.5))
+            .foregroundStyle(value != nil ? Theme.textDim : Theme.textFaint.opacity(0.4))
+            .lineLimit(1)
+            .frame(width: width, alignment: .trailing)
+    }
+
+    @ViewBuilder private var actionArea: some View {
+        if busy {
+            ProgressView().controlSize(.mini).scaleEffect(0.7)
+        } else if model.isLoaded, let onEject {
+            Button(action: onEject) {
+                Image(systemName: "eject.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.textMute)
+            }
+            .buttonStyle(.plain)
+            .help("Unload model")
+        } else if !isSelected {
+            Button(action: onSelect) {
+                Text("Load")
+                    .font(.mono(10)).foregroundStyle(Theme.amber)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background(Theme.amberFill, in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help("Load this model")
+        }
     }
 
     private var starButton: some View {
