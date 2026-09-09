@@ -34,13 +34,18 @@ struct MessageRow: View {
     private var isUser: Bool { message.role == .user }
 
     var body: some View {
-        if message.role == .tool {
-            ToolCard(title: "🔧 \(message.toolName ?? "tool")", detail: message.content)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if isUser {
-            userTurn
-        } else {
-            assistantTurn
+        // Single-root wrapper keeps this row "unary": its top-level shape is one
+        // VStack regardless of role, so the LazyVStack can template row identity
+        // from msg.id without evaluating every row's body on each list diff.
+        VStack(alignment: .leading, spacing: 0) {
+            if message.role == .tool {
+                ToolCard(title: "🔧 \(message.toolName ?? "tool")", detail: message.content)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if isUser {
+                userTurn
+            } else {
+                assistantTurn
+            }
         }
     }
 
