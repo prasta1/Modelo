@@ -589,8 +589,7 @@ private struct PresetEditPane: View {
                 }
 
                 Eyebrow("Sampling", size: 9)
-                SamplingControls(params: Binding(get: { preset.sampling },
-                                                 set: { preset.sampling = $0 }))
+                SamplingControls(params: $preset.sampling)
             }
             .padding(20)
         }
@@ -1104,9 +1103,12 @@ private struct ServerSettingsRow: View {
                             .buttonStyle(.plain)
                             .padding(.top, 4)
                         } else {
+                            // Fetch the server's model list once per render, not once per row —
+                            // it's identical for every override (keyed on server.id).
+                            let availableModels = modelsForServer(server.id)
                             List {
                                 ForEach(server.contextLengthOverrides) { override in
-                                    contextWindowRow(override)
+                                    contextWindowRow(override, availableModels: availableModels)
                                 }
                             }
                             .listStyle(.plain)
@@ -1189,10 +1191,8 @@ private struct ServerSettingsRow: View {
             .map(\.key)
     }
 
-    private func contextWindowRow(_ override: ModelContextOverride) -> some View {
-        let availableModels = modelsForServer(server.id)
-
-        return HStack(spacing: 8) {
+    private func contextWindowRow(_ override: ModelContextOverride, availableModels: [String]) -> some View {
+        HStack(spacing: 8) {
             if availableModels.isEmpty {
                 // Fallback to text field if no models found in conversations
                 TextField("Model ID", text: Binding<String>(
