@@ -13,6 +13,9 @@ Pause for human review on UI/API/schema/contract changes and any new architectur
 
 ## Build, test, validate & install
 
+One-command rebuild+install for the weekly profile expiry:
+`./scripts/install.sh` (same flow as below, relies on your Developer.xcconfig).
+
 The app is a native macOS SwiftUI target. The Xcode project is **generated** by
 XcodeGen from `project.yml` and is never committed (`.gitignore`d), so regenerate
 it before building if `project.yml` changed or the project is missing.

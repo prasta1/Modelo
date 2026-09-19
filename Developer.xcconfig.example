@@ -1,0 +1,15 @@
+// Copy to Developer.xcconfig (gitignored) and fill in YOUR values.
+//
+// Bundle IDs are globally unique across Apple Developer teams: a single
+// hard-coded ID can only be signed by the team that first registered it.
+// So each developer signs their own bundle ID locally, and the committed
+// base in project.yml only works for the team that owns it.
+//
+// Find your team ID from your "Apple Development" certificate:
+//   security find-certificate -c "Apple Development" -p \
+//     | openssl x509 -noout -subject | sed -n 's/.*OU=\([^\/]*\).*/\1/p'
+//
+// Pick a bundle ID suffix unique to you; your Apple team must be able to
+// register it (it must not already belong to another team).
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+PRODUCT_BUNDLE_IDENTIFIER = com.peregrine.modelo.YOUR_HANDLE

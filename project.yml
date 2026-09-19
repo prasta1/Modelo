@@ -16,16 +16,12 @@ packages:
 settings:
   base:
     # Automatic signing lets Xcode pick the right identity per machine.
+    # DEVELOPMENT_TEAM + PRODUCT_BUNDLE_IDENTIFIER live in Signing.xcconfig (per
+    # configFiles below) so they can be overridden per-dev by the gitignored
+    # Developer.xcconfig: bundle IDs are globally unique across Apple teams, so
+    # one hard-coded ID can't be signed by two different dev accounts.
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
-    DEVELOPMENT_TEAM: QVYZN4MJ67
-packages:
-  MarkdownUI:
-    url: https://github.com/gonzalezreal/swift-markdown-ui
-    from: 2.4.1
-  Highlightr:
-    url: https://github.com/raspu/Highlightr
-    from: 2.3.0
 targets:
   Modelo:
     type: application
@@ -50,9 +46,15 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSHumanReadableCopyright: "© 2025 Patrick Ruster"
+    # Per-dev signing overrides via optional include. See Signing.xcconfig +
+    # Developer.xcconfig.example. DEVELOPMENT_TEAM + PRODUCT_BUNDLE_IDENTIFIER
+    # are sourced from Signing.xcconfig (committed defaults) and overridden by
+    # the gitignored Developer.xcconfig when present.
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.peregrine.modelo
         PRODUCT_NAME: Modelo
         PRODUCT_MODULE_NAME: Modelo
         MARKETING_VERSION: "0.3.0"
