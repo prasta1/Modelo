@@ -186,11 +186,56 @@ struct ArtifactPanel: View {
     }
 
     private func download() {
+        exportArtifact(current)
+    }
+}
+
+/// Writes an artifact to disk via a save panel. HTML artifacts get the same themed
+/// document the preview and “Open in Browser” produce — a bare model fragment with no
+/// `<head>` would otherwise save as unstyled, blank-looking HTML. Other kinds save raw
+/// source so the file type matches its extension (.svg → SVG, .mmd → Mermaid, etc.).
+/// Shared by the panel’s footer download button and the inline card’s right-click menu.
+private func exportArtifact(_ artifact: Artifact) {
+    let panel = NSSavePanel()
+    panel.nameFieldStringValue = ArtifactParser.slug(artifact.title, fallback: "artifact")
+        + "." + artifact.kind.fileExtension(language: artifact.language)
+    if panel.runModal() == .OK, let url = panel.url {
+        let content: String
+        if artifact.kind == .html {
+            content = ArtifactHTML.document(for: artifact, dark: Theme.active.scheme == .dark, forExport: true)
+        } else {
+            content = artifact.content
+        }
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// Renders a renderable artifact (HTML/SVG/Mermaid) to the same document shown in the
+/// panel’s live preview, then opens it in the user’s default browser — useful for
+/// artifacts that need real window chrome, print, or devtools the embedded preview can’t give.
+private func openArtifactInBrowser(_ artifact: Artifact) {
+    let html = ArtifactHTML.document(for: artifact, dark: Theme.active.scheme == .dark, forExport: true)
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent(ArtifactParser.slug(artifact.title, fallback: "artifact"))
+        .appendingPathExtension("html")
+    guard (try? html.write(to: url, atomically: true, encoding: .utf8)) != nil else { return }
+    NSWorkspace.shared.open(url)
+}
+
+/// Captures a renderable artifact's preview as a PNG and saves it via a save panel.
+/// `ArtifactPNGRenderer` keeps itself alive until the completion handler fires, so the
+/// instance here doesn't need to be held onto.
+@MainActor
+private func exportArtifactAsPNG(_ artifact: Artifact) {
+    _ = ArtifactPNGRenderer(artifact: artifact, dark: Theme.active.scheme == .dark) { image in
+        guard let image,
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = ArtifactParser.slug(group.title, fallback: "artifact")
-            + "." + group.kind.fileExtension(language: group.language)
+        panel.nameFieldStringValue = ArtifactParser.slug(artifact.title, fallback: "artifact") + ".png"
         if panel.runModal() == .OK, let url = panel.url {
-            try? current.content.write(to: url, atomically: true, encoding: .utf8)
+            try? png.write(to: url)
         }
     }
 }
@@ -234,5 +279,12 @@ struct ArtifactCard: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help("Open “\(artifact.title)” in the artifact panel")
+        .contextMenu {
+            if artifact.kind.isRenderable {
+                Button("Open in Browser") { openArtifactInBrowser(artifact) }
+                Button("Export as PNG…") { exportArtifactAsPNG(artifact) }
+            }
+            Button("Export File…") { exportArtifact(artifact) }
+        }
     }
 }
