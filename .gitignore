@@ -29,3 +29,8 @@ code-review-*.html
 
 # Generated archify architecture diagram (715 KB, regenerable)
 docs/modelo-architecture.html
+# Impeccable design artifacts (keep out of public repo)
+Modelo/.impeccable/
+Modelo/.agents/
+Modelo/PRODUCT.md
+Modelo/DESIGN.md
