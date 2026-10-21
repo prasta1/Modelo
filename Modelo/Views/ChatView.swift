@@ -76,6 +76,8 @@ struct ChatView: View {
     @State private var snapshotProbe = SnapshotProbeView.Holder()
     @State private var pendingSnapshot: SnapshotItem?
     @State private var errorCopied = false
+    /// When `/clear` was first run; a second run within a few seconds confirms it.
+    @State private var clearArmedAt: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Identity key for this conversation's session/task in the shared store.
@@ -230,6 +232,20 @@ struct ChatView: View {
         // Animate the panel sliding in/out, but not switches between artifacts.
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: openArtifactID == nil)
         .background(Theme.windowBG)
+        // Accelerators for actions that otherwise need the mouse. Zero-size buttons
+        // still receive their shortcuts; Esc only stops while a reply is streaming.
+        .background {
+            Group {
+                Button("Focus composer") { composerFocused = true }
+                    .keyboardShortcut("l", modifiers: .command)
+                Button("Stop generating") { stop() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(!isStreaming)
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
         .onAppear { ensureSession() }
         // No .onDisappear cancel: a turn keeps streaming after the user leaves the
         // chat, so multiple conversations can run at once (the store owns it).
@@ -375,7 +391,8 @@ struct ChatView: View {
                     .panel(Theme.Palette.panel, radius: 7)
             }
             .buttonStyle(.plain)
-            .help(open ? "Hide artifacts (\(artifactGroups.count))" : "Show artifacts (\(artifactGroups.count))")
+            .keyboardShortcut("\\", modifiers: .command)
+            .help(open ? "Hide artifacts (\(artifactGroups.count)) — ⌘\\" : "Show artifacts (\(artifactGroups.count)) — ⌘\\")
             .accessibilityLabel("Artifacts panel")
         }
     }
@@ -1118,7 +1135,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend && !isStreaming)
-                .help(isStreaming ? "Stop generating" : "Send message")
+                .help(isStreaming ? "Stop generating (Esc)" : "Send message")
                 .accessibilityLabel(isStreaming ? "Stop generating" : "Send message")
             }
             .padding(.horizontal, 16)
@@ -1503,6 +1520,13 @@ struct ChatView: View {
         case .help:
             flash(SlashParser.helpText)
         case .clear:
+            // Irreversible, and one Return from the slash popup — require a repeat.
+            guard let armed = clearArmedAt, Date().timeIntervalSince(armed) < 6 else {
+                clearArmedAt = Date()
+                flash("This deletes every message. Run /clear again within 6 seconds to confirm.")
+                return
+            }
+            clearArmedAt = nil
             for message in conversation.messages { context.delete(message) }
             conversation.messages.removeAll()
             conversation.summary = nil
