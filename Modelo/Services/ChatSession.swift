@@ -183,6 +183,25 @@ final class ChatSession {
                       firstAssistant: fresh, titleOnFirstExchange: false)
     }
 
+    /// Re-runs a failed turn: when the active path ends on a user message (the reply
+    /// errored and its empty assistant was dropped), streams a fresh answer to it.
+    /// No-ops otherwise, so it never duplicates a turn that already has a reply.
+    func retry(in conversation: Conversation, server: Server,
+               serverOnline: Bool = true, modelSupportsTools: Bool = false,
+               sampling: SamplingParams = SamplingParams(),
+               contextWindow: Int = 0) async {
+        errorText = nil
+        guard serverOnline else {
+            errorText = "\(server.label) is offline — can't retry right now."
+            return
+        }
+        guard conversation.activePath().last?.role == .user else { return }
+        await runTurn(in: conversation, server: server,
+                      modelSupportsTools: modelSupportsTools, sampling: sampling,
+                      contextWindow: contextWindow,
+                      firstAssistant: nil, titleOnFirstExchange: true)
+    }
+
     /// The shared agentic streaming loop, run into the conversation's active path:
     /// streams an assistant reply, executes any requested tools and re-streams (capped
     /// at `maxToolRounds`), then records telemetry. `firstAssistant`, when non-nil, is

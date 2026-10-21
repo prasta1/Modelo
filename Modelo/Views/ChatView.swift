@@ -712,33 +712,72 @@ struct ChatView: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
+            // The picked server is down: say so before the user types, not after Send.
+            if let server = boundServer, !isStreaming,
+               let reason = unavailableReason(for: server) {
+                HStack(spacing: 8) {
+                    StatusLED(status: registry.status(for: server), size: 6)
+                    Text(reason)
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.Palette.alert)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Theme.Palette.alert.opacity(0.10))
+                .accessibilityElement(children: .combine)
+            }
+
             if let error = session?.errorText {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(error, forType: .string)
-                    errorCopied = true
-                    Task { try? await Task.sleep(for: .seconds(1.5)); errorCopied = false }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Palette.alert)
-                        Text(error)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.alert)
+                        .accessibilityHidden(true)
+                    Text(error)
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.Palette.alert)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 0)
+                    if canRetry {
+                        Button("Retry") { retry() }
+                            .buttonStyle(.plain)
                             .font(Theme.metric(11))
+                            .fontWeight(.semibold)
                             .foregroundStyle(Theme.Palette.alert)
-                        Spacer(minLength: 0)
+                            .help("Run the failed turn again")
+                            .accessibilityHint("Runs the failed turn again")
+                    }
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(error, forType: .string)
+                        errorCopied = true
+                        Task { try? await Task.sleep(for: .seconds(1.5)); errorCopied = false }
+                    } label: {
                         Image(systemName: errorCopied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 10))
                             .foregroundStyle(errorCopied ? Theme.green : Theme.Palette.alert.opacity(0.7))
                             .animation(.easeOut(duration: 0.15), value: errorCopied)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .background(Theme.Palette.alert.opacity(0.10))
+                    .buttonStyle(.plain)
+                    .help("Copy error")
+                    .accessibilityLabel("Copy error")
+                    Button {
+                        session?.errorText = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.Palette.alert.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Dismiss")
+                    .accessibilityLabel("Dismiss error")
                 }
-                .buttonStyle(.plain)
-                .help("Click to copy error")
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Theme.Palette.alert.opacity(0.10))
             }
 
             // Standing cue that this chat runs tools unattended (YOLO mode).
@@ -1532,6 +1571,41 @@ struct ChatView: View {
         }, for: id)
     }
 
+    /// Why sending to `server` can't work right now, or nil when it can (or is still
+    /// being probed — we don't block on "unknown").
+    private func unavailableReason(for server: Server) -> String? {
+        switch registry.status(for: server) {
+        case .offline: "\(server.label) is offline. Your draft is kept — pick another model, or send once it's back."
+        case .needsKey: "\(server.label) needs an API key. Add one in Settings, then send."
+        case .online, .unknown: nil
+        }
+    }
+
+    /// True when the last turn failed: the path ends on a user message with no reply.
+    private var canRetry: Bool {
+        !isStreaming && conversation.activePath().last?.role == .user
+    }
+
+    /// Re-runs the failed turn against the currently picked server.
+    private func retry() {
+        guard let session, canRetry else { return }
+        bindPickedModel()
+        guard let server = boundServer else {
+            session.errorText = "Pick a model before retrying."
+            return
+        }
+        isNearBottom = true
+        let id = convoID
+        sessionStore.setTask(Task {
+            await session.retry(in: conversation, server: server,
+                                serverOnline: registry.isOnline(server),
+                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
+                                sampling: effectiveSampling, contextWindow: contextWindow)
+            sessionStore.setTask(nil, for: id)
+            drainQueue()
+        }, for: id)
+    }
+
     /// Sends the next queued message once the current turn finishes (§3.3).
     private func drainQueue() {
         guard !isStreaming, !pendingQueue.isEmpty else { return }
@@ -1577,6 +1651,9 @@ struct ChatView: View {
             session.errorText = "Pick a model before sending."
             return
         }
+        // Don't consume the draft for a send that can't happen: the session would
+        // refuse an offline server only after `draft` was already cleared.
+        if unavailableReason(for: server) != nil { return }
         let text = draft
         let attachments = pendingAttachments
         let edited = editingSource
