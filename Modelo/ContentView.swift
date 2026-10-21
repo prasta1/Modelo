@@ -637,6 +637,7 @@ struct ContentView: View {
     /// Unloads a model (LM Studio, exo or llama-swap) and clears the selection if it was
     /// the active model. A failure is logged and shown, since the model stays loaded.
     private func handleModelEject(_ item: DiscoveredModel) async {
+        Log.network.info("eject requested: \(item.model.id, privacy: .public) on \(item.server.label, privacy: .public) (\(item.server.kind.rawValue, privacy: .public))")
         let endpoint = Endpoint(server: item.server, keychain: keychain)
         if item.server.kind == .exo {
             let loaded = (try? await exoClient.loadedInstances(endpoint: endpoint)) ?? []

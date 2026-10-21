@@ -43,6 +43,7 @@ final class LlamaSwapClient {
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ClientError.unreachable }
+        Log.network.info("llama-swap \(method, privacy: .public) \(url.path, privacy: .public) -> \(http.statusCode)")
         if http.statusCode == 404 {
             throw ClientError.serverError(
                 "llama-swap returned 404: the model isn't in its config, or this version can't unload a single model.")
