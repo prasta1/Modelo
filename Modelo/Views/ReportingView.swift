@@ -13,6 +13,8 @@ struct ReportingView: View {
     @State private var modelSortAscending: Bool = false
     @State private var serverSortKey: ServerSortKey = .requests
     @State private var serverSortAscending: Bool = false
+    @State private var showRetentionConfirm = false
+    @State private var retentionDaysBeforeEdit = 0
 
     private var records: [UsageRecord]             { timeRange.filter(all) }
     private var summary: ReportCalculator.Summary  { ReportCalculator.summary(from: records) }
@@ -101,7 +103,14 @@ struct ReportingView: View {
         .scrollIndicators(.hidden)
         .background(Theme.windowBG)
         .onAppear(perform: prune)
-        .onChange(of: retentionDays) { prune() }
+        .confirmationDialog("Delete usage records?",
+            isPresented: $showRetentionConfirm,
+            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { prune() }
+            Button("Cancel", role: .cancel) { retentionDays = retentionDaysBeforeEdit }
+        } message: {
+            Text("This permanently deletes usage records older than \(retentionDays) days. This can't be undone.")
+        }
     }
 
     // MARK: - Header
@@ -113,6 +122,9 @@ struct ReportingView: View {
                 .foregroundStyle(Theme.textHi)
             Spacer()
             retentionControl
+            Divider()
+                .frame(width: 1)
+                .padding(.vertical, 8)
             SegmentedPills(options: ReportCalculator.TimeRange.allCases.map(\.rawValue),
                            selection: rangeSelection,
                            boxed: true)
@@ -130,7 +142,7 @@ struct ReportingView: View {
         HStack(spacing: 7) {
             Text("KEEP")
                 .font(.mono(9.5)).tracking(1.2)
-                .foregroundStyle(Theme.textDim)
+                .foregroundStyle(Theme.amber)
             SegmentedPills(options: Self.retentionOptions.map(\.label),
                            selection: retentionSelection,
                            boxed: true)
@@ -144,7 +156,15 @@ struct ReportingView: View {
             get: { Self.retentionOptions.first { $0.days == retentionDays }?.label ?? "∞" },
             set: { new in
                 if let match = Self.retentionOptions.first(where: { $0.label == new }) {
+                    let old = retentionDays
                     retentionDays = match.days
+                    let willDelete = match.days > 0 && (old == 0 || match.days < old)
+                    if willDelete {
+                        retentionDaysBeforeEdit = old
+                        showRetentionConfirm = true
+                    } else {
+                        prune()
+                    }
                 }
             }
         )
