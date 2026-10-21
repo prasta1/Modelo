@@ -259,18 +259,21 @@ private struct CatalogGroupHeader: View {
             .frame(width: 8)
 
             Circle()
-                .fill(isLocal ? Theme.amber : Theme.textFaint)
+                .fill(Theme.textFaint)
                 .frame(width: 4, height: 4)
-                .shadow(color: isLocal ? Theme.amber.opacity(0.8) : .clear, radius: 4)
 
             Text(label)
                 .font(Theme.label(13))
                 .tracking(0.6)
-                .foregroundStyle(isLocal ? Theme.amber : Theme.textFaint)
+                .foregroundStyle(Theme.textFaint)
+
+            if isLocal {
+                Chip(text: "local", tint: Theme.textFaint)
+            }
 
             Spacer()
 
-            Text("\(count) model\(count == 1 ? "" : "s") · \(isLocal ? "local" : "cloud")")
+            Text("\(count) model\(count == 1 ? "" : "s")")
                 .font(Theme.metric(8))
                 .foregroundStyle(Theme.textFaint.opacity(0.45))
         }
