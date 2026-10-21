@@ -340,8 +340,6 @@ struct ChatView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Per-conversation sampling overrides (§1.4b) — a popover with the shared
-    /// controls plus a one-tap "apply preset". Amber when this chat overrides defaults.
     /// Draggable separator that resizes the artifact panel (§2.4). The 1pt line sits
     /// inside a wider invisible hit area with a resize cursor.
     private var artifactResizeHandle: some View {
@@ -999,7 +997,7 @@ struct ChatView: View {
     /// Enabled whenever there's something to send — during streaming a send is queued
     /// (§3.3) rather than blocked.
     private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespaces).isEmpty || !pendingAttachments.isEmpty
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
     }
     /// Amber gradient when the send/stop button is active, otherwise a flat fill.
     private var sendButtonBackground: AnyShapeStyle {
@@ -1839,7 +1837,7 @@ private struct ToolApprovalCard: View {
                 Button("Approve once", action: { onDecision(.once) })
                     .buttonStyle(.plain)
                     .font(Theme.metric(12).weight(.semibold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(Theme.windowBG)
                     .padding(.horizontal, 14).padding(.vertical, 5)
                     .background(Theme.sendGradient, in: RoundedRectangle(cornerRadius: 7))
             }
