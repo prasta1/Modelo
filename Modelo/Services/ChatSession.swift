@@ -103,6 +103,8 @@ final class ChatSession {
     /// The best-effort title run, tracked so it can be cancelled when the view
     /// goes away (e.g. the user switches conversations mid-titling).
     private var titleTask: Task<Void, Never>?
+    /// True while a title run is going, so a fast second turn doesn't start another.
+    private var titleInFlight = false
 
     init(client: any ChatProvider, context: ModelContext, recorder: UsageRecorder,
          keychain: KeychainStore = KeychainStore(),
@@ -148,6 +150,13 @@ final class ChatSession {
             conversation.branch(userMsg, asSiblingOf: edited)
         } else {
             conversation.appendToPath(userMsg)
+        }
+        // Name the chat from its opening message right away. A stopped reply, a model
+        // ejected mid-title or a failed first turn would otherwise leave it as
+        // "New Chat"; the model-written title replaces this one when it arrives.
+        if (conversation.title ?? "").isEmpty {
+            let provisional = Self.provisionalTitle(from: trimmed)
+            if !provisional.isEmpty { conversation.title = provisional }
         }
         context.saveOrLog()
 
@@ -405,13 +414,15 @@ final class ChatSession {
             tokensPerSecond: tps, ttftMillis: ttft
         )
 
-        // On the first exchange, name the chat with a short, separate model run.
-        // Detached so it never blocks the input or flips `isStreaming`; best-effort.
+        // Once a reply completes, replace a missing or provisional title with a short
+        // model-written one in a separate run. Detached so it never blocks the input or
+        // flips `isStreaming`; best-effort, and retried on later turns until one lands.
         // Skipped on regenerate — a re-run isn't a new exchange.
-        if titleOnFirstExchange {
-            let isFirstExchange = conversation.messages.filter { $0.role == .user }.count == 1
-            if isFirstExchange, (conversation.title ?? "").isEmpty {
-                titleTask = Task { await generateTitle(for: conversation, server: server) }
+        if titleOnFirstExchange, !titleInFlight, Self.needsModelTitle(conversation) {
+            titleInFlight = true
+            titleTask = Task {
+                await generateTitle(for: conversation, server: server)
+                titleInFlight = false
             }
         }
 
@@ -575,9 +586,34 @@ final class ChatSession {
         guard !title.isEmpty else { return }
         // Bail if cancelled or the conversation was deleted mid-run: a deleted
         // @Model loses its `modelContext`, and writing to it would be pointless.
-        guard !Task.isCancelled, conversation.modelContext != nil else { return }
+        // Also bail if the chat was renamed meanwhile — never overwrite a chosen title.
+        guard !Task.isCancelled, conversation.modelContext != nil,
+              Self.needsModelTitle(conversation) else { return }
         conversation.title = title
         context.saveOrLog()
+    }
+
+    /// A stand-in title taken from an opening message: its first line, at most six
+    /// words and 40 characters, without trailing punctuation.
+    /// - Parameter opener: the chat's first user message.
+    /// - Returns: the title, or "" when there is nothing usable (e.g. attachments only).
+    static func provisionalTitle(from opener: String) -> String {
+        let line = opener.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let words = line.split(separator: " ").prefix(6).joined(separator: " ")
+        var s = String(words.prefix(40)).trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = s.last, ".!?,;:".contains(last) { s.removeLast() }
+        return s
+    }
+
+    /// Whether the chat still lacks a title that a person or a model chose: it has
+    /// none, or only the provisional one derived from its opening message.
+    /// - Parameter conversation: the chat to inspect.
+    /// - Returns: true when a model-written title may be set.
+    static func needsModelTitle(_ conversation: Conversation) -> Bool {
+        guard let title = conversation.title, !title.isEmpty else { return true }
+        let opener = conversation.messages.sorted { $0.createdAt < $1.createdAt }
+            .first { $0.role == .user }?.content ?? ""
+        return title == provisionalTitle(from: opener)
     }
 
     /// Normalizes a model's title output: drops any `<think>…</think>` reasoning,
