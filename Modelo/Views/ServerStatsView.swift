@@ -271,10 +271,10 @@ private struct ServerStatsDashboardPanel: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 MetricStat(
-                    label: "Time to First Token · ms",
-                    last: rollup.lastTTFTms.map { "\($0)" },
-                    avg:  rollup.avgTTFTms.map  { String(format: "%.0f", $0) },
-                    peak: rollup.peakTTFTms.map { "\($0)" }
+                    label: "Time to First Token · s",
+                    last: rollup.lastTTFTms.map { String(format: "%.2f", Double($0) / 1000) },
+                    avg:  rollup.avgTTFTms.map  { String(format: "%.2f", $0 / 1000) },
+                    peak: rollup.peakTTFTms.map { String(format: "%.2f", Double($0) / 1000) }
                 )
                 if !rollup.ttftHistory.isEmpty {
                     TTFTChart(values: rollup.ttftHistory)
@@ -286,8 +286,8 @@ private struct ServerStatsDashboardPanel: View {
 
             HStack(spacing: 24) {
                 miniStat("Requests",   value: "\(rollup.requestCount)")
-                if let p = rollup.lastPromptTokens    { miniStat("Prefill",    value: "\(p)") }
-                if let c = rollup.lastCompletionTokens { miniStat("Completion", value: "\(c)") }
+                if let p = rollup.lastPromptTokens    { miniStat("Prefill",    value: "\(p) t") }
+                if let c = rollup.lastCompletionTokens { miniStat("Completion", value: "\(c) t") }
             }
         }
     }
