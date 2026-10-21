@@ -52,5 +52,9 @@ struct ContextBar: View {
             // producing NSCGS "Invalid attempt to open a new transaction" warnings.
             .animation(.easeOut(duration: 0.3), value: barColor)
         }
+        // One spoken element instead of three loose texts and a silent gauge.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Context window")
+        .accessibilityValue("\(Int(fraction * 100)) percent used, \(used.formatted()) of \(window.formatted()) tokens")
     }
 }

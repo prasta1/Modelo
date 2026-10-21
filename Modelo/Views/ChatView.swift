@@ -76,6 +76,7 @@ struct ChatView: View {
     @State private var snapshotProbe = SnapshotProbeView.Holder()
     @State private var pendingSnapshot: SnapshotItem?
     @State private var errorCopied = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Identity key for this conversation's session/task in the shared store.
     private var convoID: PersistentIdentifier { conversation.persistentModelID }
@@ -212,7 +213,7 @@ struct ChatView: View {
                               onSelect: { openArtifactID = $0 },
                               onClose: { openArtifactID = nil })
                     .frame(width: clampedArtifactWidth)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
         // Measure width with a non-layout background reader. Wrapping the whole body in a
@@ -227,7 +228,7 @@ struct ChatView: View {
             }
         )
         // Animate the panel sliding in/out, but not switches between artifacts.
-        .animation(.easeOut(duration: 0.18), value: openArtifactID == nil)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: openArtifactID == nil)
         .background(Theme.windowBG)
         .onAppear { ensureSession() }
         // No .onDisappear cancel: a turn keeps streaming after the user leaves the
@@ -236,6 +237,13 @@ struct ChatView: View {
         // values and the per-chat overrides (agent popover).
         .onChange(of: effectiveMaxRounds) { session?.maxToolRounds = effectiveMaxRounds }
         .onChange(of: effectiveYolo) { session?.yoloMode = effectiveYolo }
+        // Streaming and errors are otherwise visual-only; announce them to VoiceOver.
+        .onChange(of: isStreaming) { was, now in
+            if was && !now { AccessibilityNotification.Announcement("Reply finished").post() }
+        }
+        .onChange(of: session?.errorText) { _, text in
+            if let text { AccessibilityNotification.Announcement(text).post() }
+        }
         .onChange(of: openArtifactID) { old, new in
             if let new { lastArtifactID = new }
             withAnimation(.easeOut(duration: 0.2)) {
@@ -315,6 +323,8 @@ struct ChatView: View {
         .padding(.vertical, 5)
         .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.line))
+        // The LED is colour-only; the label text carries the state for VoiceOver.
+        .accessibilityElement(children: .combine)
     }
 
     /// Per-conversation sampling overrides (§1.4b) — a popover with the shared
@@ -366,6 +376,7 @@ struct ChatView: View {
             }
             .buttonStyle(.plain)
             .help(open ? "Hide artifacts (\(artifactGroups.count))" : "Show artifacts (\(artifactGroups.count))")
+            .accessibilityLabel("Artifacts panel")
         }
     }
 
@@ -380,6 +391,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Sampling for this chat")
+        .accessibilityLabel("Sampling settings")
         .popover(isPresented: $showSampling, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -400,6 +412,7 @@ struct ChatView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.textDim)
                         .help("Reset to global defaults")
+                        .accessibilityLabel("Reset sampling to defaults")
                 }
                 SamplingControls(params: Binding(get: { conversation.samplingOverride },
                                                  set: { conversation.samplingOverride = $0 }))
@@ -439,6 +452,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Tool approvals and limit for this chat")
+        .accessibilityLabel("Agent settings")
         .popover(isPresented: $showAgentControls, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -453,6 +467,7 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.textDim)
                     .help("Turn off YOLO and use the global tool-call limit")
+                    .accessibilityLabel("Turn off YOLO mode")
                 }
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -517,6 +532,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Benchmark a model")
+        .accessibilityLabel("Benchmark a model")
         .disabled(discovered.isEmpty)
         .sheet(isPresented: $showBenchmark) {
             BenchmarkView(discovered: discovered, initial: pickedModel)
@@ -536,6 +552,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Screenshot this chat — opens a share-ready preview")
+        .accessibilityLabel("Screenshot this chat")
     }
 
     /// Snapshot → card → temp file → preview sheet with Share / Done.
@@ -610,6 +627,7 @@ struct ChatView: View {
             }
             .buttonStyle(.plain)
             .help("Set a local folder the model can read and write on this Mac")
+            .accessibilityLabel("Set workspace folder")
         }
     }
 
@@ -929,6 +947,7 @@ struct ChatView: View {
                         }
                         .buttonStyle(.plain)
                         .help("Remove from queue")
+                        .accessibilityLabel("Remove queued message")
                     }
                     .padding(.leading, 9).padding(.trailing, 7).padding(.vertical, 4)
                     .background(Theme.amberFillLo, in: Capsule())
@@ -1100,6 +1119,7 @@ struct ChatView: View {
                 .buttonStyle(.plain)
                 .disabled(!canSend && !isStreaming)
                 .help(isStreaming ? "Stop generating" : "Send message")
+                .accessibilityLabel(isStreaming ? "Stop generating" : "Send message")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -1159,6 +1179,7 @@ struct ChatView: View {
                         }
                         .buttonStyle(.plain)
                         .help("Remove attachment")
+                        .accessibilityLabel("Remove attachment")
                         .offset(x: 5, y: -5)
                     }
                 }
@@ -1179,6 +1200,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Attach images (vision model)")
+        .accessibilityLabel("Attach images")
     }
 
     private var attachFileButton: some View {
@@ -1190,6 +1212,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Attach a file — text, code, PDF, CSV, JSON, notebooks…")
+        .accessibilityLabel("Attach a file")
     }
 
     // MARK: Image picking and drop handling
