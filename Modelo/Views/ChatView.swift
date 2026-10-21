@@ -70,7 +70,6 @@ struct ChatView: View {
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     @State private var showSampling = false
     @State private var showBenchmark = false
-    @State private var showAgentControls = false
     /// Reference to the AppKit view behind the chat column, resolved at click time
     /// by the screenshot button to capture exactly what's on screen.
     @State private var snapshotProbe = SnapshotProbeView.Holder()
@@ -296,12 +295,10 @@ struct ChatView: View {
                 }
                 workspaceButton
                 artifactsButton
-                samplingButton
-                if pickedModel?.model.supportsToolUse == true {
-                    agentButton
-                }
-                benchmarkButton
-                screenshotButton
+                workspaceButton
+                artifactsButton
+                settingsButton
+                moreMenu
                 Spacer(minLength: 8)
                 if let server = pickedModel?.server {
                     statusPill(for: server)
@@ -397,180 +394,202 @@ struct ChatView: View {
         }
     }
 
-    private var samplingButton: some View {
-        let overriding = conversation.samplingOverride != SamplingParams()
-        return Button { showSampling.toggle() } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 12))
-                .foregroundStyle(overriding ? Theme.amber : Theme.Palette.inkDim)
-                .frame(width: 30, height: 26)
-                .panel(Theme.Palette.panel, radius: 7)
-        }
-        .buttonStyle(.plain)
-        .help("Sampling for this chat")
-        .accessibilityLabel("Sampling settings")
-        .popover(isPresented: $showSampling, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Eyebrow("Sampling · this chat")
-                    Spacer()
-                    if !presets.isEmpty {
-                        Menu("Apply preset") {
-                            ForEach(presets) { preset in
-                                Button(preset.name) { apply(preset) }
-                            }
-                        }
-                        .font(Theme.metric(11))
-                        .fixedSize()
-                        .help("Apply a saved preset to this chat")
-                    }
-                    Button("Reset") { conversation.samplingOverride = SamplingParams(); context.saveOrLog() }
-                        .font(Theme.metric(11))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.textDim)
-                        .help("Reset to global defaults")
-                        .accessibilityLabel("Reset sampling to defaults")
-                }
-                SamplingControls(params: Binding(get: { conversation.samplingOverride },
-                                                 set: { conversation.samplingOverride = $0 }))
-                Text("Overrides the global defaults from Settings for this chat only.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-
-                Divider().overlay(Theme.line)
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto-compact long chats").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                        Text("Summarize older turns near the context limit (§1.5).")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                    Spacer()
-                    PillToggle(isOn: $conversation.autoCompact)
-                }
-            }
-            .padding(16)
-            .frame(width: 320)
-            .onChange(of: conversation.samplingOverride) { context.saveOrLog() }
-            .onChange(of: conversation.autoCompact) { context.saveOrLog() }
-        }
+    /// True when this chat deviates from the global defaults in anything the
+    /// settings popover controls (sampling, agent limits, YOLO).
+    private var hasOverrides: Bool {
+        conversation.samplingOverride != SamplingParams()
+            || conversation.maxToolRoundsOverride != nil
+            || effectiveYolo
     }
 
-    /// Per-chat agent behavior: the YOLO switch and the tool-call limit override.
-    /// Red when YOLO is effective, amber when only the limit is overridden.
-    private var agentButton: some View {
+    /// One entry point for per-chat sampling, agent behavior and workspace. Shows a
+    /// dot when any override is active — red when YOLO is on, amber otherwise.
+    private var settingsButton: some View {
         let tint: Color = effectiveYolo ? Theme.Palette.alert
-            : conversation.maxToolRoundsOverride != nil ? Theme.amber
+            : hasOverrides ? Theme.amber
             : Theme.Palette.inkDim
-        return Button { showAgentControls.toggle() } label: {
-            Image(systemName: "bolt")
+        return Button { showSampling.toggle() } label: {
+            Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 12))
                 .foregroundStyle(tint)
                 .frame(width: 30, height: 26)
                 .panel(Theme.Palette.panel, radius: 7)
+                .overlay(alignment: .topTrailing) {
+                    if hasOverrides {
+                        Circle().fill(tint).frame(width: 7, height: 7).offset(x: 2, y: -2)
+                    }
+                }
         }
         .buttonStyle(.plain)
-        .help("Tool approvals and limit for this chat")
-        .accessibilityLabel("Agent settings")
-        .popover(isPresented: $showAgentControls, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Eyebrow("Agent · this chat")
-                    Spacer()
-                    Button("Reset") {
-                        conversation.yoloEnabled = false
-                        conversation.maxToolRoundsOverride = nil
-                        context.saveOrLog()
-                    }
-                    .font(Theme.metric(11))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.textDim)
-                    .help("Turn off YOLO and use the global tool-call limit")
-                    .accessibilityLabel("Turn off YOLO mode")
+        .help(hasOverrides ? "Chat settings — this chat overrides the defaults" : "Chat settings")
+        .accessibilityLabel("Chat settings")
+        .accessibilityValue(hasOverrides ? "Overrides active" : "Defaults")
+        .popover(isPresented: $showSampling, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 16) {
+                samplingSection
+                if pickedModel?.model.supportsToolUse == true {
+                    Divider().overlay(Theme.line)
+                    agentSection
                 }
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("YOLO mode").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                        Text("Run writes, edits and shell commands without asking; no tool-call limit.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                    Spacer()
-                    PillToggle(isOn: globalYolo ? .constant(true) : $conversation.yoloEnabled)
-                        .disabled(globalYolo)
-                }
-                if globalYolo {
-                    Text("Enabled globally in Settings ▸ Tools.")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                }
-                Divider().overlay(Theme.line)
-                Stepper(value: Binding(get: { conversation.maxToolRoundsOverride ?? maxToolRounds },
-                                       set: { conversation.maxToolRoundsOverride = $0 == maxToolRounds ? nil : $0 }),
-                        in: 1...20) {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                            Text("Overrides the Settings default for this chat only.")
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                        }
-                        Spacer(minLength: 8)
-                        if effectiveYolo {
-                            Text("Unlimited").font(Theme.metric(11)).foregroundStyle(Theme.Palette.alert)
-                        } else {
-                            Text("\(effectiveMaxRounds)")
-                                .font(.mono(13)).monospacedDigit()
-                                .foregroundStyle(conversation.maxToolRoundsOverride != nil ? Theme.amber : Theme.textMid)
-                        }
-                    }
-                }
-                .disabled(effectiveYolo)
-                if conversation.maxToolRoundsOverride != nil {
-                    Button("Use default (\(maxToolRounds))") {
-                        conversation.maxToolRoundsOverride = nil
-                        context.saveOrLog()
-                    }
-                    .font(Theme.metric(11))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.textDim)
+                if conversation.projectPath?.isEmpty ?? true {
+                    Divider().overlay(Theme.line)
+                    workspaceSection
                 }
             }
             .padding(16)
             .frame(width: 320)
-            .onChange(of: conversation.yoloEnabled) { context.saveOrLog() }
-            .onChange(of: conversation.maxToolRoundsOverride) { context.saveOrLog() }
         }
     }
 
-    /// Opens the load-test sheet for the picked model (§2.5).
-    private var benchmarkButton: some View {
-        Button { showBenchmark = true } label: {
-            Image(systemName: "stopwatch")
+    /// Offered only while no workspace is set; once set, the header chip shows it.
+    private var workspaceSection: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Workspace").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                Text("A local folder the model can read and write on this Mac.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+            }
+            Spacer()
+            Button("Choose…") { showSampling = false; pickWorkspace() }
+                .font(Theme.metric(11))
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.amber)
+        }
+    }
+
+    /// Rarely-used actions, kept off the primary row: the load-test sheet (§2.5) and
+    /// a share-ready PNG card of what's on screen (saved to ~/Downloads and copied).
+    private var moreMenu: some View {
+        Menu {
+            Button("Benchmark a model…") { showBenchmark = true }
+                .disabled(discovered.isEmpty)
+            Button("Screenshot this chat…") { takeScreenshot() }
+        } label: {
+            Image(systemName: "ellipsis")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.Palette.inkDim)
                 .frame(width: 30, height: 26)
                 .panel(Theme.Palette.panel, radius: 7)
         }
+        .menuStyle(.button)
         .buttonStyle(.plain)
-        .help("Benchmark a model")
-        .accessibilityLabel("Benchmark a model")
-        .disabled(discovered.isEmpty)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More actions")
+        .accessibilityLabel("More actions")
         .sheet(isPresented: $showBenchmark) {
             BenchmarkView(discovered: discovered, initial: pickedModel)
         }
     }
+    /// Sampling controls for the settings popover (§1.4b).
+    private var samplingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Eyebrow("Sampling · this chat")
+                Spacer()
+                if !presets.isEmpty {
+                    Menu("Apply preset") {
+                        ForEach(presets) { preset in
+                            Button(preset.name) { apply(preset) }
+                        }
+                    }
+                    .font(Theme.metric(11))
+                    .fixedSize()
+                    .help("Apply a saved preset to this chat")
+                }
+                Button("Reset") { conversation.samplingOverride = SamplingParams(); context.saveOrLog() }
+                    .font(Theme.metric(11))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.textDim)
+                    .help("Reset to global defaults")
+                    .accessibilityLabel("Reset sampling to defaults")
+            }
+            SamplingControls(params: Binding(get: { conversation.samplingOverride },
+                                             set: { conversation.samplingOverride = $0 }))
+            Text("Overrides the global defaults from Settings for this chat only.")
+                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
 
-    /// Captures the chat column as a share-ready PNG card: what's currently on
-    /// screen, on a themed backdrop with a caption. Saved to ~/Downloads and
-    /// copied to the clipboard.
-    private var screenshotButton: some View {
-        Button { takeScreenshot() } label: {
-            Image(systemName: "camera")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Palette.inkDim)
-                .frame(width: 30, height: 26)
-                .panel(Theme.Palette.panel, radius: 7)
+            Divider().overlay(Theme.line)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-compact long chats").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                    Text("Summarize older turns near the context limit (§1.5).")
+                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                }
+                Spacer()
+                PillToggle(isOn: $conversation.autoCompact)
+            }
         }
-        .buttonStyle(.plain)
-        .help("Screenshot this chat — opens a share-ready preview")
-        .accessibilityLabel("Screenshot this chat")
+        .onChange(of: conversation.samplingOverride) { context.saveOrLog() }
+        .onChange(of: conversation.autoCompact) { context.saveOrLog() }
     }
+
+    /// Per-chat agent behavior: the YOLO switch and the tool-call limit override.
+    private var agentSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Eyebrow("Agent · this chat")
+                Spacer()
+                Button("Reset") {
+                    conversation.yoloEnabled = false
+                    conversation.maxToolRoundsOverride = nil
+                    context.saveOrLog()
+                }
+                .font(Theme.metric(11))
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.textDim)
+                .help("Turn off YOLO and use the global tool-call limit")
+                .accessibilityLabel("Turn off YOLO mode")
+            }
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("YOLO mode").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                    Text("Run writes, edits and shell commands without asking; no tool-call limit.")
+                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                }
+                Spacer()
+                PillToggle(isOn: globalYolo ? .constant(true) : $conversation.yoloEnabled)
+                    .disabled(globalYolo)
+            }
+            if globalYolo {
+                Text("Enabled globally in Settings ▸ Tools.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+            }
+            Divider().overlay(Theme.line)
+            Stepper(value: Binding(get: { conversation.maxToolRoundsOverride ?? maxToolRounds },
+                                   set: { conversation.maxToolRoundsOverride = $0 == maxToolRounds ? nil : $0 }),
+                    in: 1...20) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                        Text("Overrides the Settings default for this chat only.")
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    }
+                    Spacer(minLength: 8)
+                    if effectiveYolo {
+                        Text("Unlimited").font(Theme.metric(11)).foregroundStyle(Theme.Palette.alert)
+                    } else {
+                        Text("\(effectiveMaxRounds)")
+                            .font(.mono(13)).monospacedDigit()
+                            .foregroundStyle(conversation.maxToolRoundsOverride != nil ? Theme.amber : Theme.textMid)
+                    }
+                }
+            }
+            .disabled(effectiveYolo)
+            if conversation.maxToolRoundsOverride != nil {
+                Button("Use default (\(maxToolRounds))") {
+                    conversation.maxToolRoundsOverride = nil
+                    context.saveOrLog()
+                }
+                .font(Theme.metric(11))
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.textDim)
+            }
+        }
+        .onChange(of: conversation.yoloEnabled) { context.saveOrLog() }
+        .onChange(of: conversation.maxToolRoundsOverride) { context.saveOrLog() }
+    }
+
 
     /// Snapshot → card → temp file → preview sheet with Share / Done.
     private func takeScreenshot() {
@@ -634,17 +653,6 @@ struct ChatView: View {
             }
             .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.amberBorder))
-        } else {
-            Button(action: pickWorkspace) {
-                Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.inkDim)
-                    .frame(width: 30, height: 26)
-                    .panel(Theme.Palette.panel, radius: 7)
-            }
-            .buttonStyle(.plain)
-            .help("Set a local folder the model can read and write on this Mac")
-            .accessibilityLabel("Set workspace folder")
         }
     }
 
