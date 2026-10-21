@@ -369,13 +369,6 @@ struct ModelTableRow: View {
 
     private var model: LMStudioModel { item.model }
 
-    private var contextLabel: String {
-        guard let c = model.maxContextLength else { return "—" }
-        if c >= 1_000_000 { return "\(c / 1_000_000)M" }
-        if c >= 1_000     { return "\(c / 1_000)K" }
-        return "\(c)"
-    }
-
     /// size · speed t/s · count×, omitting whichever values are unavailable.
     private var metricsLabel: String {
         var parts: [String] = []
@@ -449,6 +442,7 @@ struct ModelTableRow: View {
             // so the content cluster stays left rather than spreading edge-to-edge.
             Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 7)
         .background(rowBackground)
         .contentShape(Rectangle())
