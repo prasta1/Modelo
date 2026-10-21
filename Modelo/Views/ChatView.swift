@@ -727,18 +727,82 @@ struct ChatView: View {
     /// Fills the message area before the first turn so a fresh chat reads as
     /// intentional empty space, not a dead gap above the composer.
     private var emptyConversationHint: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "text.bubble")
-                .font(.system(size: 30, weight: .light))
-                .foregroundStyle(Theme.textDim)
-            Text(pickedModel == nil
-                 ? "Pick a model above, then say something."
-                 : "Send a message to \(pickedModel!.model.familyName) to begin.")
-                .font(.mono(12))
-                .foregroundStyle(Theme.textDim)
-                .multilineTextAlignment(.center)
+        VStack(spacing: 18) {
+            if let picked = pickedModel {
+                // What this chat will talk to, at a glance: model, server, live state, window.
+                let status = registry.status(for: picked.server)
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        StatusLED(status: status, size: 6)
+                        Text(picked.model.familyName)
+                            .font(Theme.metric(15))
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Theme.textHi)
+                    }
+                    Text("\(picked.server.label) · \(status.displayLabel)"
+                         + (contextWindow > 0 ? " · \(contextWindow.formatted()) token context" : ""))
+                        .font(.mono(11))
+                        .foregroundStyle(Theme.textDim)
+                }
+                .accessibilityElement(children: .combine)
+
+                // Starters fill the composer; they never send on their own.
+                VStack(spacing: 6) {
+                    starterRow("terminal", "Type / for commands", "/help, /model, /compact, /export…") {
+                        draft = "/"
+                    }
+                    if picked.model.supportsToolUse {
+                        starterRow("wrench.and.screwdriver", "Try the tools",
+                                   "Ask what the model can do with them") {
+                            draft = "What tools can you use here, and what could you do with them?"
+                        }
+                    }
+                    starterRow("sidebar.right", "Build something to preview",
+                               "Code the model writes can open in the artifacts panel") {
+                        draft = "Make a small HTML page with a working counter button."
+                    }
+                }
+                .frame(maxWidth: 360)
+            } else {
+                Image(systemName: "text.bubble")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(Theme.textDim)
+                Text(discovered.isEmpty
+                     ? "No models found. Start a local server or add a cloud API in Settings."
+                     : "Pick a model above, then say something.")
+                    .font(.mono(12))
+                    .foregroundStyle(Theme.textDim)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(24)
+    }
+
+    /// One tappable suggestion in the empty state: icon, title, one line of detail.
+    private func starterRow(_ icon: String, _ title: String, _ detail: String,
+                            action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            composerFocused = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.amber)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                    Text(detail).font(Theme.metric(10)).foregroundStyle(Theme.textDim)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .panel(Theme.Palette.panel, radius: 7)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Fills the message box without sending")
     }
 
     private let bottomAnchor = "BOTTOM"
