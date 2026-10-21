@@ -708,8 +708,9 @@ struct ChatView: View {
                 }
                 .scrollIndicators(.hidden)
                 .hideScrollIndicators()
-                // Scroll to bottom when a new message is appended.
-                .onChange(of: conversation.messages.count) { scrollToBottom(proxy) }
+                // Scroll to bottom when a new message is appended, but only if
+                // the user hasn't scrolled away to read history.
+                .onChange(of: conversation.messages.count) { if isNearBottom { scrollToBottom(proxy) } }
                 // Timer-based scroll during streaming: fires at ~20fps instead of once
                 // per token, avoiding layout-pass spam from per-character onChange.
                 .task(id: session?.isStreaming) {
@@ -1616,6 +1617,9 @@ struct ChatView: View {
             return
         }
         let id = convoID
+        // Regenerating is an explicit action — snap to the new turn even if
+        // the user had scrolled away to read history.
+        isNearBottom = true
         sessionStore.setTask(Task {
             await session.regenerate(message, in: conversation, server: server,
                                      serverOnline: registry.isOnline(server),
@@ -1716,6 +1720,9 @@ struct ChatView: View {
         pendingAttachments = []
         editingSource = nil
         let id = convoID
+        // Sending is an explicit action — snap to the new turn even if the
+        // user had scrolled away to read history.
+        isNearBottom = true
         sessionStore.setTask(Task {
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
