@@ -407,7 +407,7 @@ private struct RequestsChart: View {
                 .cornerRadius(3)
         }
         .chartXAxis {
-            AxisMarks { _ in
+            AxisMarks(values: .automatic(desiredCount: 7)) { _ in
                 AxisValueLabel(format: .dateTime.month(.abbreviated).day())
             }
         }
@@ -441,7 +441,7 @@ private struct TokensChart: View {
             "Completion": Theme.amber.opacity(0.8),
         ])
         .chartXAxis {
-            AxisMarks { _ in
+            AxisMarks(values: .automatic(desiredCount: 7)) { _ in
                 AxisValueLabel(format: .dateTime.month(.abbreviated).day())
             }
         }
@@ -481,7 +481,7 @@ private struct TokPerSecChart: View {
                 .symbolSize(25)
         }
         .chartXAxis {
-            AxisMarks { _ in
+            AxisMarks(values: .automatic(desiredCount: 7)) { _ in
                 AxisValueLabel(format: .dateTime.month(.abbreviated).day())
             }
         }
