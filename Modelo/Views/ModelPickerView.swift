@@ -279,7 +279,7 @@ private struct ModelPickerList: View {
                 .foregroundStyle(Theme.textHi)
             if searchText.isEmpty {
                 Text("\(totalCount)")
-                    .font(.mono(10)).foregroundStyle(Theme.textFaint)
+                    .font(.mono(10)).foregroundStyle(Theme.textDim)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Theme.fillHi, in: RoundedRectangle(cornerRadius: 5))
             } else {
@@ -306,7 +306,7 @@ private struct ModelPickerList: View {
                 .foregroundStyle(Theme.textLo)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
+                .font(.mono(9.5)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
@@ -321,7 +321,7 @@ private struct ModelPickerList: View {
                 .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(favoriteItems.count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
+                .font(.mono(9.5)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
@@ -371,10 +371,10 @@ private struct ModelPickerList: View {
                         HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 11))
-                                .foregroundStyle(Theme.textFaint)
+                                .foregroundStyle(Theme.textDim)
                             Text("Search to add a cloud model · \(cloudModelCount) available")
                                 .font(.mono(10))
-                                .foregroundStyle(Theme.textFaint)
+                                .foregroundStyle(Theme.textDim)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 16).padding(.top, 12)
@@ -415,7 +415,7 @@ private struct ModelPickerList: View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
             Eyebrow(text, color: Theme.textDim)
         }
         .padding(.horizontal, 16).padding(.vertical, 18)

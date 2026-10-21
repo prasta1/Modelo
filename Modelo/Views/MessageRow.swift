@@ -104,7 +104,7 @@ struct MessageRow: View {
                     .lineLimit(1)
                 Text(Theme.timeFormatter.string(from: message.createdAt))
                     .font(.mono(10))
-                    .foregroundStyle(Theme.textFaint)
+                    .foregroundStyle(Theme.textDim)
             }
             .padding(.bottom, 11)
 
@@ -232,7 +232,7 @@ struct MessageRow: View {
         }
         .font(.mono(10))
         .monospacedDigit()
-        .foregroundStyle(Theme.textFaint)
+        .foregroundStyle(Theme.textDim)
     }
 
     // MARK: Branch navigation — ◀ k/n ▶ across sibling turns (§1.2)
@@ -279,7 +279,7 @@ struct MessageRow: View {
             Text(metaLine)
                 .font(.mono(9))
                 .monospacedDigit()
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
             branchNav
             if !message.content.isEmpty { actionCluster }
         }

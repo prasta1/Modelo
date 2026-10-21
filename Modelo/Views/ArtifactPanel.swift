@@ -71,7 +71,7 @@ struct ArtifactPanel: View {
                 .lineLimit(1)
             Text(group.kind.label + (group.language.map { " · \($0)" } ?? ""))
                 .font(.mono(10))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
         }
     }
 
@@ -262,7 +262,7 @@ struct ArtifactCard: View {
                         .lineLimit(1)
                     Text(artifact.kind.label + (artifact.language.map { " · \($0)" } ?? ""))
                         .font(.mono(10))
-                        .foregroundStyle(Theme.textFaint)
+                        .foregroundStyle(Theme.textDim)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "arrow.up.right.square")

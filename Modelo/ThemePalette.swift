@@ -85,7 +85,7 @@ extension ThemePalette {
         windowBG: Color(hex: 0x15151A), sidebarBG: Color(hex: 0x101014),
         popoverBG: Color(hex: 0x1B1B22), consoleBG: Color(hex: 0x0D0D11),
         textHi: Color(hex: 0xEDECEF), textMid: Color(hex: 0xD5D2DC), textLo: Color(hex: 0x9A96A4),
-        textDim: Color(hex: 0x615D68), textFaint: Color(hex: 0x56535D), textBright: Color(hex: 0xE7E5EC),
+        textDim: Color(hex: 0x827D8B), textFaint: Color(hex: 0x6F6B78), textBright: Color(hex: 0xE7E5EC),
         textSoft: Color(hex: 0xC9C5D0), textMute: Color(hex: 0x8A8692),
         amber: Color(hex: 0xE0A04B), amberName: Color(hex: 0xE8B86A), green: Color(hex: 0x5BBF8A),
         blue: Color(hex: 0x7C93C9), purple: Color(hex: 0xAC9FD6),

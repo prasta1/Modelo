@@ -166,7 +166,7 @@ final class PlaceholderTextView: NSTextView {
         guard string.isEmpty, !placeholder.isEmpty else { return }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font ?? .systemFont(ofSize: 15),
-            .foregroundColor: NSColor(Theme.textFaint)
+            .foregroundColor: NSColor(Theme.textDim)
         ]
         placeholder.draw(at: NSPoint(x: textContainerInset.width,
                                      y: textContainerInset.height), withAttributes: attrs)

@@ -330,7 +330,7 @@ struct ChatView: View {
                 .foregroundStyle(live ? Theme.green : Theme.textMute)
             Text(server.label)
                 .font(.mono(10))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
@@ -445,7 +445,7 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Workspace").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
                 Text("A local folder the model can read and write on this Mac.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
             }
             Spacer()
             Button("Choose…") { showSampling = false; pickWorkspace() }
@@ -505,14 +505,14 @@ struct ChatView: View {
             SamplingControls(params: Binding(get: { conversation.samplingOverride },
                                              set: { conversation.samplingOverride = $0 }))
             Text("Overrides the global defaults from Settings for this chat only.")
-                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
 
             Divider().overlay(Theme.line)
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Auto-compact long chats").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
                     Text("Summarize older turns near the context limit (§1.5).")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                        .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
                 }
                 Spacer()
                 PillToggle(isOn: $conversation.autoCompact)
@@ -543,7 +543,7 @@ struct ChatView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("YOLO mode").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
                     Text("Run writes, edits and shell commands without asking; no tool-call limit.")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                        .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
                 }
                 Spacer()
                 PillToggle(isOn: globalYolo ? .constant(true) : $conversation.yoloEnabled)
@@ -551,7 +551,7 @@ struct ChatView: View {
             }
             if globalYolo {
                 Text("Enabled globally in Settings ▸ Tools.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
             }
             Divider().overlay(Theme.line)
             Stepper(value: Binding(get: { conversation.maxToolRoundsOverride ?? maxToolRounds },
@@ -561,7 +561,7 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
                         Text("Overrides the Settings default for this chat only.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
                     }
                     Spacer(minLength: 8)
                     if effectiveYolo {
@@ -730,12 +730,12 @@ struct ChatView: View {
         VStack(spacing: 12) {
             Image(systemName: "text.bubble")
                 .font(.system(size: 30, weight: .light))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
             Text(pickedModel == nil
                  ? "Pick a model above, then say something."
                  : "Send a message to \(pickedModel!.model.familyName) to begin.")
                 .font(.mono(12))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
                 .multilineTextAlignment(.center)
         }
         .padding(24)
@@ -1031,7 +1031,7 @@ struct ChatView: View {
                         Text(conversation.personaName ?? "No persona")
                             .font(Theme.label(10))
                     }
-                    .foregroundStyle(Theme.textFaint)
+                    .foregroundStyle(Theme.textDim)
                     .help("The persona is set before the first message and can't be changed after.")
                 } else {
                     Menu {
@@ -1119,7 +1119,7 @@ struct ChatView: View {
                     Text("~\(TokenEstimator.estimate(draft)) tok")
                         .font(.mono(10))
                         .monospacedDigit()
-                        .foregroundStyle(Theme.textFaint)
+                        .foregroundStyle(Theme.textDim)
                         .help("Estimated tokens in this message")
                         .padding(.bottom, 9)
                 }
@@ -1802,7 +1802,7 @@ private struct ToolApprovalCard: View {
                 Spacer(minLength: 0)
                 Text(pending.toolName)
                     .font(.mono(10))
-                    .foregroundStyle(Theme.textFaint)
+                    .foregroundStyle(Theme.textDim)
             }
             ScrollView {
                 Text(pending.preview.detail)
