@@ -7,6 +7,7 @@ struct ModelCatalogView: View {
     let discovered: [DiscoveredModel]
     let onLaunch: (DiscoveredModel) -> Void
     var onRefresh: (() async -> Void)? = nil
+    var onEject: ((DiscoveredModel) async -> Void)? = nil
 
     @Environment(RotationStore.self)         private var rotation
     @Environment(FavoritesStore.self)        private var favorites
@@ -87,6 +88,7 @@ struct ModelCatalogView: View {
         .onChange(of: discovered, initial: true) { _, new in
             vm.allModels = new
             vm.onLaunch = onLaunch
+            vm.onEject = onEject
         }
         .onChange(of: collapse.toggled, initial: true) { _, new in
             vm.toggledGroups = new

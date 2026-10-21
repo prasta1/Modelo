@@ -581,14 +581,20 @@ private struct ModelRow: View {
             .buttonStyle(.plain)
             .help("Unload model")
         } else if !isSelected {
+            // Only LM Studio loads on select (handleModelSelection). Everywhere else this
+            // just picks the model, so don't promise a load that won't happen.
+            let loadsOnSelect = item.server.kind == .lmStudio
             Button(action: onSelect) {
-                Text("Load")
+                Text(loadsOnSelect ? "Load" : "Use")
                     .font(.mono(10)).foregroundStyle(Theme.amber)
                     .padding(.horizontal, 9).padding(.vertical, 4)
                     .background(Theme.amberFill, in: RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .help("Load this model")
+            .help(loadsOnSelect ? "Load this model"
+                  : item.server.kind == .llamaSwap
+                    ? "Select this model — llama-swap loads it when you send your first message"
+                    : "Select this model")
         }
     }
 

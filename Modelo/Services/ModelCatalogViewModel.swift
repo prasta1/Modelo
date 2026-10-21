@@ -92,6 +92,8 @@ final class ModelCatalogViewModel {
     // MARK: - Callback
 
     var onLaunch: ((DiscoveredModel) -> Void)?
+    /// Unloads a loaded model; nil on views that can't (the row then shows no eject).
+    var onEject: ((DiscoveredModel) async -> Void)?
 
     // MARK: - Computed helpers
 

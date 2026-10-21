@@ -116,7 +116,10 @@ struct ContentView: View {
 
     private let client = LMStudioClient.shared
     private let exoClient = ExoClient()
+    private let llamaSwapClient = LlamaSwapClient()
     private let keychain = KeychainStore()
+    /// Set when an eject fails, so the user sees why the model is still loaded.
+    @State private var ejectFailure: String?
 
     /// The conversation matching the current sidebar route, if any.
     private var selectedConversation: Conversation? {
@@ -180,6 +183,13 @@ struct ContentView: View {
             }
         } message: { prompt in
             Text("\(prompt.model.model.id) will be loaded into exo and use several GB of RAM until you unload it.")
+        }
+        .alert("Couldn't unload model",
+               isPresented: Binding(get: { ejectFailure != nil },
+                                    set: { if !$0 { ejectFailure = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(ejectFailure ?? "")
         }
         .navigationTitle("")
         // Shared across the sidebar and detail so a streaming turn survives chat
@@ -292,7 +302,8 @@ struct ContentView: View {
         ModelCatalogView(
             discovered: discoveredWithLiveState,
             onLaunch: { model in Task { await launch(model: model) } },
-            onRefresh: { await refreshModels() }
+            onRefresh: { await refreshModels() },
+            onEject: handleModelEject
         )
     }
 
@@ -572,7 +583,8 @@ struct ContentView: View {
     /// isPaused is toggled, without waiting for the async refresh to complete.
     private var discoveredWithLiveState: [DiscoveredModel] {
         discovered.filter { !$0.server.isPaused }.map { item in
-            guard item.server.kind == .lmStudio || item.server.kind == .exo else { return item }
+            guard item.server.kind == .lmStudio || item.server.kind == .exo
+                    || item.server.kind == .llamaSwap else { return item }
             let snapshot = monitor.snapshot(for: item.server)
             let liveModel = snapshot?.models.first(where: { $0.id == item.model.id })
             var updated = item.model
@@ -622,8 +634,10 @@ struct ContentView: View {
         }
     }
 
-    /// Unloads a model on LM Studio and clears the selection if it was the active model.
+    /// Unloads a model (LM Studio, exo or llama-swap) and clears the selection if it was
+    /// the active model. A failure is logged and shown, since the model stays loaded.
     private func handleModelEject(_ item: DiscoveredModel) async {
+        Log.network.info("eject requested: \(item.model.id, privacy: .public) on \(item.server.label, privacy: .public) (\(item.server.kind.rawValue, privacy: .public))")
         let endpoint = Endpoint(server: item.server, keychain: keychain)
         if item.server.kind == .exo {
             let loaded = (try? await exoClient.loadedInstances(endpoint: endpoint)) ?? []
@@ -634,11 +648,16 @@ struct ContentView: View {
                 if pickedModel?.model.id == item.model.id { pickedModel = nil }
             } catch {
                 Log.network.error("exo unload failed for \(item.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                ejectFailure = "\(item.model.id) is still loaded: \(error.localizedDescription)"
             }
             return
         }
         do {
-            _ = try await client.unloadModel(modelID: item.model.id, endpoint: endpoint)
+            if item.server.kind == .llamaSwap {
+                try await llamaSwapClient.unload(modelID: item.model.id, endpoint: endpoint)
+            } else {
+                _ = try await client.unloadModel(modelID: item.model.id, endpoint: endpoint)
+            }
             await refreshModels()
             if pickedModel?.model.id == item.model.id {
                 pickedModel = nil
@@ -646,6 +665,7 @@ struct ContentView: View {
         } catch {
             // State will reconcile on next refresh.
             Log.network.error("Model eject failed for \(item.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            ejectFailure = "\(item.model.id) is still loaded: \(error.localizedDescription)"
         }
     }
 
