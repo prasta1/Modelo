@@ -302,7 +302,8 @@ struct ContentView: View {
         ModelCatalogView(
             discovered: discoveredWithLiveState,
             onLaunch: { model in Task { await launch(model: model) } },
-            onRefresh: { await refreshModels() }
+            onRefresh: { await refreshModels() },
+            onEject: handleModelEject
         )
     }
 

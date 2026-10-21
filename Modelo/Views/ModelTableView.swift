@@ -50,6 +50,7 @@ struct ModelTableView: View {
             usedCount: vm.usageCount(for: item.id),
             onSelect: { vm.selectedID = item.id },
             onLaunch: { vm.onLaunch?(item) },
+            onEject: vm.onEject.map { eject in { await eject(item) } },
             onToggleFav: { favorites.toggle(item.model.id) }
         )
         .id(item.id)
@@ -359,9 +360,12 @@ struct ModelTableRow: View {
     let usedCount: Int?
     let onSelect: () -> Void
     let onLaunch: () -> Void
+    /// Unloads this model. Only offered while it is loaded.
+    let onEject: (() async -> Void)?
     let onToggleFav: () -> Void
 
     @State private var hovering = false
+    @State private var ejecting = false
 
     private var model: LMStudioModel { item.model }
 
@@ -416,6 +420,30 @@ struct ModelTableRow: View {
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
                 .lineLimit(1)
+
+            // Unload a loaded model without leaving the list.
+            if model.isLoaded, let onEject {
+                Button {
+                    ejecting = true
+                    Task {
+                        await onEject()
+                        ejecting = false
+                    }
+                } label: {
+                    if ejecting {
+                        ProgressView().controlSize(.mini).scaleEffect(0.7)
+                    } else {
+                        Image(systemName: "eject.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(Theme.textMute)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(ejecting)
+                .frame(width: 28)
+                .help("Unload model")
+                .accessibilityLabel("Unload \(model.shortName)")
+            }
 
             // Mirrors the header's spacer — absorbs spare width after metrics
             // so the content cluster stays left rather than spreading edge-to-edge.
