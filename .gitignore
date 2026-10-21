@@ -30,6 +30,12 @@ code-review-*.html
 # Generated archify architecture diagram (715 KB, regenerable)
 docs/modelo-architecture.html
 # Impeccable design artifacts (keep out of public repo)
+# Root-level entries (impeccable writes at PROJECT_ROOT); also covers Modelo/ via no-prefix match
+.impeccable/
+.agents/
+PRODUCT.md
+DESIGN.md
+# Existing Modelo/ subdirectory entries (redundant with above, kept for clarity)
 Modelo/.impeccable/
 Modelo/.agents/
 Modelo/PRODUCT.md
