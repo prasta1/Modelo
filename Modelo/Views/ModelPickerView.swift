@@ -196,8 +196,9 @@ struct ModelPickerView: View {
     }
 }
 
-/// The popover body (handoff §8): server-grouped, scrollable list of model rows
-/// on the dark popover surface, with a search field and a settings footer.
+/// The popover body (handoff §8): search field on top, an endpoint sidebar beside
+/// a server-grouped, scrollable list of model rows, and a footer holding settings,
+/// filter and sort.
 private struct ModelPickerList: View {
     let groups: [(server: Server, models: [DiscoveredModel])]
     let isEmpty: Bool
@@ -225,42 +226,45 @@ private struct ModelPickerList: View {
         !freeOnly || item.server.kind.isLocal || item.model.isFree
     }
 
-    /// Server pills scroll on the left; the filter + sort menus stay pinned right,
-    /// so every control lives in one band instead of three stacked strips.
-    private var filterBar: some View {
-        HStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    if groups.count > 1 {
-                        FilterPill(label: "All", isActive: selectedServer == nil) {
-                            selectedServer = nil
-                        }
-                        ForEach(groups, id: \.server.id) { group in
-                            FilterPill(
-                                label: group.server.label,
-                                isActive: selectedServer?.id == group.server.id
-                            ) {
-                                selectedServer = selectedServer?.id == group.server.id ? nil : group.server
-                            }
-                        }
+    /// Endpoints stack vertically beside the list, so every server is visible at
+    /// once instead of hiding off the end of a side-scrolling pill strip.
+    /// Favorites / All / one server are mutually exclusive views.
+    private var sidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                EndpointRow(label: "Favorites", icon: "star.fill", count: nil,
+                            isActive: favoritesOnly) {
+                    favoritesOnly = true
+                    selectedServer = nil
+                }
+                EndpointRow(label: "All", icon: nil, count: totalCount,
+                            isActive: !favoritesOnly && selectedServer == nil) {
+                    favoritesOnly = false
+                    selectedServer = nil
+                }
+                ForEach(groups, id: \.server.id) { group in
+                    EndpointRow(label: group.server.label,
+                                icon: group.server.kind == .cloudAPI ? "cloud" : nil,
+                                count: group.models.count,
+                                isActive: !favoritesOnly && selectedServer?.id == group.server.id) {
+                        favoritesOnly = false
+                        selectedServer = group.server
                     }
                 }
             }
-            .scrollIndicators(.hidden)
-            filterMenu
-            ModelSortMenu(sort: $sortKey)
+            .padding(6)
         }
-        .padding(.horizontal, 13)
-        .padding(.bottom, 10)
+        .scrollIndicators(.hidden)
+        .frame(width: 150)
+        .background(Color.white.opacity(0.012))
     }
 
-    /// Loaded / Favorites / Free toggles folded into one menu; the label tints
-    /// amber and shows a count while any of them is on.
+    /// Loaded / Free toggles folded into one menu; the label tints amber and
+    /// shows a count while either is on.
     private var filterMenu: some View {
-        let active = [loadedOnly, favoritesOnly, freeOnly].filter { $0 }.count
+        let active = [loadedOnly, freeOnly].filter { $0 }.count
         return Menu {
             Toggle("Loaded", isOn: $loadedOnly)
-            Toggle("Favorites", isOn: $favoritesOnly)
             Toggle("Free", isOn: $freeOnly)
         } label: {
             HStack(spacing: 4) {
@@ -284,13 +288,18 @@ private struct ModelPickerList: View {
     var body: some View {
         VStack(spacing: 0) {
             searchField
-            filterBar
             Divider().overlay(Theme.line)
-            content
+            HStack(spacing: 0) {
+                if !isEmpty {
+                    sidebar
+                    Divider().overlay(Theme.line)
+                }
+                content.frame(maxWidth: .infinity)
+            }
             Divider().overlay(Theme.line)
             footer
         }
-        .frame(width: 440)
+        .frame(width: 560)
         .frame(maxHeight: 560)
         .background(Theme.popoverBG)
     }
@@ -401,7 +410,7 @@ private struct ModelPickerList: View {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Theme.textDim)
-                            Text("Search to add a cloud model · \(cloudModelCount) available")
+                            Text("Search, or pick a cloud endpoint, to browse \(cloudModelCount) cloud models")
                                 .font(.mono(10))
                                 .foregroundStyle(Theme.textDim)
                             Spacer(minLength: 0)
@@ -452,25 +461,31 @@ private struct ModelPickerList: View {
     }
 
     private var footer: some View {
-        Button {
-            // Close the popover, then route to Settings ▸ Endpoints in-app
-            // (the Settings window no longer exists).
-            dismiss()
-            settingsNavigator.open(tab: "Endpoints")
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.textMute)
-                Text("Manage models")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.textLo)
-                Spacer()
+        HStack(spacing: 6) {
+            Button {
+                // Close the popover, then route to Settings ▸ Endpoints in-app
+                // (the Settings window no longer exists). Activating matters when
+                // this picker lives in the menu-bar chat, where Modelo isn't frontmost.
+                dismiss()
+                settingsNavigator.open(tab: "Endpoints")
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textMute)
+                    Text("Manage models")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textLo)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help("Manage models in Settings")
+            Spacer()
+            filterMenu
+            ModelSortMenu(sort: $sortKey)
         }
-        .buttonStyle(.plain)
-        .help("Manage models in Settings")
         .padding(.horizontal, 14).padding(.vertical, 10)
         .background(Color.white.opacity(0.012))
     }
@@ -531,6 +546,47 @@ private struct ModelPickerList: View {
             && selectedServer == nil
             && !freeOnly
             && !favoritesOnly
+    }
+}
+
+/// One entry in the picker's endpoint sidebar: optional icon, label, model count.
+/// Active entries tint amber like a selected model row.
+private struct EndpointRow: View {
+    let label: String
+    let icon: String?
+    let count: Int?
+    let isActive: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 9, weight: .medium))
+                }
+                Text(label)
+                    .font(.system(size: 12, weight: isActive ? .medium : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                if let count {
+                    Text("\(count)")
+                        .font(.mono(10))
+                        .foregroundStyle(Theme.textDim)
+                }
+            }
+            .foregroundStyle(isActive ? Theme.amberName : Theme.textSoft)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(isActive ? Theme.amberFillLo : (hovering ? Theme.fillHi : Color.clear),
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.field))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(label)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
 
