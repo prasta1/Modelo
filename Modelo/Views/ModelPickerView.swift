@@ -581,11 +581,20 @@ private struct ModelRow: View {
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
         .help("Select \(model.familyName) · Double-click to open in new chat")
-        // VoiceOver can't hover, so the hidden star needs another way in.
+        // VoiceOver can't hover or double-click, so the hidden buttons and the
+        // double-click shortcut are re-exposed as named actions.
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: isFavorite ? "Remove from favorites" : "Add to favorites") {
-            favorites.toggle(model.id)
+        .accessibilityActions {
+            if let onNewChat {
+                Button("Open in new chat") { if !busy { onSelect(); onNewChat() } }
+            }
+            Button(isFavorite ? "Remove from favorites" : "Add to favorites") {
+                favorites.toggle(model.id)
+            }
+            if model.isLoaded, let onEject {
+                Button("Unload model", action: onEject)
+            }
         }
     }
 
@@ -609,6 +618,7 @@ private struct ModelRow: View {
             }
             .buttonStyle(.plain)
             .help("Unload model")
+            .accessibilityLabel("Unload \(model.familyName)")
         } else if !isSelected {
             // Only LM Studio loads on select (handleModelSelection). Everywhere else this
             // just picks the model, so don't promise a load that won't happen.
@@ -640,6 +650,7 @@ private struct ModelRow: View {
         }
         .buttonStyle(.plain)
         .help(isFav ? "Remove from favorites" : "Add to favorites")
+        .accessibilityLabel(isFav ? "Remove from favorites" : "Add to favorites")
     }
 
     @ViewBuilder private var indicator: some View {

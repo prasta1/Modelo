@@ -390,6 +390,7 @@ struct ModelTableRow: View {
             }
             .buttonStyle(.plain)
             .frame(width: Col.star)
+            .accessibilityLabel(isFavorite ? "Remove from favorites" : "Add to favorites")
 
             // Name — flexible up to Col.nameMax
             Text(model.shortName)
@@ -452,6 +453,17 @@ struct ModelTableRow: View {
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
         .help("Double-click to open in new chat")
+        // One VoiceOver element per row; the tap-gesture behaviours and inline
+        // buttons are re-exposed as named actions so nothing needs a mouse.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityActions {
+            Button("Open in new chat", action: onLaunch)
+            Button(isFavorite ? "Remove from favorites" : "Add to favorites", action: onToggleFav)
+            if model.isLoaded, let onEject {
+                Button("Unload model") { Task { await onEject() } }
+            }
+        }
     }
 
     @ViewBuilder private var rowBackground: some View {
