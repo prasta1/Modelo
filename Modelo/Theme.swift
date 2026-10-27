@@ -404,41 +404,6 @@ struct PillToggle: View {
     }
 }
 
-/// Single-select filter pill for family/provider strips. Active state highlights amber,
-/// matching `ChipToggleStyle`. Use in horizontally-scrolling pill rows.
-struct FilterPill: View {
-    let label: String
-    let isActive: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(Theme.label(9))
-                .lineLimit(1)
-                .tracking(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(isActive ? Theme.amber : Theme.textDim)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    isActive ? Theme.amberFill : (hovering ? Theme.fillHi : Color.clear),
-                    in: Capsule()
-                )
-                .overlay(
-                    Capsule().strokeBorder(
-                        isActive ? Theme.amberBorder : Theme.line,
-                        lineWidth: 1
-                    )
-                )
-                .animation(.easeOut(duration: 0.12), value: isActive)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
 /// Compact pill segmented control (console filter, report range).
 struct SegmentedPills: View {
     let options: [String]
