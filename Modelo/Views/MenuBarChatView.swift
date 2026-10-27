@@ -13,7 +13,6 @@ private struct QuickMessage: Identifiable {
 struct MenuBarChatView: View {
     @Environment(\.modelContext) private var context
     @Environment(ServerRegistry.self) private var registry
-    @Environment(FavoritesStore.self) private var favorites
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
     @State private var discovered: [DiscoveredModel] = []
@@ -24,8 +23,6 @@ struct MenuBarChatView: View {
     @State private var isStreaming = false
     @State private var streamTask: Task<Void, Never>?
     @State private var errorText: String?
-    @State private var searchQuery = ""
-    @State private var favoritesOnly = false
 
     // View ▸ text-size commands (⌘+/⌘−) drive this value; 15 pt is "Actual Size".
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
@@ -43,37 +40,15 @@ struct MenuBarChatView: View {
             && !isStreaming
     }
 
-    /// Discovered models narrowed by the current search query and favorites toggle.
-    private var filteredModels: [DiscoveredModel] {
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        var result = discovered
-        if favoritesOnly {
-            result = result.filter { favorites.isFavorite($0.model.id) }
-        }
-        if !query.isEmpty {
-            result = result.filter {
-                $0.model.displayName.localizedCaseInsensitiveContains(query)
-                    || $0.model.id.localizedCaseInsensitiveContains(query)
-            }
-        }
-        return result
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             QuickChatToolbar(
                 discovered: discovered,
-                filteredModels: filteredModels,
-                pickedModel: pickedModel,
-                onPickModel: { pickedModel = $0 },
+                pickedModel: $pickedModel,
                 onNewChat: newChat,
                 onOpenModelo: openInModelo
             )
             Divider().overlay(Theme.Palette.strokeStrong)
-            if !discovered.isEmpty {
-                QuickChatFilterStrip(searchQuery: $searchQuery, favoritesOnly: $favoritesOnly)
-                Divider().overlay(Theme.Palette.strokeStrong)
-            }
             QuickChatMessageList(
                 messages: messages,
                 streamingText: streamingText,
@@ -193,9 +168,7 @@ struct MenuBarChatView: View {
 
 private struct QuickChatToolbar: View {
     let discovered: [DiscoveredModel]
-    let filteredModels: [DiscoveredModel]
-    let pickedModel: DiscoveredModel?
-    let onPickModel: (DiscoveredModel) -> Void
+    @Binding var pickedModel: DiscoveredModel?
     let onNewChat: () -> Void
     let onOpenModelo: () -> Void
 
@@ -206,11 +179,11 @@ private struct QuickChatToolbar: View {
                     .font(Theme.metric(10))
                     .foregroundStyle(Theme.Palette.inkFaint)
             } else {
-                QuickChatModelPicker(
-                    filteredModels: filteredModels,
-                    pickedModel: pickedModel,
-                    onPickModel: onPickModel
-                )
+                // Same searchable, endpoint-grouped popover as the main window, so a
+                // large cloud catalog stays behind search instead of one flat menu.
+                // No load/eject/new-chat hooks: quick chat only picks.
+                ModelPickerView(discovered: discovered, selection: $pickedModel,
+                                onModelSelect: nil, onModelEject: nil, onNewChat: nil)
             }
             Spacer()
             Button { onNewChat() } label: {
@@ -230,84 +203,6 @@ private struct QuickChatToolbar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(Theme.Palette.panel)
-    }
-}
-
-// MARK: - Model Picker
-
-private struct QuickChatModelPicker: View {
-    let filteredModels: [DiscoveredModel]
-    let pickedModel: DiscoveredModel?
-    let onPickModel: (DiscoveredModel) -> Void
-
-    var body: some View {
-        Menu {
-            if filteredModels.isEmpty {
-                Text("No models match")
-                    .foregroundStyle(Theme.Palette.inkFaint)
-            } else {
-                ForEach(filteredModels, id: \.model.id) { item in
-                    Button {
-                        onPickModel(item)
-                    } label: {
-                        HStack {
-                            Text(item.model.displayName)
-                            if pickedModel?.model.id == item.model.id {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            Text(pickedModel?.model.displayName ?? "pick model")
-                .font(Theme.metric(11))
-                .foregroundStyle(pickedModel == nil ? Theme.Palette.inkFaint : Theme.Palette.inkDim)
-                .lineLimit(1)
-                .frame(maxWidth: 170, alignment: .leading)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.borderless)
-        .fixedSize()
-        .help("Pick a model")
-        // Force the native NSMenu to rebuild whenever the visible list changes.
-        // Without this, macOS caches the menu items and ignores filter updates.
-        .id(filteredModels.map(\.model.id).joined())
-    }
-}
-
-// MARK: - Filter Strip
-
-private struct QuickChatFilterStrip: View {
-    @Binding var searchQuery: String
-    @Binding var favoritesOnly: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 10))
-                .foregroundStyle(Theme.Palette.inkFaint)
-            TextField("Filter models…", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(Theme.metric(12))
-                .foregroundStyle(Theme.Palette.ink)
-            if !searchQuery.isEmpty {
-                Button { searchQuery = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.Palette.inkFaint)
-                }
-                .buttonStyle(.plain)
-                .help("Clear search")
-            }
-            FilterPill(label: "Favorites", isActive: favoritesOnly) {
-                favoritesOnly.toggle()
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 34)
         .background(Theme.Palette.panel)
     }
 }

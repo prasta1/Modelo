@@ -188,6 +188,7 @@ struct ModeloApp: App {
                 .environment(serverMonitor)
                 .environment(mcpManager)
                 .environment(favoritesStore)
+                .environment(settingsNavigator)
                 .environment(rotationStore)
                 .environment(catalogCollapseStore)
                 .modelContainer(container)
