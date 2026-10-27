@@ -4,12 +4,13 @@
 //
 // Why per-dev: Apple bundle IDs are globally unique across developer teams, so
 // a single hard-coded ID can only be signed by the team that first registered
-// it. Developers on other teams override PRODUCT_BUNDLE_IDENTIFIER (and
+// it. Developers on other teams override PRODUCT_BUNDLE_IDENTIFIER_BASE (and
 // DEVELOPMENT_TEAM) in their local Developer.xcconfig. See Developer.xcconfig.example.
 
 // Defaults — the team that owns the canonical bundle ID:
 DEVELOPMENT_TEAM = QVYZN4MJ67
-PRODUCT_BUNDLE_IDENTIFIER = com.peregrine.modelo
+PRODUCT_BUNDLE_IDENTIFIER_BASE = com.peregrine.modelo
+PRODUCT_BUNDLE_IDENTIFIER = $(PRODUCT_BUNDLE_IDENTIFIER_BASE)
 
 // Per-dev override (gitignored). Optional: absent → friend keeps the defaults.
 #include? "Developer.xcconfig"

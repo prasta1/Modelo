@@ -62,6 +62,10 @@ targets:
   ModeloTests:
     type: bundle.unit-test
     platform: macOS
+    # Same team as the app; without it, Xcode test runs fail to sign.
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     sources:
       - ModeloTests
     dependencies:
@@ -69,6 +73,8 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        # Distinct from the app's ID, which Signing.xcconfig would otherwise apply.
+        PRODUCT_BUNDLE_IDENTIFIER: $(PRODUCT_BUNDLE_IDENTIFIER_BASE).tests
         SWIFT_VERSION: "5.0"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Modelo.app/Contents/MacOS/Modelo"
         BUNDLE_LOADER: "$(TEST_HOST)"
