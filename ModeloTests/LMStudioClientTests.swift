@@ -117,6 +117,27 @@ final class LMStudioClientTests: XCTestCase {
         XCTAssertEqual(calls, [ToolCall(id: "c1", name: "search", arguments: #"{"q":"cats"}"#)])
     }
 
+    private func streamError(_ response: HTTPURLResponse, _ body: String) async -> ClientError? {
+        StubURLProtocol.handler = { _ in (response, Data(body.utf8)) }
+        let stream = makeClient().streamChat(
+            endpoint: cloudAPI(), modelID: "m", messages: [],
+            systemPrompt: "", sampling: SamplingParams(), tools: nil)
+        do { for try await _ in stream {} } catch { return error as? ClientError }
+        return nil
+    }
+
+    func test_streamChat_surfacesArrayWrappedErrorMessage() async {
+        let err = await streamError(.stub(429), #"[{"error":{"code":429,"message":"Quota exceeded"}}]"#)
+        XCTAssertEqual(err, .serverError("Quota exceeded"))
+    }
+
+    func test_streamChat_bare429_saysRateLimitedWithRetryAfter() async {
+        let response = HTTPURLResponse(url: URL(string: "http://stub")!, statusCode: 429,
+                                       httpVersion: nil, headerFields: ["Retry-After": "30"])!
+        let err = await streamError(response, "")
+        XCTAssertEqual(err, .serverError("Rate limited by the provider — try again in 30s."))
+    }
+
     /// Set sampling params reach the request body; unset ones are omitted so a
     /// server that rejects an unknown param never receives it (§1.4).
     func test_streamChat_encodesSetSamplingParamsAndOmitsNil() async throws {
