@@ -1,20 +1,17 @@
 #!/bin/bash
 # Rebuild a signed Release and install it. Run this every ~7 days (free
 # personal-team profiles expire weekly) or after any change.
-# Relies on Developer.xcconfig (gitignored) for your team + bundle ID.
+# Team + bundle ID come from Signing.xcconfig, or your gitignored Developer.xcconfig.
 # See AGENTS.md "Build, test, validate & install" for rationale.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TEAM_ID=$(security find-certificate -c "Apple Development" -p \
-  | openssl x509 -noout -subject | sed -n 's/.*OU *= *\([^,/]*\).*/\1/p')
-[ -n "$TEAM_ID" ] || { echo "No Apple Development certificate found"; exit 1; }
-
 xcodegen generate
-xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Release \
+# -quiet prints only warnings and errors and keeps xcodebuild's exit code, so a
+# failed build stops here instead of installing the last good build.
+xcodebuild -quiet -project Modelo.xcodeproj -scheme Modelo -configuration Release \
   -destination 'platform=macOS' -derivedDataPath build-release build \
-  -allowProvisioningUpdates DEVELOPMENT_TEAM="$TEAM_ID" \
-  | grep -E 'error:|warning:|BUILD' || true
+  -allowProvisioningUpdates
 
 APP=build-release/Build/Products/Release/Modelo.app
 [ -d "$APP" ] || { echo "Build product missing"; exit 1; }

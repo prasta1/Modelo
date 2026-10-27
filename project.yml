@@ -16,10 +16,6 @@ packages:
 settings:
   base:
     # Automatic signing lets Xcode pick the right identity per machine.
-    # DEVELOPMENT_TEAM + PRODUCT_BUNDLE_IDENTIFIER live in Signing.xcconfig (per
-    # configFiles below) so they can be overridden per-dev by the gitignored
-    # Developer.xcconfig: bundle IDs are globally unique across Apple teams, so
-    # one hard-coded ID can't be signed by two different dev accounts.
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
 targets:
@@ -46,10 +42,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSHumanReadableCopyright: "© 2025 Patrick Ruster"
-    # Per-dev signing overrides via optional include. See Signing.xcconfig +
-    # Developer.xcconfig.example. DEVELOPMENT_TEAM + PRODUCT_BUNDLE_IDENTIFIER
-    # are sourced from Signing.xcconfig (committed defaults) and overridden by
-    # the gitignored Developer.xcconfig when present.
+    # See Signing.xcconfig for why signing is per-dev.
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig

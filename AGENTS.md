@@ -13,9 +13,6 @@ Pause for human review on UI/API/schema/contract changes and any new architectur
 
 ## Build, test, validate & install
 
-One-command rebuild+install for the weekly profile expiry:
-`./scripts/install.sh` (same flow as below, relies on your Developer.xcconfig).
-
 The app is a native macOS SwiftUI target. The Xcode project is **generated** by
 XcodeGen from `project.yml` and is never committed (`.gitignore`d), so regenerate
 it before building if `project.yml` changed or the project is missing.
@@ -52,29 +49,16 @@ xcodebuild -project Modelo.xcodeproj -scheme Modelo \
 
 Run a single suite with `-only-testing:ModeloTests/<SuiteName>`.
 
-**Build a signed Release and install to /Applications.** Use *automatic* signing
-with the local team (derived from the machine's "Apple Development" certificate).
+**Build a signed Release and install to /Applications:** `./scripts/install.sh`.
+Re-run it whenever the app stops launching with `Launchd job spawn failed`
+(POSIX 163) — free personal-team profiles expire after 7 days. It uses
+*automatic* signing with the team and bundle ID from `Signing.xcconfig`; on
+another Apple team, copy `Developer.xcconfig.example` to `Developer.xcconfig`
+and fill in yours.
 Never sign with `CODE_SIGN_STYLE=Manual` and no profile: that strips the
 `com.apple.application-identifier` entitlement, `KeychainStore` falls back to the
 legacy login keychain, and macOS prompts for a password after every install.
 Full rationale in `Modelo/Modelo.entitlements`.
-
-```bash
-xcodegen generate   # only needed if files were added/removed
-# Local team ID from the dev certificate (OU field). openssl 3 prints a
-# comma-separated subject (`..., OU=XXXXXXXXXX, O=...`), so stop at the comma —
-# grabbing to the next `/` swallows O= and C= and xcodebuild then fails with
-# "No Account for Team".
-TEAM_ID=$(security find-certificate -c "Apple Development" -p \
-  | openssl x509 -noout -subject | sed -n 's/.*OU *= *\([^,/]*\).*/\1/p')
-xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Release \
-  -destination 'platform=macOS' -derivedDataPath build-release build \
-  -allowProvisioningUpdates DEVELOPMENT_TEAM="$TEAM_ID"
-osascript -e 'tell application "Modelo" to quit' 2>/dev/null   # free the running copy
-rm -rf /Applications/Modelo.app
-cp -R build-release/Build/Products/Release/Modelo.app /Applications/
-open /Applications/Modelo.app
-```
 
 Verify the install: `codesign -d --entitlements - /Applications/Modelo.app` must
 list `com.apple.application-identifier` and `keychain-access-groups`, and
