@@ -25,6 +25,20 @@ struct MCPToolDef: Sendable {
     let name: String
     let description: String
     let parameters: JSONSchema
+    /// Whether a call pauses for the user's approval; see `requiresApproval`.
+    var needsApproval = true
+
+    /// Decides approval from a tool's MCP `annotations`. They're hints, and the
+    /// spec's defaults are the cautious ones (`readOnlyHint` false, `openWorldHint`
+    /// true), so only a tool declaring both read-only *and* closed-world runs
+    /// unasked. Read-only alone isn't enough: Fetch is "read-only" but reaches the
+    /// internet, so pairing it with unasked file reads would let a model send any
+    /// file anywhere without a click.
+    static func requiresApproval(_ annotations: [String: Any]?) -> Bool {
+        let readOnly = annotations?["readOnlyHint"] as? Bool ?? false
+        let openWorld = annotations?["openWorldHint"] as? Bool ?? true
+        return !(readOnly && !openWorld)
+    }
 }
 
 // MARK: - Client actor
@@ -268,6 +282,7 @@ actor MCPClient {
         }
         let required = schema["required"] as? [String] ?? []
         return MCPToolDef(name: name, description: desc,
-                          parameters: JSONSchema(properties: props, required: required))
+                          parameters: JSONSchema(properties: props, required: required),
+                          needsApproval: MCPToolDef.requiresApproval(raw["annotations"] as? [String: Any]))
     }
 }

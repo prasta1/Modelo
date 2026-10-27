@@ -1867,8 +1867,9 @@ private extension ChatView {
     ]
 }
 
-/// Confirmation card for a mutating file/shell tool call. Shows what the model wants
-/// to do (write/edit a file, run a command) and waits for Approve / Deny.
+/// Confirmation card for a mutating file/shell tool call or a gated MCP tool. Shows
+/// what the model wants to do (write/edit a file, run a command, call an MCP server
+/// with these arguments) and waits for Approve / Deny.
 private struct ToolApprovalCard: View {
     let pending: ChatSession.PendingApproval
     let onDecision: (ChatSession.ApprovalDecision) -> Void
@@ -1878,6 +1879,7 @@ private struct ToolApprovalCard: View {
         case .write: "square.and.pencil"
         case .edit:  "pencil.and.outline"
         case .shell: "terminal"
+        case .external: "puzzlepiece.extension"
         }
     }
 
@@ -1917,14 +1919,18 @@ private struct ToolApprovalCard: View {
                     .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
                 Spacer(minLength: 0)
-                Button("Approve for session", action: { onDecision(.session) })
-                    .buttonStyle(.plain)
-                    .font(Theme.metric(12))
-                    .foregroundStyle(Theme.amber)
-                    .padding(.horizontal, 12).padding(.vertical, 5)
-                    .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.amberBorder))
-                    .help("Run \(pending.toolName) without asking again for the rest of this chat")
+                // Hidden where ChatSession wouldn't honor it, rather than silently
+                // downgrading the click to a one-off approval.
+                if pending.preview.allowsSessionGrant {
+                    Button("Approve for session", action: { onDecision(.session) })
+                        .buttonStyle(.plain)
+                        .font(Theme.metric(12))
+                        .foregroundStyle(Theme.amber)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.amberBorder))
+                        .help("Run \(pending.toolName) without asking again for the rest of this chat")
+                }
                 Button("Approve once", action: { onDecision(.once) })
                     .buttonStyle(.plain)
                     .font(Theme.metric(12).weight(.semibold))
