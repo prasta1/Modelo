@@ -30,13 +30,10 @@ struct EndpointsView: View {
                 List {
                     Section("Endpoints") {
                         ForEach(servers) { server in
-                            Button {
+                            EndpointRow(server: server) {
                                 form = FormRequest(draft: EndpointDraft(server: server, keychain: KeychainStore()),
                                                    existing: server)
-                            } label: {
-                                EndpointRow(server: server)
                             }
-                            .tint(.primary)
                         }
                         .onMove { from, to in
                             ServerListActions.reorder(servers, fromOffsets: from, toOffset: to)
@@ -61,14 +58,14 @@ struct EndpointsView: View {
         .confirmationDialog("Delete \"\(pendingDelete?.label ?? "")\"?",
                             isPresented: Binding(get: { pendingDelete != nil },
                                                  set: { if !$0 { pendingDelete = nil } }),
-                            titleVisibility: .visible) {
+                            titleVisibility: .visible,
+                            presenting: pendingDelete) { server in
+            // `presenting:` hands the server to the action, so it can't be nil'd by the
+            // dismissal binding before the delete runs.
             Button("Delete", role: .destructive) {
-                if let server = pendingDelete {
-                    ServerListActions.delete(server, in: context, keychain: KeychainStore())
-                }
-                pendingDelete = nil
+                ServerListActions.delete(server, in: context, keychain: KeychainStore())
             }
-        } message: {
+        } message: { _ in
             Text("Its API key is removed too.")
         }
     }
@@ -100,27 +97,38 @@ struct EndpointsView: View {
     }
 }
 
-/// One endpoint: name, runtime, address, live status, and the pause toggle.
+/// One endpoint: name, runtime, address, live status, and the Active switch.
 private struct EndpointRow: View {
-    @Bindable var server: Server
+    let server: Server
+    let onEdit: () -> Void
     @Environment(ServerRegistry.self) private var registry
     @Environment(\.modelContext) private var context
 
     var body: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(server.label).font(.headline)
-                Text(server.kind.isLocal ? "\(server.kind.displayName) · \(server.host):\(server.port)"
-                                         : "\(server.kind.displayName) · \(server.baseURL)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                statusLine
+            // The tappable area is the text only (borderless), so the switch beside it
+            // toggles on its own instead of also opening the edit sheet.
+            Button(action: onEdit) {
+                info.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
-            Spacer()
-            Toggle("Paused", isOn: $server.isPaused)
+            .buttonStyle(.borderless)
+            .tint(.primary)
+            // ON = active, matching the Mac's pill toggle (`isPaused` is the inverse).
+            Toggle("Active", isOn: Binding(get: { !server.isPaused },
+                                           set: { server.isPaused = !$0; context.saveOrLog() }))
                 .labelsHidden()
-                .onChange(of: server.isPaused) { context.saveOrLog() }
+        }
+    }
+
+    private var info: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(server.label).font(.headline)
+            Text(server.kind.isLocal ? "\(server.kind.displayName) · \(server.host):\(server.port)"
+                                     : "\(server.kind.displayName) · \(server.baseURL)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            statusLine
         }
     }
 

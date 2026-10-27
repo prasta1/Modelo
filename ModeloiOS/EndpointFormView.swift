@@ -53,7 +53,10 @@ struct EndpointFormView: View {
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            TextField("Port", value: $draft.port, format: .number.grouping(.never))
+            // Bound as text so every keystroke reaches the draft: a value-formatted field
+            // only commits on Return, which the number pad doesn't have. Empty → 0 → invalid.
+            TextField("Port", text: Binding(get: { draft.port == 0 ? "" : String(draft.port) },
+                                            set: { draft.port = Int($0.filter(\.isNumber)) ?? 0 }))
                 .keyboardType(.numberPad)
             TextField("Subtitle", text: $draft.connectionID, prompt: Text("Optional"))
         } header: {
