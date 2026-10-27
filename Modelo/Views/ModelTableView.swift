@@ -19,11 +19,12 @@ private enum Col {
     /// and the column still shrinks below it on a narrow window.
     ///
     /// Sized against the real catalog: of OpenRouter's 406 model names measured
-    /// at SF Pro medium 11pt, the widest is 262.7pt and the next is 198.3pt, so
-    /// 270 clears the single outlier with headroom to spare. Names that do
-    /// overflow ellipsize (`.lineLimit(1)`) rather than break the layout, so a
-    /// future long name degrades quietly — worth re-measuring if that matters.
-    static let nameMax: CGFloat = 270
+    /// at SF Pro medium 11pt, the widest is 262.7pt and the next is 198.3pt.
+    /// Rows now render at 13pt, which scales those to ~310pt and ~234pt, so 320
+    /// clears the single outlier. Names that do overflow ellipsize
+    /// (`.lineLimit(1)`) rather than break the layout, so a future long name
+    /// degrades quietly — worth re-measuring if that matters.
+    static let nameMax: CGFloat = 320
     static let caps: CGFloat = 148
     /// Merged metrics cell: size · speed · used×, omitting missing values.
     static let metrics: CGFloat = 148
@@ -391,7 +392,7 @@ struct ModelTableRow: View {
 
             // Name — flexible up to Col.nameMax
             Text(model.shortName)
-                .font(Theme.metric(11))
+                .font(Theme.metric(13))
                 .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
                 .lineLimit(1)
                 .frame(maxWidth: Col.nameMax, alignment: .leading)
@@ -408,7 +409,7 @@ struct ModelTableRow: View {
 
             // Merged metrics: size · speed · used×
             Text(metricsLabel)
-                .font(Theme.mono(10))
+                .font(Theme.mono(11))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
@@ -443,7 +444,7 @@ struct ModelTableRow: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 7)
+        .padding(.vertical, 10)
         .background(rowBackground)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { onLaunch() }

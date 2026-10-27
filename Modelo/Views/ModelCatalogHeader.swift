@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Band 1: section title band, search field, refresh button.
+/// Band 1: one row holding the page title, search field, provider count and
+/// refresh button — the title used to sit in its own band above the search.
 struct ModelCatalogHeader: View {
     @Bindable var vm: ModelCatalogViewModel
     var onRefresh: (() async -> Void)? = nil
@@ -10,17 +11,25 @@ struct ModelCatalogHeader: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            pageHeader
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
+                Text("Models")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
                 searchField
                     .frame(maxWidth: .infinity)
+                let n = vm.groupedRemote.count
+                if n > 0 {
+                    Text("\(n) provider\(n == 1 ? "" : "s")")
+                        .font(Theme.metric(10))
+                        .foregroundStyle(Theme.textFaint)
+                        .fixedSize()
+                }
                 if let onRefresh {
                     refreshButton(onRefresh)
                 }
             }
             .padding(.horizontal, Theme.gutter)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
+            .padding(.vertical, 12)
 
             if searchFocused {
                 Text("Try ctx>200k · tools · speed>85 to filter by spec")
@@ -33,30 +42,6 @@ struct ModelCatalogHeader: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: searchFocused)
-    }
-
-    // MARK: – Page header
-
-    private var pageHeader: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Models")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.textHi)
-                Spacer()
-                let n = vm.groupedRemote.count
-                if n > 0 {
-                    Text("\(n) provider\(n == 1 ? "" : "s")")
-                        .font(Theme.metric(9))
-                        .foregroundStyle(Theme.textFaint)
-                }
-            }
-            .padding(.horizontal, Theme.gutter)
-            .padding(.vertical, 10)
-            Rectangle()
-                .fill(Theme.line)
-                .frame(height: 1)
-        }
     }
 
     // MARK: – Search field
