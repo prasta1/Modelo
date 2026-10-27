@@ -53,15 +53,17 @@ final class Server {
     }
 
     /// Base URL used by the networking layer.
-    /// - LM Studio: `http://host:port`.
+    /// - LM Studio: `http://host:port`, or `https://host:port` when the host was entered with `https://`.
     /// - Cloud API: the value stored in `host` (the user's full base URL, e.g. `https://api.together.xyz/v1`).
     var baseURL: String {
         switch kind {
         // Local runtimes are addressed by host:port.
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: "http://\(Server.normalizedHost(host)):\(port)"
-        case .cloudAPI:   host
-        case .openRouter: Endpoint.openRouterBaseURL
-        case .nous:       Endpoint.nousBaseURL
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo:
+            let h = Server.normalizedHost(host)
+            return h.hasPrefix("https://") ? "\(h):\(port)" : "http://\(h):\(port)"
+        case .cloudAPI:   return host
+        case .openRouter: return Endpoint.openRouterBaseURL
+        case .nous:       return Endpoint.nousBaseURL
         }
     }
 
@@ -71,20 +73,25 @@ final class Server {
     /// Without this, a host that already carries a scheme (e.g. `http://localhost`)
     /// produced a doubled-up `http://http://localhost:1234` — an invalid string that
     /// makes `URL(string:)` return nil, so the reachability probe silently failed and
-    /// the server read as permanently offline. We strip the scheme, surrounding
+    /// the server read as permanently offline. We strip `http://`, surrounding
     /// whitespace, and any trailing slash so the bare host remains.
+    ///
+    /// A leading `https://` is kept (lowercased): some servers only speak TLS, e.g. a
+    /// llama-swap behind `tailscale serve`, which answers plain http with a 400.
     /// - Parameter raw: The host string as typed by the user.
-    /// - Returns: A bare host with no scheme, whitespace, or trailing slash.
+    /// - Returns: A bare host, or `https://host`, with no whitespace or trailing slash.
     static func normalizedHost(_ raw: String) -> String {
         var host = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Strip a leading http:// or https:// (case-insensitive).
+        var isTLS = false
+        // Strip a leading http:// or https:// (case-insensitive), remembering which.
         if let schemeRange = host.range(of: "^https?://",
                                         options: [.regularExpression, .caseInsensitive]) {
+            isTLS = host[schemeRange].count == "https://".count
             host.removeSubrange(schemeRange)
         }
         // Drop any trailing slash(es) left behind (e.g. "localhost/").
         while host.hasSuffix("/") { host.removeLast() }
-        return host
+        return isTLS ? "https://\(host)" : host
     }
 
     init(label: String, host: String, port: Int = 1234, sortOrder: Int = 0,
