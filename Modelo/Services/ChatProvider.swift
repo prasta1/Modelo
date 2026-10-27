@@ -43,6 +43,14 @@ enum WireContent: Encodable, Equatable {
         case .blocks(let b): try container.encode(b)
         }
     }
+
+    /// This content as content blocks — a plain string becomes one text block.
+    var blocks: [WireContentBlock] {
+        switch self {
+        case .text(let s):   [.text(s)]
+        case .blocks(let b): b
+        }
+    }
 }
 
 /// A single content block in a vision-capable message (OpenAI format).
