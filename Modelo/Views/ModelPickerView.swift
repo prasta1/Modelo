@@ -200,9 +200,9 @@ struct ModelPickerView: View {
     }
 }
 
-/// The popover body (handoff §8): search field on top, an endpoint sidebar beside
-/// a server-grouped, scrollable list of model rows, and a footer holding settings,
-/// filter and sort.
+/// The popover body (handoff §8): search with Free / Loaded pills on top, an
+/// endpoint sidebar beside a server-grouped, scrollable list of model rows, and a
+/// footer holding settings and sort.
 private struct ModelPickerList: View {
     let groups: [(server: Server, models: [DiscoveredModel])]
     let isEmpty: Bool
@@ -319,32 +319,6 @@ private struct ModelPickerList: View {
         for (i, server) in ordered.enumerated() { server.sortOrder = i }
     }
 
-    /// Loaded / Free toggles folded into one menu; the label tints amber and
-    /// shows a count while either is on.
-    private var filterMenu: some View {
-        let active = [loadedOnly, freeOnly].filter { $0 }.count
-        return Menu {
-            Toggle("Loaded", isOn: $loadedOnly)
-            Toggle("Free", isOn: $freeOnly)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 9, weight: .medium))
-                Text(active == 0 ? "Filter" : "Filter · \(active)")
-                    .font(Theme.label(9))
-                    .tracking(0.8)
-            }
-            .foregroundStyle(active == 0 ? Theme.textDim : Theme.amber)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(active == 0 ? Theme.fill : Theme.amberFill, in: Capsule())
-            .overlay(Capsule().strokeBorder(active == 0 ? Theme.line : Theme.amberBorder, lineWidth: 1))
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             searchField
@@ -387,8 +361,16 @@ private struct ModelPickerList: View {
                 .buttonStyle(.plain)
                 .help("Clear search")
             }
+            // One-tap filters ride inside the field's right edge, so narrowing the
+            // list never leaves the place you're already typing.
+            Toggle("Free", isOn: $freeOnly)
+                .toggleStyle(ChipToggleStyle(tint: Theme.green))
+                .help("Show only free cloud models (local models always show)")
+            Toggle("Loaded", isOn: $loadedOnly)
+                .toggleStyle(ChipToggleStyle())
+                .help("Show only models currently loaded in memory")
         }
-        .padding(.horizontal, 12).frame(height: 28)
+        .padding(.leading, 12).padding(.trailing, 4).frame(height: 28)
         .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.line))
         .padding(13)
@@ -543,7 +525,6 @@ private struct ModelPickerList: View {
             .buttonStyle(.plain)
             .help("Manage models in Settings")
             Spacer()
-            filterMenu
             ModelSortMenu(sort: $sortKey)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
