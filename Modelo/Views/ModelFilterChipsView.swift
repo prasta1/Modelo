@@ -8,16 +8,19 @@ struct ModelFilterChipsView: View {
         let id: String
         let label: String
         let tint: Color
+        /// Same glyph `ModelTableRow` uses for this capability, so the chip row
+        /// doubles as the table's icon legend. Keep the two in sync.
+        var symbol: String? = nil
     }
 
     private let chips: [ChipDef] = [
         ChipDef(id: "all",    label: "All",    tint: Theme.amber),
-        ChipDef(id: "free",   label: "Free",   tint: Theme.green),
-        ChipDef(id: "tools",  label: "Tools",  tint: Theme.amber),
-        ChipDef(id: "vision", label: "Vision", tint: Theme.blue),
-        ChipDef(id: "reason", label: "Reason", tint: Theme.purple),
-        ChipDef(id: "loaded", label: "Loaded", tint: Theme.green),
-        ChipDef(id: "favs",   label: "Favs",   tint: Theme.amber),
+        ChipDef(id: "free",   label: "Free",   tint: Theme.green,  symbol: "gift"),
+        ChipDef(id: "tools",  label: "Tools",  tint: Theme.amber,  symbol: "wrench.and.screwdriver"),
+        ChipDef(id: "vision", label: "Vision", tint: Theme.blue,   symbol: "eye"),
+        ChipDef(id: "reason", label: "Reason", tint: Theme.purple, symbol: "brain"),
+        ChipDef(id: "loaded", label: "Loaded", tint: Theme.green,  symbol: "memorychip"),
+        ChipDef(id: "favs",   label: "Favs",   tint: Theme.amber,  symbol: "star.fill"),
     ]
 
     var body: some View {
@@ -49,10 +52,19 @@ struct ModelFilterChipsView: View {
                 vm.activeFilters.insert(chip.id)
             }
         } label: {
-            Text(chip.label.uppercased())
-                .font(Theme.label(9))
-                .tracking(0.8)
-                .foregroundStyle(active ? chip.tint : Theme.textFaint)
+            HStack(spacing: 4) {
+                // Icon keeps its tint even when inactive — that's what makes the
+                // row readable as a legend for the table's colored glyphs.
+                if let symbol = chip.symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 9))
+                        .foregroundStyle(chip.tint)
+                }
+                Text(chip.label.uppercased())
+                    .font(Theme.label(9))
+                    .tracking(0.8)
+                    .foregroundStyle(active ? chip.tint : Theme.textFaint)
+            }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
                 .background(

@@ -404,7 +404,7 @@ struct ModelTableRow: View {
                 if model.supportsToolUse  { capIcon("wrench.and.screwdriver", "Tool use",  Theme.amber) }
                 if model.supportsVision   { capIcon("eye",                     "Vision",    Theme.blue) }
                 if model.supportsThinking { capIcon("brain",                   "Reasoning", Theme.purple) }
-                if model.isLoaded         { capIcon("memorychip",              "Loaded",    Theme.amber) }
+                if model.isLoaded         { capIcon("memorychip",              "Loaded",    Theme.green) }
             }
             .frame(width: Col.caps, alignment: .leading)
 
