@@ -330,7 +330,10 @@ struct BashTool: Tool {
 
     func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview? {
         guard let args = try? decode(Args.self, argumentsJSON) else { return nil }
-        return ToolApprovalPreview(kind: .shell, title: "Run in \(scope.root.lastPathComponent)", detail: args.command)
+        // "Starts in", not "Run in": the workspace is only the working directory. The
+        // command itself can reach anything the user can (`ls ~`, `cat > ~/Desktop/…`).
+        return ToolApprovalPreview(kind: .shell, title: "Run shell command (starts in \(scope.root.lastPathComponent))",
+                                   detail: args.command)
     }
 
     func execute(argumentsJSON: String) async throws -> String {
