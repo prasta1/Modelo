@@ -139,6 +139,11 @@ struct SettingsView: View {
                     if isScanActive {
                         scanResultsPanel
                     }
+
+                    if servers.contains(where: { $0.kind == .lmStudio }) {
+                        LMStudioLoadContextCard()
+                            .padding(.top, 12)
+                    }
                 }
                 .padding(24)
                 .hideScrollIndicators()
@@ -619,6 +624,37 @@ private struct ToolRoundsCard: View {
                     }
                 }
                 Text("Higher allows more complex multi-step tool use but can run longer. Applies to new chats immediately; open chats update live. Ignored while YOLO mode is on.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// How much context Modelo requests when it loads an LM Studio model. Shown on the
+/// Endpoints tab only while an LM Studio server is registered.
+private struct LMStudioLoadContextCard: View {
+    @AppStorage(LMStudioLoadContext.key) private var cap = LMStudioLoadContext.defaultCap
+
+    var body: some View {
+        SettingsSection("LM Studio load context") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Context when Modelo loads a model").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                        Text("Never more than the model itself supports.")
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    }
+                    Spacer(minLength: 8)
+                    Picker("Load context", selection: $cap) {
+                        ForEach(LMStudioLoadContext.options, id: \.self) { n in
+                            Text(n == 0 ? "LM Studio default" : "\(n / 1024)K").tag(n)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                Text("Applies when you pick or launch a model that isn't loaded yet. A model LM Studio loads on its own uses LM Studio's Default Context Length — if that's \"Model maximum\", large-context models can run the GPU out of memory.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
             }

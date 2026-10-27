@@ -381,7 +381,9 @@ struct ContentView: View {
         if model.server.kind == .lmStudio, !model.model.isLoaded {
             let endpoint = Endpoint(server: model.server, keychain: keychain)
             do {
-                _ = try await client.loadModel(modelID: model.model.id, endpoint: endpoint)
+                try await client.loadModel(modelID: model.model.id,
+                                           contextLength: LMStudioLoadContext.contextLength(for: model.model),
+                                           endpoint: endpoint)
                 await refreshModels()
             } catch {
                 // If loading fails, still proceed - the error will surface in chat
@@ -656,7 +658,7 @@ struct ContentView: View {
             if item.server.kind == .llamaSwap {
                 try await llamaSwapClient.unload(modelID: item.model.id, endpoint: endpoint)
             } else {
-                _ = try await client.unloadModel(modelID: item.model.id, endpoint: endpoint)
+                try await client.unloadModel(modelID: item.model.id, endpoint: endpoint)
             }
             await refreshModels()
             if pickedModel?.model.id == item.model.id {
@@ -705,7 +707,9 @@ struct ContentView: View {
         // Load the model
         let endpoint = Endpoint(server: item.server, keychain: keychain)
         do {
-            _ = try await client.loadModel(modelID: item.model.id, endpoint: endpoint)
+            try await client.loadModel(modelID: item.model.id,
+                                       contextLength: LMStudioLoadContext.contextLength(for: item.model),
+                                       endpoint: endpoint)
             // Refresh to reflect the new loaded state
             await refreshModels()
             return true
