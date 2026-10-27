@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// A discovered model on a specific server.
 struct DiscoveredModel: Identifiable, Hashable {
@@ -113,7 +114,9 @@ struct ModelPickerView: View {
     @State private var hovering = false
     @State private var showingPopover = false
 
-    /// Models grouped by their server, preserving discovery order of servers.
+    /// Models grouped by their server, in the user's endpoint order (`sortOrder`).
+    /// Sorting here rather than trusting discovery order means a reorder shows up
+    /// immediately, and the menu-bar chat (whose fetch finishes in any order) agrees.
     private var groups: [(server: Server, models: [DiscoveredModel])] {
         var order: [UUID] = []
         var byServer: [UUID: [DiscoveredModel]] = [:]
@@ -125,6 +128,7 @@ struct ModelPickerView: View {
             guard let first = byServer[id]?.first else { return nil }
             return (first.server, byServer[id]!)
         }
+        .sorted { $0.server.sortOrder < $1.server.sortOrder }
     }
 
     var body: some View {
@@ -213,6 +217,12 @@ private struct ModelPickerList: View {
     @State private var freeOnly = false
     @State private var loadedOnly = false
     @State private var favoritesOnly = false
+    @State private var renamingID: UUID?
+    @State private var draggingID: UUID?
+    @State private var dropTargetID: UUID?
+    /// Every endpoint, including offline ones the sidebar doesn't show, so a
+    /// reorder can renumber them all without colliding with hidden servers.
+    @Query(sort: \Server.sortOrder) private var allServers: [Server]
     @AppStorage(ModelSort.storageKey) private var sortKey: ModelSort = .name
     @Environment(FavoritesStore.self) private var favorites
     @Environment(SettingsNavigator.self) private var settingsNavigator
@@ -242,13 +252,42 @@ private struct ModelPickerList: View {
                     favoritesOnly = false
                     selectedServer = nil
                 }
-                ForEach(groups, id: \.server.id) { group in
-                    EndpointRow(label: group.server.label,
-                                icon: group.server.kind == .cloudAPI ? "cloud" : nil,
-                                count: group.models.count,
-                                isActive: !favoritesOnly && selectedServer?.id == group.server.id) {
-                        favoritesOnly = false
-                        selectedServer = group.server
+                ForEach(Array(groups.enumerated()), id: \.element.server.id) { index, group in
+                    let server = group.server
+                    if renamingID == server.id {
+                        EndpointRenameField(server: server) { renamingID = nil }
+                    } else {
+                        EndpointRow(label: server.label.isEmpty ? "Unnamed" : server.label,
+                                    icon: server.kind == .cloudAPI ? "cloud" : nil,
+                                    count: group.models.count,
+                                    isActive: !favoritesOnly && selectedServer?.id == server.id) {
+                            favoritesOnly = false
+                            selectedServer = server
+                        }
+                        // Drag one endpoint onto another to take its slot.
+                        .onDrag {
+                            draggingID = server.id
+                            return NSItemProvider(object: server.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [.text], delegate: EndpointDropDelegate(
+                            targetID: server.id, draggingID: $draggingID,
+                            dropTargetID: $dropTargetID) { move($0, to: $1) })
+                        .overlay(alignment: insertsBelow(index) ? .bottom : .top) {
+                            if dropTargetID == server.id, draggingID != server.id {
+                                Capsule().fill(Theme.amber)
+                                    .frame(height: 2)
+                                    // Sit in the 2pt gap between rows, not on the row.
+                                    .offset(y: insertsBelow(index) ? 2 : -2)
+                            }
+                        }
+                        .contextMenu {
+                            Button("Rename…") { renamingID = server.id }
+                            Divider()
+                            Button("Move Up") { move(server.id, to: groups[index - 1].server.id) }
+                                .disabled(index == 0)
+                            Button("Move Down") { move(server.id, to: groups[index + 1].server.id) }
+                                .disabled(index == groups.count - 1)
+                        }
                     }
                 }
             }
@@ -257,6 +296,27 @@ private struct ModelPickerList: View {
         .scrollIndicators(.hidden)
         .frame(width: 150)
         .background(Color.white.opacity(0.012))
+    }
+
+    /// True when the dragged endpoint comes from above row `index`, so it lands
+    /// after that row and the insertion line belongs on the row's bottom edge.
+    private func insertsBelow(_ index: Int) -> Bool {
+        guard let from = groups.firstIndex(where: { $0.server.id == draggingID }) else { return false }
+        return from < index
+    }
+
+    /// Moves endpoint `sourceID` into `targetID`'s slot, then renumbers every
+    /// endpoint 0…n. Renumbering all of them (not just the visible ones) keeps
+    /// offline servers in their relative place and clears any duplicate sortOrders.
+    /// The new order also applies to Settings ▸ Endpoints, which sorts the same way.
+    private func move(_ sourceID: UUID, to targetID: UUID) {
+        var ordered = allServers
+        guard let from = ordered.firstIndex(where: { $0.id == sourceID }),
+              let to = ordered.firstIndex(where: { $0.id == targetID }),
+              from != to else { return }
+        // `toOffset` is the index *before* removal, so landing in a later slot needs +1.
+        ordered.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        for (i, server) in ordered.enumerated() { server.sortOrder = i }
     }
 
     /// Loaded / Free toggles folded into one menu; the label tints amber and
@@ -587,6 +647,53 @@ private struct EndpointRow: View {
         .onHover { hovering = $0 }
         .help(label)
         .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+}
+
+/// Drop handling for one sidebar endpoint. A delegate (rather than
+/// `.dropDestination`) can propose `.move`, which keeps macOS's green copy "+"
+/// off the cursor, and reports enter/exit so the row can draw the insertion line.
+private struct EndpointDropDelegate: DropDelegate {
+    let targetID: UUID
+    @Binding var draggingID: UUID?
+    @Binding var dropTargetID: UUID?
+    let move: (UUID, UUID) -> Void
+
+    // Only accept drags that started in this sidebar, not arbitrary text.
+    func validateDrop(info: DropInfo) -> Bool { draggingID != nil }
+    func dropEntered(info: DropInfo) { dropTargetID = targetID }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func dropExited(info: DropInfo) {
+        if dropTargetID == targetID { dropTargetID = nil }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingID = nil; dropTargetID = nil }
+        guard let source = draggingID else { return false }
+        move(source, targetID)
+        return true
+    }
+}
+
+/// Inline rename for a sidebar endpoint. Writes straight to `server.label` (as the
+/// Settings name field does) and ends on Return or when focus leaves.
+private struct EndpointRenameField: View {
+    @Bindable var server: Server
+    let onDone: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Endpoint name", text: $server.label)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.textHi)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.amberBorder))
+            .focused($focused)
+            .onAppear { focused = true }
+            .onSubmit(onDone)
+            .onChange(of: focused) { _, isFocused in if !isFocused { onDone() } }
     }
 }
 
