@@ -29,9 +29,13 @@ extension Tool {
 
 /// A preview of a pending mutating tool call, surfaced in the in-chat approval card.
 struct ToolApprovalPreview: Sendable, Equatable, Identifiable {
-    enum Kind: Sendable, Equatable { case write, edit, shell }
+    /// `external`: a tool from a user-configured MCP server.
+    enum Kind: Sendable, Equatable { case write, edit, shell, external }
     let id = UUID()
     let kind: Kind
+    /// Only workspace-scoped file writes/edits may be approved for a whole session;
+    /// a shell or MCP grant would authorize arbitrary later calls.
+    var allowsSessionGrant: Bool { kind == .write || kind == .edit }
     let title: String    // e.g. "Write src/notes.md" or "Run command"
     let detail: String   // file content, a diff, or the shell command — shown monospaced
 }

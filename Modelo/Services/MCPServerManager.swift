@@ -8,13 +8,36 @@ struct MCPTool: Tool {
     let name: String
     let description: String
     let parameters: JSONSchema
+    /// Shown on the approval card so you can tell which server is asking.
+    let serverName: String
+    let needsApproval: Bool
     private let client: MCPClient  // actor — implicitly Sendable
 
-    init(name: String, description: String, parameters: JSONSchema, client: MCPClient) {
+    init(name: String, description: String, parameters: JSONSchema,
+         serverName: String, needsApproval: Bool, client: MCPClient) {
         self.name = name
         self.description = description
         self.parameters = parameters
+        self.serverName = serverName
+        self.needsApproval = needsApproval
         self.client = client
+    }
+
+    /// Non-nil pauses the call on the in-chat approval card (`ChatSession`), the
+    /// same gate the first-party write/edit/bash tools use.
+    func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview? {
+        guard needsApproval else { return nil }
+        return ToolApprovalPreview(kind: .external, title: "Call \(serverName) server",
+                                   detail: Self.prettyArguments(argumentsJSON))
+    }
+
+    /// Pretty-prints the model's JSON arguments for the card; raw text if unparseable.
+    static func prettyArguments(_ json: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)),
+              let data = try? JSONSerialization.data(withJSONObject: object,
+                                                     options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        else { return json }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// Hard cap on the characters of one MCP tool result forwarded to the model.
@@ -120,11 +143,12 @@ final class MCPServerManager {
     private func rebuildTools() async {
         var tools: [any Tool] = []
         for (id, client) in clients {
-            guard configs.first(where: { $0.id == id })?.isEnabled == true else { continue }
+            guard let config = configs.first(where: { $0.id == id }), config.isEnabled else { continue }
             let defs = await client.toolDefs
             for def in defs {
                 tools.append(MCPTool(name: def.name, description: def.description,
-                                     parameters: def.parameters, client: client))
+                                     parameters: def.parameters, serverName: config.name,
+                                     needsApproval: def.needsApproval, client: client))
             }
         }
         availableTools = tools

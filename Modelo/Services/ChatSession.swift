@@ -84,8 +84,9 @@ final class ChatSession {
         }
         // "Approve for session" is deliberately NOT honored for the shell tool: one grant
         // must never authorize every later command. Writes/edits stay workspace-scoped,
-        // so a session grant for those is acceptable.
-        if decision == .session && preview.kind != .shell { sessionApprovedTools.insert(toolName) }
+        // so a session grant for those is acceptable. MCP tools aren't workspace-scoped
+        // (a Filesystem server rooted at ~, Fetch to any URL), so they're excluded too.
+        if decision == .session && preview.allowsSessionGrant { sessionApprovedTools.insert(toolName) }
         return decision != .deny
     }
 
