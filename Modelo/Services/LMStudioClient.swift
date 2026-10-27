@@ -465,9 +465,16 @@ final class LMStudioClient: ChatProvider {
                     errorData.append(byte)
                     if errorData.count >= 4096 { break }
                 }
-                if let decoded = try? JSONDecoder().decode(HTTPErrorBody.self, from: errorData),
-                   let msg = decoded.error?.message, !msg.isEmpty {
+                // Gemini's OpenAI-compatible endpoint wraps the error in an array.
+                let decoded = (try? JSONDecoder().decode(HTTPErrorBody.self, from: errorData))
+                    ?? (try? JSONDecoder().decode([HTTPErrorBody].self, from: errorData))?.first
+                if let msg = decoded?.error?.message, !msg.isEmpty {
                     throw ClientError.serverError(msg)
+                }
+                if http.statusCode == 429 {
+                    let wait = http.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init)
+                        .map { "try again in \($0)s" } ?? "try again shortly"
+                    throw ClientError.serverError("Rate limited by the provider — \(wait).")
                 }
                 throw ClientError.serverError("Server returned HTTP \(http.statusCode)")
             }
