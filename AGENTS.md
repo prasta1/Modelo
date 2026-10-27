@@ -50,8 +50,10 @@ xcodebuild -project Modelo.xcodeproj -scheme Modelo \
 Run a single suite with `-only-testing:ModeloTests/<SuiteName>`.
 
 **Build a signed Release and install to /Applications:** `./scripts/install.sh`.
-Re-run it whenever the app stops launching with `Launchd job spawn failed`
-(POSIX 163) — free personal-team profiles expire after 7 days. It uses
+The default team (`QVYZN4MJ67`) is a paid Developer Program team, so its
+profiles last years. On a free personal team they expire after 7 days and the
+app stops launching with `Launchd job spawn failed` (POSIX 163) — re-run the
+script to fix it. It uses
 *automatic* signing with the team and bundle ID from `Signing.xcconfig`; on
 another Apple team, copy `Developer.xcconfig.example` to `Developer.xcconfig`
 and fill in yours.
@@ -82,14 +84,12 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
 `project.yml`, merge, then push a matching tag (`v0.3.1` ↔ `"0.3.1"`); the job
 fails fast if they disagree. Tags pushed before the workflow existed don't run it.
 
-Needs a paid Apple Developer Program team and these repo secrets:
+Needs a Developer ID Application certificate on the team (create it in Xcode →
+Settings → Accounts → Manage Certificates) and these repo secrets:
 
 | Secret | Value |
 |---|---|
 | `DEVID_P12` | Developer ID Application cert + key exported as `.p12`, base64 (`base64 -i cert.p12 \| pbcopy`) |
 | `DEVID_P12_PASSWORD` | The `.p12` export password |
-| `ASC_KEY_P8` | App Store Connect API key (`.p8`), base64 — fetches the Developer ID profile and notarizes |
+| `ASC_KEY_P8` | App Store Connect Team API key (`.p8`, Admin role), base64 — fetches the Developer ID profile and notarizes |
 | `ASC_KEY_ID`, `ASC_ISSUER_ID` | The IDs shown beside that key in App Store Connect → Users & Access → Integrations |
-
-If the team ID changes on enrollment (e.g. enrolling as an organization),
-update `DEVELOPMENT_TEAM` in `Signing.xcconfig`.
