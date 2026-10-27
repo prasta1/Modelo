@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Foundation
 import SwiftData
 
@@ -94,11 +98,18 @@ final class ReachabilityMonitor {
 
     private func observeAppActivation() {
         let center = NotificationCenter.default
-        center.addObserver(forName: NSApplication.didBecomeActiveNotification,
+        #if os(macOS)
+        let didBecomeActive = NSApplication.didBecomeActiveNotification
+        let didResignActive = NSApplication.didResignActiveNotification
+        #else
+        let didBecomeActive = UIApplication.didBecomeActiveNotification
+        let didResignActive = UIApplication.willResignActiveNotification
+        #endif
+        center.addObserver(forName: didBecomeActive,
                            object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.setForeground(true) }
         }
-        center.addObserver(forName: NSApplication.didResignActiveNotification,
+        center.addObserver(forName: didResignActive,
                            object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.setForeground(false) }
         }
