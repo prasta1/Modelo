@@ -206,44 +206,67 @@ final class LMStudioClient: ChatProvider {
 
     // MARK: Model load / unload (LM Studio only)
 
-    /// Loads a model on an LM Studio server via `POST /api/v0/models/{id}/load`.
-    /// Returns the updated model state if successful. No-op for OpenRouter.
-    @discardableResult
-    func loadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
-        let data = try await postModelAction("load", modelID: modelID, endpoint: endpoint)
-        guard let model = try JSONDecoder().decode(ModelsResponse.self, from: data).data.first else {
-            throw ClientError.serverError("Server returned no model state after load")
-        }
-        return model
+    /// Loads a model on an LM Studio server via `POST /api/v1/models/load`, falling back
+    /// to the legacy `POST /api/v0/models/{id}/load` on versions without the v1 API.
+    ///
+    /// - Parameters:
+    ///   - modelID: The model key to load.
+    ///   - contextLength: Context to load with; nil leaves it to LM Studio's own default.
+    ///     Only the v1 route accepts it, so older versions ignore it.
+    ///   - endpoint: The LM Studio server.
+    func loadModel(modelID: String, contextLength: Int?, endpoint: Endpoint) async throws {
+        try await modelAction(v1Path: "/api/v1/models/load",
+                              v1Body: LoadBodyV1(model: modelID, context_length: contextLength),
+                              v0Verb: "load", modelID: modelID, endpoint: endpoint)
     }
 
-    /// Unloads a model on an LM Studio server via `POST /api/v0/models/{id}/unload`.
-    /// Returns the updated model state if successful. No-op for OpenRouter.
-    @discardableResult
-    func unloadModel(modelID: String, endpoint: Endpoint) async throws -> LMStudioModel {
-        let data = try await postModelAction("unload", modelID: modelID, endpoint: endpoint)
-        guard let model = try JSONDecoder().decode(ModelsResponse.self, from: data).data.first else {
-            throw ClientError.serverError("Server returned no model state after unload")
-        }
-        return model
+    /// Unloads a model on an LM Studio server via `POST /api/v1/models/unload`, falling
+    /// back to the legacy `POST /api/v0/models/{id}/unload`.
+    ///
+    /// - Parameters:
+    ///   - modelID: The model key. A default (single or JIT) load's instance id is the
+    ///     key itself, which is what v1 asks for.
+    ///   - endpoint: The LM Studio server.
+    func unloadModel(modelID: String, endpoint: Endpoint) async throws {
+        try await modelAction(v1Path: "/api/v1/models/unload",
+                              v1Body: UnloadBodyV1(instance_id: modelID),
+                              v0Verb: "unload", modelID: modelID, endpoint: endpoint)
     }
 
     /// Sets `keep_in_ram` on a loaded model via `POST /api/v0/models/{id}/load`.
     /// Pass `false` to unpin the model so LM Studio may evict it when loading another.
+    /// v1 has no equivalent, so this throws on LM Studio versions that dropped v0.
     func setKeepInRam(modelID: String, keepInRam: Bool, endpoint: Endpoint) async throws {
-        _ = try await postModelAction("load", modelID: modelID, endpoint: endpoint,
-                                      body: try JSONEncoder().encode(LoadModelBody(keep_in_ram: keepInRam)))
+        guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
+        let found = try await postModelRoute(Self.v0Path(modelID, "load"),
+                                             body: try JSONEncoder().encode(LoadModelBody(keep_in_ram: keepInRam)),
+                                             endpoint: endpoint)
+        if !found { throw ClientError.serverError("This LM Studio version doesn't support Keep in RAM.") }
     }
 
-    /// Shared `POST /api/v0/models/{id}/{verb}` for the load/unload/keep-in-ram actions
-    /// (LM Studio only). Returns the response body.
-    private func postModelAction(_ verb: String, modelID: String, endpoint: Endpoint,
-                                 body: Data? = nil) async throws -> Data {
+    /// Runs a load/unload, trying the v1 route first and the v0 one if the server
+    /// doesn't have v1 (LM Studio before the v1 API; newer versions dropped v0).
+    private func modelAction<Body: Encodable>(v1Path: String, v1Body: Body, v0Verb: String,
+                                              modelID: String, endpoint: Endpoint) async throws {
         guard endpoint.kind == .lmStudio else { throw ClientError.unsupported }
+        if try await postModelRoute(v1Path, body: try JSONEncoder().encode(v1Body), endpoint: endpoint) { return }
+        if try await postModelRoute(Self.v0Path(modelID, v0Verb), body: nil, endpoint: endpoint) { return }
+        throw ClientError.serverError("This LM Studio version has no \(v0Verb) API.")
+    }
+
+    private static func v0Path(_ modelID: String, _ verb: String) -> String {
         let encoded = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? modelID
-        guard let url = URL(string: "\(endpoint.baseURL)/api/v0/models/\(encoded)/\(verb)") else {
-            throw ClientError.invalidURL
-        }
+        return "/api/v0/models/\(encoded)/\(verb)"
+    }
+
+    /// POSTs to an LM Studio model-management route.
+    ///
+    /// - Returns: `false` when the server doesn't have this route, so the caller can try
+    ///   another; `true` on success.
+    /// - Throws: LM Studio's own error message for any other failure, so the UI says
+    ///   what went wrong instead of "couldn't reach the server".
+    private func postModelRoute(_ path: String, body: Data?, endpoint: Endpoint) async throws -> Bool {
+        guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { throw ClientError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         if let body {
@@ -252,10 +275,25 @@ final class LMStudioClient: ChatProvider {
         }
         applyAuth(&request, endpoint: endpoint)
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ClientError.unreachable
+        guard let http = response as? HTTPURLResponse else { throw ClientError.unreachable }
+        if http.statusCode == 401 || http.statusCode == 403 { throw ClientError.authRequired }
+        let message = Self.lmStudioErrorMessage(in: data)
+        // LM Studio answers an unknown route with HTTP 200 and an error body, not a 404.
+        if http.statusCode == 404 || message?.hasPrefix("Unexpected endpoint") == true { return false }
+        if let message { throw ClientError.serverError(message) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ClientError.serverError("LM Studio returned HTTP \(http.statusCode)")
         }
-        return data
+        return true
+    }
+
+    /// LM Studio's error text from a response body — `{"error": "…"}` (unknown route) or
+    /// `{"error": {"message": "…"}}` (v1). nil when the body carries no error.
+    static func lmStudioErrorMessage(in data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = object["error"] else { return nil }
+        if let text = error as? String { return text }
+        return (error as? [String: Any])?["message"] as? String
     }
 
     // MARK: Streaming chat
@@ -274,47 +312,7 @@ final class LMStudioClient: ChatProvider {
         // main actor is a data race — and a hard error under Swift 6 strict
         // concurrency. `wire`/`body` are plain value types, so the Task below
         // captures only Sendable data.
-        var wire: [WireMessage] = []
-        let sys = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !sys.isEmpty { wire.append(WireMessage(role: "system", content: sys)) }
-        for m in messages {
-            switch m.role {
-            case .system:
-                continue
-            case .user:
-                let allAtts = m.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
-                let imageAtts = allAtts.filter { $0.isImage }
-                let textAtts  = allAtts.filter { !$0.isImage }
-
-                if allAtts.isEmpty {
-                    if !m.content.isEmpty { wire.append(WireMessage(role: "user", content: m.content)) }
-                } else {
-                    var blocks: [WireContentBlock] = []
-                    // Text file attachments come first, each as a labeled fenced block.
-                    for att in textAtts {
-                        let text = String(data: att.data, encoding: .utf8) ?? "[unreadable]"
-                        let safeName = att.fileName.replacingOccurrences(of: "\"", with: "\\\"")
-                        blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
-                    }
-                    // User's typed message (may be empty if they attached without typing).
-                    if !m.content.isEmpty { blocks.append(.text(m.content)) }
-                    // Image attachments last (vision models only).
-                    for att in imageAtts { blocks.append(.imageURL(att.dataURL)) }
-                    wire.append(WireMessage(role: "user", blocks: blocks))
-                }
-            case .assistant:
-                if let json = m.toolCallsJSON, let calls = ToolCall.decodeList(json) {
-                    wire.append(WireMessage(
-                        role: "assistant",
-                        content: m.content.isEmpty ? nil : m.content,
-                        toolCalls: calls.map { WireToolCall(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments)) }))
-                } else if !m.content.isEmpty {
-                    wire.append(WireMessage(role: "assistant", content: m.content))
-                }
-            case .tool:
-                wire.append(WireMessage(role: "tool", content: m.content, toolCallID: m.toolCallID))
-            }
-        }
+        let wire = Self.wireMessages(messages, systemPrompt: systemPrompt)
 
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -344,6 +342,79 @@ final class LMStudioClient: ChatProvider {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Converts the conversation's active path into OpenAI-style wire messages,
+    /// with the system prompt first.
+    ///
+    /// Consecutive user turns are folded into one. A failed or stopped reply drops
+    /// its empty assistant message, so the next send would otherwise put two user
+    /// turns back to back — and strict chat templates (Mistral/Devstral, Gemma)
+    /// reject that with a 500 on every later send, bricking the chat.
+    ///
+    /// - Parameters:
+    ///   - messages: The active path, oldest first. `.system` entries are skipped;
+    ///     the system prompt is passed separately.
+    ///   - systemPrompt: Sent as the leading system message when non-blank.
+    /// - Returns: The messages to send, in order.
+    static func wireMessages(_ messages: [Message], systemPrompt: String) -> [WireMessage] {
+        var wire: [WireMessage] = []
+        let sys = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !sys.isEmpty { wire.append(WireMessage(role: "system", content: sys)) }
+
+        func appendUser(_ msg: WireMessage) {
+            guard let last = wire.last, last.role == "user",
+                  let prev = last.content, let next = msg.content else {
+                wire.append(msg)
+                return
+            }
+            if case .text(let a) = prev, case .text(let b) = next {
+                wire[wire.count - 1] = WireMessage(role: "user", content: a + "\n\n" + b)
+            } else {
+                wire[wire.count - 1] = WireMessage(role: "user", blocks: prev.blocks + next.blocks)
+            }
+        }
+
+        for m in messages {
+            switch m.role {
+            case .system:
+                continue
+            case .user:
+                let allAtts = m.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
+                let imageAtts = allAtts.filter { $0.isImage }
+                let textAtts  = allAtts.filter { !$0.isImage }
+
+                if allAtts.isEmpty {
+                    if !m.content.isEmpty { appendUser(WireMessage(role: "user", content: m.content)) }
+                } else {
+                    var blocks: [WireContentBlock] = []
+                    // Text file attachments come first, each as a labeled fenced block.
+                    for att in textAtts {
+                        let text = String(data: att.data, encoding: .utf8) ?? "[unreadable]"
+                        let safeName = att.fileName.replacingOccurrences(of: "\"", with: "\\\"")
+                        blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
+                    }
+                    // User's typed message (may be empty if they attached without typing).
+                    if !m.content.isEmpty { blocks.append(.text(m.content)) }
+                    // Image attachments last (vision models only).
+                    for att in imageAtts { blocks.append(.imageURL(att.dataURL)) }
+                    appendUser(WireMessage(role: "user", blocks: blocks))
+                }
+            case .assistant:
+                if let json = m.toolCallsJSON, let calls = ToolCall.decodeList(json) {
+                    wire.append(WireMessage(
+                        role: "assistant",
+                        content: m.content.isEmpty ? nil : m.content,
+                        toolCalls: calls.map { WireToolCall(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments)) }))
+                } else if !m.content.isEmpty {
+                    wire.append(WireMessage(role: "assistant", content: m.content))
+                }
+            case .tool:
+                wire.append(WireMessage(role: "tool", content: m.content, toolCallID: m.toolCallID))
+            }
+        }
+
+        return wire
     }
 
     /// Executes one HTTP streaming attempt. Returns `true` when the caller should
@@ -459,6 +530,9 @@ final class LMStudioClient: ChatProvider {
 
     // MARK: Wire types
     private struct LoadModelBody: Encodable { let keep_in_ram: Bool }
+    /// nil `context_length` is omitted from the JSON, leaving it to LM Studio.
+    private struct LoadBodyV1: Encodable { let model: String; let context_length: Int? }
+    private struct UnloadBodyV1: Encodable { let instance_id: String }
 
     private struct ChatRequest: Encodable {
         let model: String
@@ -480,5 +554,35 @@ final class LMStudioClient: ChatProvider {
     private struct HTTPErrorBody: Decodable {
         let error: ErrorMsg?
         struct ErrorMsg: Decodable { let message: String? }
+    }
+}
+
+/// How much context Modelo asks LM Studio for when it loads a model (Settings ▸ Endpoints).
+///
+/// LM Studio's own default can be "model maximum", which loads e.g. Devstral Small 2 at
+/// its declared 393K and runs a 64 GB Mac's GPU out of memory on the first message.
+// ponytail: one global cap; add a per-model override if a model ever needs more than it.
+enum LMStudioLoadContext {
+    static let key = "lmStudioLoadContextCap"
+    /// 64K: a ~24B Q4 model plus its KV cache fits comfortably in 64 GB.
+    static let defaultCap = 65_536
+    /// Picker choices. 0 means "send nothing — use LM Studio's default".
+    static let options = [0, 32_768, 65_536, 131_072]
+
+    /// The `context_length` to request: the cap, but never more than the model supports.
+    ///
+    /// - Parameters:
+    ///   - cap: The chosen cap; 0 means don't send one.
+    ///   - modelMax: The model's declared maximum, when known.
+    /// - Returns: The context to send, or nil to leave it to LM Studio.
+    static func contextLength(cap: Int, modelMax: Int?) -> Int? {
+        guard cap > 0 else { return nil }
+        return min(cap, modelMax ?? cap)
+    }
+
+    /// `contextLength(cap:modelMax:)` for `model` using the cap saved in Settings.
+    static func contextLength(for model: LMStudioModel) -> Int? {
+        let cap = UserDefaults.standard.object(forKey: key) as? Int ?? defaultCap
+        return contextLength(cap: cap, modelMax: model.maxContextLength)
     }
 }

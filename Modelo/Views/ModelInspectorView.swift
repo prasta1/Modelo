@@ -152,6 +152,7 @@ private struct DetailPanel: View {
                 barFrac: ctxFrac,
                 barAccent: false
             )
+            .help(m.contextHelp ?? "")
 
             // SIZE
             let sizeStr = m.displaySizeFormatted ?? m.parameterSize ?? "—"
@@ -171,10 +172,7 @@ private struct DetailPanel: View {
     }
 
     private var contextLabel: String {
-        guard let c = m.maxContextLength else { return "—" }
-        if c >= 1_000_000 { return "\(c / 1_000_000)M" }
-        if c >= 1_000     { return "\(c / 1_000)K" }
-        return "\(c)"
+        m.contextDisplay() ?? "not reported, set in Settings"
     }
 
     // MARK: History block
@@ -316,8 +314,8 @@ private struct SpecRow: View {
                     .foregroundStyle(Theme.textLo)
                     .monospacedDigit()
                     .lineLimit(1)
+                Spacer()
                 if let rank {
-                    Spacer()
                     Text(rank)
                         .font(Theme.metric(8))
                         .foregroundStyle(Theme.textFaint.opacity(0.45))

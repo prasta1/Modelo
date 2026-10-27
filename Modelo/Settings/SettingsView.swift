@@ -139,6 +139,11 @@ struct SettingsView: View {
                     if isScanActive {
                         scanResultsPanel
                     }
+
+                    if servers.contains(where: { $0.kind == .lmStudio }) {
+                        LMStudioLoadContextCard()
+                            .padding(.top, 12)
+                    }
                 }
                 .padding(24)
                 .hideScrollIndicators()
@@ -589,8 +594,7 @@ private struct PresetEditPane: View {
                 }
 
                 Eyebrow("Sampling", size: 9)
-                SamplingControls(params: Binding(get: { preset.sampling },
-                                                 set: { preset.sampling = $0 }))
+                SamplingControls(params: $preset.sampling)
             }
             .padding(20)
         }
@@ -620,6 +624,37 @@ private struct ToolRoundsCard: View {
                     }
                 }
                 Text("Higher allows more complex multi-step tool use but can run longer. Applies to new chats immediately; open chats update live. Ignored while YOLO mode is on.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// How much context Modelo requests when it loads an LM Studio model. Shown on the
+/// Endpoints tab only while an LM Studio server is registered.
+private struct LMStudioLoadContextCard: View {
+    @AppStorage(LMStudioLoadContext.key) private var cap = LMStudioLoadContext.defaultCap
+
+    var body: some View {
+        SettingsSection("LM Studio load context") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Context when Modelo loads a model").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                        Text("Never more than the model itself supports.")
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    }
+                    Spacer(minLength: 8)
+                    Picker("Load context", selection: $cap) {
+                        ForEach(LMStudioLoadContext.options, id: \.self) { n in
+                            Text(n == 0 ? "LM Studio default" : "\(n / 1024)K").tag(n)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                Text("Applies when you pick or launch a model that isn't loaded yet. A model LM Studio loads on its own uses LM Studio's Default Context Length — if that's \"Model maximum\", large-context models can run the GPU out of memory.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -927,6 +962,7 @@ private struct ServerSettingsRow: View {
     @State private var needsAuth = false
     @State private var isExpanded = false
     @State private var showAdvanced = false
+    @State private var showDeleteConfirm = false
     @Environment(\.modelContext) private var modelContext
     @Environment(ServerRegistry.self) private var registry
     private let keychain = KeychainStore()
@@ -939,6 +975,7 @@ private struct ServerSettingsRow: View {
             // Header: always visible — tap to expand/collapse
             HStack(spacing: 8) {
                 StatusLED(status: server.isPaused ? .offline : registry.status(for: server))
+                    .help(server.isPaused ? "Paused — hidden from the picker" : registry.status(for: server).displayLabel)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(server.label.isEmpty ? "Unnamed" : server.label)
                         .font(Theme.mono(13, weight: .semibold))
@@ -951,13 +988,20 @@ private struct ServerSettingsRow: View {
                 runtimePicker
                 PillToggle(isOn: Binding(get: { !server.isPaused }, set: { server.isPaused = !$0 }))
                     .help(server.isPaused ? "Resume: show this server's models in the picker" : "Pause: hide this server's models from the picker")
-                Button(action: onDelete) {
+                Button(action: { showDeleteConfirm = true }) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.Palette.alert.opacity(0.7))
                 }
                 .buttonStyle(.plain)
                 .help("Remove this server")
+                .confirmationDialog("Remove server?",
+                    isPresented: $showDeleteConfirm) {
+                    Button("Remove", role: .destructive) { onDelete() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This removes \(server.label.isEmpty ? "Unnamed" : server.label) from Modelo. Its models will no longer appear in the picker.")
+                }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.textFaint)
@@ -1104,9 +1148,12 @@ private struct ServerSettingsRow: View {
                             .buttonStyle(.plain)
                             .padding(.top, 4)
                         } else {
+                            // Fetch the server's model list once per render, not once per row —
+                            // it's identical for every override (keyed on server.id).
+                            let availableModels = modelsForServer(server.id)
                             List {
                                 ForEach(server.contextLengthOverrides) { override in
-                                    contextWindowRow(override)
+                                    contextWindowRow(override, availableModels: availableModels)
                                 }
                             }
                             .listStyle(.plain)
@@ -1189,10 +1236,8 @@ private struct ServerSettingsRow: View {
             .map(\.key)
     }
 
-    private func contextWindowRow(_ override: ModelContextOverride) -> some View {
-        let availableModels = modelsForServer(server.id)
-
-        return HStack(spacing: 8) {
+    private func contextWindowRow(_ override: ModelContextOverride, availableModels: [String]) -> some View {
+        HStack(spacing: 8) {
             if availableModels.isEmpty {
                 // Fallback to text field if no models found in conversations
                 TextField("Model ID", text: Binding<String>(
@@ -1314,7 +1359,7 @@ private struct LocalSetupHint: View {
     private var hint: String {
         switch kind {
         case .lmStudio:
-            return "Install LM Studio from lmstudio.ai. Load a model in the Models tab, then start the local server from the Developer tab. Default port: 1234."
+            return "Install LM Studio from lmstudio.ai. Load a model in the Models tab, then start the local server from the Developer tab. Default port: 1234. Seeing another Mac's models here? Turn off LM Link in LM Studio — Modelo already connects to each machine directly."
         case .ollama:
             return "Install Ollama from ollama.com, then pull a model: ollama pull llama3.2. The server starts automatically. Default port: 11434."
         case .llamaCpp:
@@ -1432,6 +1477,7 @@ private struct CloudServerSettingsRow: View {
     @State private var apiKey = ""
     @State private var isKeyRevealed = false
     @State private var isExpanded = false
+    @State private var showDeleteConfirm = false
     @FocusState private var focus: Field?
     @Environment(ServerRegistry.self) private var registry
 
@@ -1443,6 +1489,7 @@ private struct CloudServerSettingsRow: View {
             // Header: always visible — tap to expand/collapse
             HStack(spacing: 8) {
                 StatusLED(status: server.isPaused ? .offline : registry.status(for: server))
+                    .help(server.isPaused ? "Paused — hidden from the picker" : registry.status(for: server).displayLabel)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(server.label.isEmpty ? "Unnamed" : server.label)
                         .font(Theme.mono(13, weight: .semibold))
@@ -1457,13 +1504,20 @@ private struct CloudServerSettingsRow: View {
                 Chip(text: server.kind.displayName.lowercased(), tint: Theme.amber)
                 PillToggle(isOn: Binding(get: { !server.isPaused }, set: { server.isPaused = !$0 }))
                     .help(server.isPaused ? "Resume: show this endpoint's models in the picker" : "Pause: hide this endpoint's models from the picker")
-                Button(action: onDelete) {
+                Button(action: { showDeleteConfirm = true }) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.Palette.alert.opacity(0.7))
                 }
                 .buttonStyle(.plain)
                 .help("Remove this endpoint")
+                .confirmationDialog("Remove endpoint?",
+                    isPresented: $showDeleteConfirm) {
+                    Button("Remove", role: .destructive) { onDelete() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This removes \(server.label.isEmpty ? "Unnamed" : server.label) from Modelo. Its models will no longer appear in the picker.")
+                }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.textFaint)

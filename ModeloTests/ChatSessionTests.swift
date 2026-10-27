@@ -123,6 +123,64 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(ChatSession.cleanTitle(long).split(separator: " ").count, 8)
     }
 
+    func test_provisionalTitle_usesFirstLineAndCapsWords() {
+        XCTAssertEqual(ChatSession.provisionalTitle(from: "Hello there"), "Hello there")
+        XCTAssertEqual(ChatSession.provisionalTitle(from: "Why is the sky blue? Explain.\nSecond line"),
+                       "Why is the sky blue? Explain")
+        XCTAssertEqual(ChatSession.provisionalTitle(from: "one two three four five six seven eight"),
+                       "one two three four five six")
+        XCTAssertEqual(ChatSession.provisionalTitle(from: "  \n "), "")
+    }
+
+    func test_needsModelTitle_trueOnlyForMissingOrProvisional() throws {
+        let context = try makeContext()
+        let convo = Conversation(modelID: "qwen3", serverID: UUID())
+        context.insert(convo)
+        XCTAssertTrue(ChatSession.needsModelTitle(convo))            // no title yet
+
+        convo.appendToPath(Message(role: .user, content: "Tell me about Swift concurrency"))
+        convo.title = ChatSession.provisionalTitle(from: "Tell me about Swift concurrency")
+        XCTAssertTrue(ChatSession.needsModelTitle(convo))            // stand-in only
+
+        convo.title = "Swift Concurrency Basics"
+        XCTAssertFalse(ChatSession.needsModelTitle(convo))           // model or user chose it
+    }
+
+    func test_send_keepsProvisionalTitle_whenTitleRunReturnsNothing() async throws {
+        let context = try makeContext()
+        // First call answers the turn; the second (the title run) yields no text.
+        let provider = FakeProvider(scripts: [[.delta("Sure.")], []])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "Studio", host: "studio")
+        context.insert(server)
+        let convo = Conversation(modelID: "qwen3", serverID: server.id)
+        context.insert(convo)
+
+        await session.send("Explain structured concurrency in Swift please", in: convo, server: server)
+
+        XCTAssertEqual(convo.title, "Explain structured concurrency in Swift")
+    }
+
+    func test_send_replacesProvisionalTitle_withModelTitle() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [[.delta("Sure.")], [.delta("Swift Concurrency Basics")]])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "Studio", host: "studio")
+        context.insert(server)
+        let convo = Conversation(modelID: "qwen3", serverID: server.id)
+        context.insert(convo)
+
+        await session.send("Explain structured concurrency in Swift please", in: convo, server: server)
+        // The title run is detached; give it a moment to land.
+        for _ in 0..<40 where convo.title != "Swift Concurrency Basics" {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertEqual(convo.title, "Swift Concurrency Basics")
+    }
+
     func test_send_setsErrorMessage_whenServerOffline() async throws {
         let context = try makeContext()
         let session = ChatSession(client: FakeProvider(events: []), context: context,

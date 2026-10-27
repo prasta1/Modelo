@@ -26,4 +26,60 @@ final class MCPToolTests: XCTestCase {
         // Tells the model what happened so it can correct course next round.
         XCTAssertTrue(out.contains("truncated"))
     }
+
+    // MARK: Approval gating
+    // Annotations below are verbatim from @modelcontextprotocol/server-filesystem
+    // and mcp-server-fetch `tools/list`. Before this gate, every MCP tool ran
+    // unasked — including writes/moves anywhere the server was rooted.
+
+    func test_requiresApproval_localReadOnly_runsUnasked() {
+        // read_file, directory_tree, list_directory…
+        XCTAssertFalse(MCPToolDef.requiresApproval(["readOnlyHint": true, "openWorldHint": false]))
+    }
+
+    func test_requiresApproval_destructiveWrite_asks() {
+        // write_file, edit_file, move_file
+        XCTAssertTrue(MCPToolDef.requiresApproval(
+            ["readOnlyHint": false, "destructiveHint": true, "openWorldHint": false]))
+    }
+
+    func test_requiresApproval_readOnlyButOpenWorld_asks() {
+        // fetch: "read-only", but reaching the internet is how file contents leave the Mac.
+        XCTAssertTrue(MCPToolDef.requiresApproval(
+            ["readOnlyHint": true, "openWorldHint": true, "destructiveHint": false]))
+    }
+
+    func test_requiresApproval_missingHints_fallBackToCautiousSpecDefaults() {
+        XCTAssertTrue(MCPToolDef.requiresApproval(nil))
+        XCTAssertTrue(MCPToolDef.requiresApproval([:]))
+        // Read-only alone leaves openWorldHint at its default (true).
+        XCTAssertTrue(MCPToolDef.requiresApproval(["readOnlyHint": true]))
+    }
+
+    func test_approvalPreview_gatesOnlyToolsThatNeedApproval() {
+        let client = MCPClient(config: MCPServerConfig(name: "Filesystem"))
+        func tool(needsApproval: Bool) -> MCPTool {
+            MCPTool(name: "write_file", description: "", parameters: JSONSchema(properties: [:], required: []),
+                    serverName: "Filesystem", needsApproval: needsApproval, client: client)
+        }
+        XCTAssertNil(tool(needsApproval: false).approvalPreview(argumentsJSON: "{}"))
+
+        let preview = tool(needsApproval: true).approvalPreview(argumentsJSON: #"{"path":"/Users/x/a.txt"}"#)
+        XCTAssertEqual(preview?.kind, .external)
+        XCTAssertEqual(preview?.title, "Call Filesystem server")
+        // Arguments are shown readably, slashes unescaped, so the user sees the real path.
+        XCTAssertTrue(preview?.detail.contains(#""path" : "/Users/x/a.txt""#) == true)
+        // One "approve for session" must not cover every later write/fetch an MCP server can do.
+        XCTAssertEqual(preview?.allowsSessionGrant, false)
+    }
+
+    func test_allowsSessionGrant_onlyForWorkspaceScopedWritesAndEdits() {
+        func grant(_ kind: ToolApprovalPreview.Kind) -> Bool {
+            ToolApprovalPreview(kind: kind, title: "", detail: "").allowsSessionGrant
+        }
+        XCTAssertTrue(grant(.write))
+        XCTAssertTrue(grant(.edit))
+        XCTAssertFalse(grant(.shell))
+        XCTAssertFalse(grant(.external))
+    }
 }

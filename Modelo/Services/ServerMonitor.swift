@@ -25,6 +25,7 @@ final class ServerMonitor {
     private var loop = PollingLoop<PersistentIdentifier>()
     private let client: any ChatProvider
     private let exoClient: ExoClient
+    private let llamaSwapClient: LlamaSwapClient
     private let activeInterval: Duration
     private let idleInterval: Duration
     /// Last `start(servers:registry:)` arguments, kept so a foreground change
@@ -35,10 +36,12 @@ final class ServerMonitor {
 
     init(client: any ChatProvider = LMStudioClient.shared,
          exoClient: ExoClient = ExoClient(),
+         llamaSwapClient: LlamaSwapClient = LlamaSwapClient(),
          activeInterval: Duration = .seconds(3),
          idleInterval: Duration = .seconds(60)) {
         self.client = client
         self.exoClient = exoClient
+        self.llamaSwapClient = llamaSwapClient
         self.activeInterval = activeInterval
         self.idleInterval = idleInterval
         observeAppActivation()
@@ -51,7 +54,7 @@ final class ServerMonitor {
     /// foreground state.
     var pollInterval: Duration { isForeground ? activeInterval : idleInterval }
 
-    /// Starts a poll loop per LM Studio or exo server. Restarts cleanly if called again.
+    /// Starts a poll loop per LM Studio, exo or llama-swap server. Restarts cleanly if called again.
     func start(servers: [Server], registry: ServerRegistry) {
         self.servers = servers
         self.registry = registry
@@ -87,7 +90,7 @@ final class ServerMonitor {
     private func restartLoops() {
         guard let registry else { return }
         let items = servers
-            .filter { $0.kind == .lmStudio || $0.kind == .exo }
+            .filter { $0.kind == .lmStudio || $0.kind == .exo || $0.kind == .llamaSwap }
             .map { server -> (key: PersistentIdentifier, tick: @MainActor @Sendable () async -> Duration) in
                 (key: server.persistentModelID, tick: { [weak self] in
                     guard let self else { return .seconds(3) }
@@ -113,6 +116,18 @@ final class ServerMonitor {
                   let loaded = try? await exoClient.loadedInstances(endpoint: endpoint) else { return }
             let loadedIDs = Set(loaded.map(\.modelID))
             snapshots[server.persistentModelID] = ModelSnapshot(models: all.filter { loadedIDs.contains($0.id) })
+            return
+        }
+        if server.kind == .llamaSwap {
+            // /v1/models lists every configured model; /running says which are up.
+            let endpoint = Endpoint(baseURL: server.baseURL, kind: .llamaSwap, apiKey: nil)
+            do {
+                let all = try await client.fetchModels(endpoint: endpoint)
+                let ready = try await llamaSwapClient.readyModelIDs(endpoint: endpoint)
+                snapshots[server.persistentModelID] = ModelSnapshot(models: all.filter { ready.contains($0.id) })
+            } catch {
+                Log.network.error("llama-swap poll failed for \(server.label, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
             return
         }
         let endpoint = Endpoint(baseURL: server.baseURL, kind: .lmStudio, apiKey: nil)

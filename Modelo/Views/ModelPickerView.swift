@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// A discovered model on a specific server.
 struct DiscoveredModel: Identifiable, Hashable {
@@ -113,7 +114,9 @@ struct ModelPickerView: View {
     @State private var hovering = false
     @State private var showingPopover = false
 
-    /// Models grouped by their server, preserving discovery order of servers.
+    /// Models grouped by their server, in the user's endpoint order (`sortOrder`).
+    /// Sorting here rather than trusting discovery order means a reorder shows up
+    /// immediately, and the menu-bar chat (whose fetch finishes in any order) agrees.
     private var groups: [(server: Server, models: [DiscoveredModel])] {
         var order: [UUID] = []
         var byServer: [UUID: [DiscoveredModel]] = [:]
@@ -125,6 +128,7 @@ struct ModelPickerView: View {
             guard let first = byServer[id]?.first else { return nil }
             return (first.server, byServer[id]!)
         }
+        .sorted { $0.server.sortOrder < $1.server.sortOrder }
     }
 
     var body: some View {
@@ -196,8 +200,9 @@ struct ModelPickerView: View {
     }
 }
 
-/// The popover body (handoff §8): server-grouped, scrollable list of model rows
-/// on the dark popover surface, with a search field and a settings footer.
+/// The popover body (handoff §8): search field on top, an endpoint sidebar beside
+/// a server-grouped, scrollable list of model rows, and a footer holding settings,
+/// filter and sort.
 private struct ModelPickerList: View {
     let groups: [(server: Server, models: [DiscoveredModel])]
     let isEmpty: Bool
@@ -212,6 +217,12 @@ private struct ModelPickerList: View {
     @State private var freeOnly = false
     @State private var loadedOnly = false
     @State private var favoritesOnly = false
+    @State private var renamingID: UUID?
+    @State private var draggingID: UUID?
+    @State private var dropTargetID: UUID?
+    /// Every endpoint, including offline ones the sidebar doesn't show, so a
+    /// reorder can renumber them all without colliding with hidden servers.
+    @Query(sort: \Server.sortOrder) private var allServers: [Server]
     @AppStorage(ModelSort.storageKey) private var sortKey: ModelSort = .name
     @Environment(FavoritesStore.self) private var favorites
     @Environment(SettingsNavigator.self) private var settingsNavigator
@@ -225,45 +236,130 @@ private struct ModelPickerList: View {
         !freeOnly || item.server.kind.isLocal || item.model.isFree
     }
 
-    private var serverPillStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                FilterPill(label: "All", isActive: selectedServer == nil) {
+    /// Endpoints stack vertically beside the list, so every server is visible at
+    /// once instead of hiding off the end of a side-scrolling pill strip.
+    /// Favorites / All / one server are mutually exclusive views.
+    private var sidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                EndpointRow(label: "Favorites", icon: "star.fill", count: nil,
+                            isActive: favoritesOnly) {
+                    favoritesOnly = true
                     selectedServer = nil
                 }
-                FilterPill(label: "free", isActive: freeOnly) {
-                    freeOnly.toggle()
+                EndpointRow(label: "All", icon: nil, count: totalCount,
+                            isActive: !favoritesOnly && selectedServer == nil) {
+                    favoritesOnly = false
+                    selectedServer = nil
                 }
-                ForEach(groups, id: \.server.id) { group in
-                    FilterPill(
-                        label: group.server.label,
-                        isActive: selectedServer?.id == group.server.id
-                    ) {
-                        selectedServer = selectedServer?.id == group.server.id ? nil : group.server
+                ForEach(Array(groups.enumerated()), id: \.element.server.id) { index, group in
+                    let server = group.server
+                    if renamingID == server.id {
+                        EndpointRenameField(server: server) { renamingID = nil }
+                    } else {
+                        EndpointRow(label: server.label.isEmpty ? "Unnamed" : server.label,
+                                    icon: server.kind == .cloudAPI ? "cloud" : nil,
+                                    count: group.models.count,
+                                    isActive: !favoritesOnly && selectedServer?.id == server.id) {
+                            favoritesOnly = false
+                            selectedServer = server
+                        }
+                        // Drag one endpoint onto another to take its slot.
+                        .onDrag {
+                            draggingID = server.id
+                            return NSItemProvider(object: server.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [.text], delegate: EndpointDropDelegate(
+                            targetID: server.id, draggingID: $draggingID,
+                            dropTargetID: $dropTargetID) { move($0, to: $1) })
+                        .overlay(alignment: insertsBelow(index) ? .bottom : .top) {
+                            if dropTargetID == server.id, draggingID != server.id {
+                                Capsule().fill(Theme.amber)
+                                    .frame(height: 2)
+                                    // Sit in the 2pt gap between rows, not on the row.
+                                    .offset(y: insertsBelow(index) ? 2 : -2)
+                            }
+                        }
+                        .contextMenu {
+                            Button("Rename…") { renamingID = server.id }
+                            Divider()
+                            Button("Move Up") { move(server.id, to: groups[index - 1].server.id) }
+                                .disabled(index == 0)
+                            Button("Move Down") { move(server.id, to: groups[index + 1].server.id) }
+                                .disabled(index == groups.count - 1)
+                        }
                     }
                 }
             }
-            .padding(.horizontal, 13)
+            .padding(6)
         }
         .scrollIndicators(.hidden)
-        .frame(height: 26)
+        .frame(width: 150)
+        .background(Color.white.opacity(0.012))
+    }
+
+    /// True when the dragged endpoint comes from above row `index`, so it lands
+    /// after that row and the insertion line belongs on the row's bottom edge.
+    private func insertsBelow(_ index: Int) -> Bool {
+        guard let from = groups.firstIndex(where: { $0.server.id == draggingID }) else { return false }
+        return from < index
+    }
+
+    /// Moves endpoint `sourceID` into `targetID`'s slot, then renumbers every
+    /// endpoint 0…n. Renumbering all of them (not just the visible ones) keeps
+    /// offline servers in their relative place and clears any duplicate sortOrders.
+    /// The new order also applies to Settings ▸ Endpoints, which sorts the same way.
+    private func move(_ sourceID: UUID, to targetID: UUID) {
+        var ordered = allServers
+        guard let from = ordered.firstIndex(where: { $0.id == sourceID }),
+              let to = ordered.firstIndex(where: { $0.id == targetID }),
+              from != to else { return }
+        // `toOffset` is the index *before* removal, so landing in a later slot needs +1.
+        ordered.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        for (i, server) in ordered.enumerated() { server.sortOrder = i }
+    }
+
+    /// Loaded / Free toggles folded into one menu; the label tints amber and
+    /// shows a count while either is on.
+    private var filterMenu: some View {
+        let active = [loadedOnly, freeOnly].filter { $0 }.count
+        return Menu {
+            Toggle("Loaded", isOn: $loadedOnly)
+            Toggle("Free", isOn: $freeOnly)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 9, weight: .medium))
+                Text(active == 0 ? "Filter" : "Filter · \(active)")
+                    .font(Theme.label(9))
+                    .tracking(0.8)
+            }
+            .foregroundStyle(active == 0 ? Theme.textDim : Theme.amber)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(active == 0 ? Theme.fill : Theme.amberFill, in: Capsule())
+            .overlay(Capsule().strokeBorder(active == 0 ? Theme.line : Theme.amberBorder, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 
     var body: some View {
         VStack(spacing: 0) {
             searchField
             Divider().overlay(Theme.line)
-            filterSortRow
-            Divider().overlay(Theme.line)
-            if groups.count > 1 {
-                serverPillStrip
-                Divider().overlay(Theme.line)
+            HStack(spacing: 0) {
+                if !isEmpty {
+                    sidebar
+                    Divider().overlay(Theme.line)
+                }
+                content.frame(maxWidth: .infinity)
             }
-            content
             Divider().overlay(Theme.line)
             footer
         }
-        .frame(width: 440)
+        .frame(width: 560)
         .frame(maxHeight: 560)
         .background(Theme.popoverBG)
     }
@@ -279,7 +375,7 @@ private struct ModelPickerList: View {
                 .foregroundStyle(Theme.textHi)
             if searchText.isEmpty {
                 Text("\(totalCount)")
-                    .font(.mono(10)).foregroundStyle(Theme.textFaint)
+                    .font(.mono(10)).foregroundStyle(Theme.textDim)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Theme.fillHi, in: RoundedRectangle(cornerRadius: 5))
             } else {
@@ -302,11 +398,13 @@ private struct ModelPickerList: View {
         HStack(spacing: 10) {
             Text(server.kind == .cloudAPI ? "\(server.label.uppercased()) · CLOUD"
                                          : server.label.uppercased())
-                .font(.system(size: 13, weight: .semibold)).tracking(0.6)
-                .foregroundStyle(Theme.textLo)
+                // Small-caps section label (popover convention), quieter than the
+                // 13pt model names it sits over.
+                .font(Theme.label(11)).tracking(1)
+                .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
+                .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
@@ -317,11 +415,11 @@ private struct ModelPickerList: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(Theme.amber)
             Text("FAVORITES")
-                .font(.mono(9.5)).tracking(1.2)
+                .font(Theme.label(11)).tracking(1)
                 .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(favoriteItems.count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textFaint)
+                .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
@@ -371,10 +469,10 @@ private struct ModelPickerList: View {
                         HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 11))
-                                .foregroundStyle(Theme.textFaint)
-                            Text("Search to add a cloud model · \(cloudModelCount) available")
+                                .foregroundStyle(Theme.textDim)
+                            Text("Search, or pick a cloud endpoint, to browse \(cloudModelCount) cloud models")
                                 .font(.mono(10))
-                                .foregroundStyle(Theme.textFaint)
+                                .foregroundStyle(Theme.textDim)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 16).padding(.top, 12)
@@ -415,7 +513,7 @@ private struct ModelPickerList: View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
             Eyebrow(text, color: Theme.textDim)
         }
         .padding(.horizontal, 16).padding(.vertical, 18)
@@ -423,38 +521,33 @@ private struct ModelPickerList: View {
     }
 
     private var footer: some View {
-        Button {
-            // Close the popover, then route to Settings ▸ Endpoints in-app
-            // (the Settings window no longer exists).
-            dismiss()
-            settingsNavigator.open(tab: "Endpoints")
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.textMute)
-                Text("Manage models")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.textLo)
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Manage models in Settings")
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(Color.white.opacity(0.012))
-    }
-
-    private var filterSortRow: some View {
         HStack(spacing: 6) {
-            FilterPill(label: "Loaded", isActive: loadedOnly) { loadedOnly.toggle() }
-            FilterPill(label: "Favorites", isActive: favoritesOnly) { favoritesOnly.toggle() }
-            Spacer(minLength: 0)
+            Button {
+                // Close the popover, then route to Settings ▸ Endpoints in-app
+                // (the Settings window no longer exists). Activating matters when
+                // this picker lives in the menu-bar chat, where Modelo isn't frontmost.
+                dismiss()
+                settingsNavigator.open(tab: "Endpoints")
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textMute)
+                    Text("Manage models")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textLo)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Manage models in Settings")
+            Spacer()
+            filterMenu
             ModelSortMenu(sort: $sortKey)
         }
-        .padding(.horizontal, 13)
-        .frame(height: 26)
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(Color.white.opacity(0.012))
     }
 
     /// Local servers list in full; cloud catalogs stay behind search
@@ -516,6 +609,94 @@ private struct ModelPickerList: View {
     }
 }
 
+/// One entry in the picker's endpoint sidebar: optional icon, label, model count.
+/// Active entries tint amber like a selected model row.
+private struct EndpointRow: View {
+    let label: String
+    let icon: String?
+    let count: Int?
+    let isActive: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 9, weight: .medium))
+                }
+                Text(label)
+                    .font(.system(size: 12, weight: isActive ? .medium : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                if let count {
+                    Text("\(count)")
+                        .font(.mono(10))
+                        .foregroundStyle(Theme.textDim)
+                }
+            }
+            .foregroundStyle(isActive ? Theme.amberName : Theme.textSoft)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(isActive ? Theme.amberFillLo : (hovering ? Theme.fillHi : Color.clear),
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.field))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(label)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+}
+
+/// Drop handling for one sidebar endpoint. A delegate (rather than
+/// `.dropDestination`) can propose `.move`, which keeps macOS's green copy "+"
+/// off the cursor, and reports enter/exit so the row can draw the insertion line.
+private struct EndpointDropDelegate: DropDelegate {
+    let targetID: UUID
+    @Binding var draggingID: UUID?
+    @Binding var dropTargetID: UUID?
+    let move: (UUID, UUID) -> Void
+
+    // Only accept drags that started in this sidebar, not arbitrary text.
+    func validateDrop(info: DropInfo) -> Bool { draggingID != nil }
+    func dropEntered(info: DropInfo) { dropTargetID = targetID }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func dropExited(info: DropInfo) {
+        if dropTargetID == targetID { dropTargetID = nil }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingID = nil; dropTargetID = nil }
+        guard let source = draggingID else { return false }
+        move(source, targetID)
+        return true
+    }
+}
+
+/// Inline rename for a sidebar endpoint. Writes straight to `server.label` (as the
+/// Settings name field does) and ends on Return or when focus leaves.
+private struct EndpointRenameField: View {
+    @Bindable var server: Server
+    let onDone: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Endpoint name", text: $server.label)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.textHi)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.amberBorder))
+            .focused($focused)
+            .onAppear { focused = true }
+            .onSubmit(onDone)
+            .onChange(of: focused) { _, isFocused in if !isFocused { onDone() } }
+    }
+}
+
 /// A single model row (handoff §8): a state indicator, family name + spec strip,
 /// a context label, and a Load / eject affordance. Selected rows tint amber.
 private struct ModelRow: View {
@@ -536,21 +717,28 @@ private struct ModelRow: View {
         HStack(spacing: 8) {
             indicator.frame(width: 16)
 
-            Text(model.familyName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(nameColor)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Specs ride on a second line so the name gets the full row width
+            // instead of competing with four fixed metric columns.
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.familyName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(nameColor)
+                    .lineLimit(1)
+                if let specLine {
+                    Text(specLine)
+                        .font(Theme.mono(11))
+                        .foregroundStyle(Theme.textDim)
+                        .lineLimit(1)
+                        .help(model.contextHelp ?? "")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Fixed-width metric columns so values register across all rows.
-            metricCell(model.parameterSize, width: 30)
-            metricCell(model.quantization, width: 58)
-            metricCell(model.maxContextLength.map { contextLabel($0) }, width: 30)
-            metricCell(model.displaySizeFormatted, width: 44)
-
-            // Fixed frames keep the name column stable regardless of which action renders.
-            starButton.frame(width: 20)
-            actionArea.frame(width: 52, alignment: .trailing)
+            // Actions appear on hover only; a favorite's filled star and an in-flight
+            // spinner stay visible because they're state, not controls. Fixed frames
+            // keep the name column stable whether or not anything renders.
+            Group { if hovering || isFavorite { starButton } }.frame(width: 20)
+            Group { if hovering || busy { actionArea } }.frame(width: 52, alignment: .trailing)
         }
         .padding(.horizontal, 10).padding(.vertical, 9)
         .background(rowFill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
@@ -559,14 +747,30 @@ private struct ModelRow: View {
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
         .help("Select \(model.familyName) · Double-click to open in new chat")
+        // VoiceOver can't hover or double-click, so the hidden buttons and the
+        // double-click shortcut are re-exposed as named actions.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityActions {
+            if let onNewChat {
+                Button("Open in new chat") { if !busy { onSelect(); onNewChat() } }
+            }
+            Button(isFavorite ? "Remove from favorites" : "Add to favorites") {
+                favorites.toggle(model.id)
+            }
+            if model.isLoaded, let onEject {
+                Button("Unload model", action: onEject)
+            }
+        }
     }
 
-    private func metricCell(_ value: String?, width: CGFloat) -> some View {
-        Text(value ?? "—")
-            .font(Theme.mono(9.5))
-            .foregroundStyle(value != nil ? Theme.textDim : Theme.textFaint.opacity(0.4))
-            .lineLimit(1)
-            .frame(width: width, alignment: .trailing)
+    /// "7B · Q4_K_M · 32K · 4.2 GB", skipping unknown values; nil when none are known.
+    private var specLine: String? {
+        let parts = [model.parameterSize,
+                     model.quantization,
+                     model.contextDisplay(compact: true),
+                     model.displaySizeFormatted].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder private var actionArea: some View {
@@ -580,20 +784,29 @@ private struct ModelRow: View {
             }
             .buttonStyle(.plain)
             .help("Unload model")
+            .accessibilityLabel("Unload \(model.familyName)")
         } else if !isSelected {
+            // Only LM Studio loads on select (handleModelSelection). Everywhere else this
+            // just picks the model, so don't promise a load that won't happen.
+            let loadsOnSelect = item.server.kind == .lmStudio
             Button(action: onSelect) {
-                Text("Load")
+                Text(loadsOnSelect ? "Load" : "Use")
                     .font(.mono(10)).foregroundStyle(Theme.amber)
                     .padding(.horizontal, 9).padding(.vertical, 4)
                     .background(Theme.amberFill, in: RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .help("Load this model")
+            .help(loadsOnSelect ? "Load this model"
+                  : item.server.kind == .llamaSwap
+                    ? "Select this model — llama-swap loads it when you send your first message"
+                    : "Select this model")
         }
     }
 
+    private var isFavorite: Bool { favorites.isFavorite(model.id) }
+
     private var starButton: some View {
-        let isFav = favorites.isFavorite(model.id)
+        let isFav = isFavorite
         return Button {
             favorites.toggle(model.id)
         } label: {
@@ -603,6 +816,7 @@ private struct ModelRow: View {
         }
         .buttonStyle(.plain)
         .help(isFav ? "Remove from favorites" : "Add to favorites")
+        .accessibilityLabel(isFav ? "Remove from favorites" : "Add to favorites")
     }
 
     @ViewBuilder private var indicator: some View {
@@ -633,9 +847,5 @@ private struct ModelRow: View {
     private var rowFill: Color {
         if isSelected { return Theme.amberFillLo }
         return hovering ? Theme.fillHi : Color.clear
-    }
-
-    private func contextLabel(_ n: Int) -> String {
-        n >= 1000 ? "\(n / 1000)K" : "\(n)"
     }
 }

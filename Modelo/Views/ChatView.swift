@@ -25,6 +25,8 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var pendingAttachments: [MessageAttachment] = []
     @State private var isDragTarget = false
+    /// True while `ensureLoaded()` waits on an LM Studio load before a turn.
+    @State private var isLoadingModel = false
     /// Set when the user taps "edit & resend" on a past user turn; the next send
     /// forks a sibling branch under that message instead of extending the path.
     @State private var editingSource: Message?
@@ -70,12 +72,14 @@ struct ChatView: View {
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     @State private var showSampling = false
     @State private var showBenchmark = false
-    @State private var showAgentControls = false
     /// Reference to the AppKit view behind the chat column, resolved at click time
     /// by the screenshot button to capture exactly what's on screen.
     @State private var snapshotProbe = SnapshotProbeView.Holder()
     @State private var pendingSnapshot: SnapshotItem?
     @State private var errorCopied = false
+    /// When `/clear` was first run; a second run within a few seconds confirms it.
+    @State private var clearArmedAt: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Identity key for this conversation's session/task in the shared store.
     private var convoID: PersistentIdentifier { conversation.persistentModelID }
@@ -119,8 +123,12 @@ struct ChatView: View {
         )
     }
 
+    /// User override first, then the live entry's loaded context. `pickedModel` is a
+    /// copy taken at pick time — before an LM Studio load — so it only knows the
+    /// declared maximum; `discovered` carries the monitor's live state.
     private var contextWindow: Int {
-        boundServer?.contextLength(for: pickedModel?.model.id ?? "") ?? pickedModel?.model.maxContextLength ?? 0
+        let live = discovered.first { $0.id == pickedModel?.id }?.model ?? pickedModel?.model
+        return boundServer?.contextLength(for: pickedModel?.model.id ?? "") ?? live?.contextWindow ?? 0
     }
 
     /// Display name of the per-chat workspace folder, or nil when none is set.
@@ -212,7 +220,7 @@ struct ChatView: View {
                               onSelect: { openArtifactID = $0 },
                               onClose: { openArtifactID = nil })
                     .frame(width: clampedArtifactWidth)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
         // Measure width with a non-layout background reader. Wrapping the whole body in a
@@ -227,8 +235,22 @@ struct ChatView: View {
             }
         )
         // Animate the panel sliding in/out, but not switches between artifacts.
-        .animation(.easeOut(duration: 0.18), value: openArtifactID == nil)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: openArtifactID == nil)
         .background(Theme.windowBG)
+        // Accelerators for actions that otherwise need the mouse. Zero-size buttons
+        // still receive their shortcuts; Esc only stops while a reply is streaming.
+        .background {
+            Group {
+                Button("Focus composer") { composerFocused = true }
+                    .keyboardShortcut("l", modifiers: .command)
+                Button("Stop generating") { stop() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(!isStreaming)
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
         .onAppear { ensureSession() }
         // No .onDisappear cancel: a turn keeps streaming after the user leaves the
         // chat, so multiple conversations can run at once (the store owns it).
@@ -236,6 +258,13 @@ struct ChatView: View {
         // values and the per-chat overrides (agent popover).
         .onChange(of: effectiveMaxRounds) { session?.maxToolRounds = effectiveMaxRounds }
         .onChange(of: effectiveYolo) { session?.yoloMode = effectiveYolo }
+        // Streaming and errors are otherwise visual-only; announce them to VoiceOver.
+        .onChange(of: isStreaming) { was, now in
+            if was && !now { AccessibilityNotification.Announcement("Reply finished").post() }
+        }
+        .onChange(of: session?.errorText) { _, text in
+            if let text { AccessibilityNotification.Announcement(text).post() }
+        }
         .onChange(of: openArtifactID) { old, new in
             if let new { lastArtifactID = new }
             withAnimation(.easeOut(duration: 0.2)) {
@@ -272,12 +301,8 @@ struct ChatView: View {
                 }
                 workspaceButton
                 artifactsButton
-                samplingButton
-                if pickedModel?.model.supportsToolUse == true {
-                    agentButton
-                }
-                benchmarkButton
-                screenshotButton
+                settingsButton
+                moreMenu
                 Spacer(minLength: 8)
                 if let server = pickedModel?.server {
                     statusPill(for: server)
@@ -309,16 +334,16 @@ struct ChatView: View {
                 .foregroundStyle(live ? Theme.green : Theme.textMute)
             Text(server.label)
                 .font(.mono(10))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
         .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.line))
+        // The LED is colour-only; the label text carries the state for VoiceOver.
+        .accessibilityElement(children: .combine)
     }
 
-    /// Per-conversation sampling overrides (§1.4b) — a popover with the shared
-    /// controls plus a one-tap "apply preset". Amber when this chat overrides defaults.
     /// Draggable separator that resizes the artifact panel (§2.4). The 1pt line sits
     /// inside a wider invisible hit area with a resize cursor.
     private var artifactResizeHandle: some View {
@@ -365,178 +390,208 @@ struct ChatView: View {
                     .panel(Theme.Palette.panel, radius: 7)
             }
             .buttonStyle(.plain)
-            .help(open ? "Hide artifacts (\(artifactGroups.count))" : "Show artifacts (\(artifactGroups.count))")
+            .keyboardShortcut("\\", modifiers: .command)
+            .help(open ? "Hide artifacts (\(artifactGroups.count)) — ⌘\\" : "Show artifacts (\(artifactGroups.count)) — ⌘\\")
+            .accessibilityLabel("Artifacts panel")
         }
     }
 
-    private var samplingButton: some View {
-        let overriding = conversation.samplingOverride != SamplingParams()
+    /// True when this chat deviates from the global defaults in anything the
+    /// settings popover controls (sampling, agent limits, YOLO).
+    private var hasOverrides: Bool {
+        conversation.samplingOverride != SamplingParams()
+            || conversation.maxToolRoundsOverride != nil
+            || effectiveYolo
+    }
+
+    /// One entry point for per-chat sampling, agent behavior and workspace. Shows a
+    /// dot when any override is active — red when YOLO is on, amber otherwise.
+    private var settingsButton: some View {
+        let tint: Color = effectiveYolo ? Theme.Palette.alert
+            : hasOverrides ? Theme.amber
+            : Theme.Palette.inkDim
         return Button { showSampling.toggle() } label: {
             Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 12))
-                .foregroundStyle(overriding ? Theme.amber : Theme.Palette.inkDim)
-                .frame(width: 30, height: 26)
-                .panel(Theme.Palette.panel, radius: 7)
-        }
-        .buttonStyle(.plain)
-        .help("Sampling for this chat")
-        .popover(isPresented: $showSampling, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Eyebrow("Sampling · this chat")
-                    Spacer()
-                    if !presets.isEmpty {
-                        Menu("Apply preset") {
-                            ForEach(presets) { preset in
-                                Button(preset.name) { apply(preset) }
-                            }
-                        }
-                        .font(Theme.metric(11))
-                        .fixedSize()
-                        .help("Apply a saved preset to this chat")
-                    }
-                    Button("Reset") { conversation.samplingOverride = SamplingParams(); context.saveOrLog() }
-                        .font(Theme.metric(11))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.textDim)
-                        .help("Reset to global defaults")
-                }
-                SamplingControls(params: Binding(get: { conversation.samplingOverride },
-                                                 set: { conversation.samplingOverride = $0 }))
-                Text("Overrides the global defaults from Settings for this chat only.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-
-                Divider().overlay(Theme.line)
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto-compact long chats").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                        Text("Summarize older turns near the context limit (§1.5).")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                    Spacer()
-                    PillToggle(isOn: $conversation.autoCompact)
-                }
-            }
-            .padding(16)
-            .frame(width: 320)
-            .onChange(of: conversation.samplingOverride) { context.saveOrLog() }
-            .onChange(of: conversation.autoCompact) { context.saveOrLog() }
-        }
-    }
-
-    /// Per-chat agent behavior: the YOLO switch and the tool-call limit override.
-    /// Red when YOLO is effective, amber when only the limit is overridden.
-    private var agentButton: some View {
-        let tint: Color = effectiveYolo ? Theme.Palette.alert
-            : conversation.maxToolRoundsOverride != nil ? Theme.amber
-            : Theme.Palette.inkDim
-        return Button { showAgentControls.toggle() } label: {
-            Image(systemName: "bolt")
                 .font(.system(size: 12))
                 .foregroundStyle(tint)
                 .frame(width: 30, height: 26)
                 .panel(Theme.Palette.panel, radius: 7)
+                .overlay(alignment: .topTrailing) {
+                    if hasOverrides {
+                        Circle().fill(tint).frame(width: 7, height: 7).offset(x: 2, y: -2)
+                    }
+                }
         }
         .buttonStyle(.plain)
-        .help("Tool approvals and limit for this chat")
-        .popover(isPresented: $showAgentControls, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Eyebrow("Agent · this chat")
-                    Spacer()
-                    Button("Reset") {
-                        conversation.yoloEnabled = false
-                        conversation.maxToolRoundsOverride = nil
-                        context.saveOrLog()
-                    }
-                    .font(Theme.metric(11))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.textDim)
-                    .help("Turn off YOLO and use the global tool-call limit")
+        .help(hasOverrides ? "Chat settings — this chat overrides the defaults" : "Chat settings")
+        .accessibilityLabel("Chat settings")
+        .accessibilityValue(hasOverrides ? "Overrides active" : "Defaults")
+        .popover(isPresented: $showSampling, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 16) {
+                samplingSection
+                if pickedModel?.model.supportsToolUse == true {
+                    Divider().overlay(Theme.line)
+                    agentSection
                 }
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("YOLO mode").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                        Text("Run writes, edits and shell commands without asking; no tool-call limit.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                    Spacer()
-                    PillToggle(isOn: globalYolo ? .constant(true) : $conversation.yoloEnabled)
-                        .disabled(globalYolo)
-                }
-                if globalYolo {
-                    Text("Enabled globally in Settings ▸ Tools.")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                }
-                Divider().overlay(Theme.line)
-                Stepper(value: Binding(get: { conversation.maxToolRoundsOverride ?? maxToolRounds },
-                                       set: { conversation.maxToolRoundsOverride = $0 == maxToolRounds ? nil : $0 }),
-                        in: 1...20) {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                            Text("Overrides the Settings default for this chat only.")
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                        }
-                        Spacer(minLength: 8)
-                        if effectiveYolo {
-                            Text("Unlimited").font(Theme.metric(11)).foregroundStyle(Theme.Palette.alert)
-                        } else {
-                            Text("\(effectiveMaxRounds)")
-                                .font(.mono(13)).monospacedDigit()
-                                .foregroundStyle(conversation.maxToolRoundsOverride != nil ? Theme.amber : Theme.textMid)
-                        }
-                    }
-                }
-                .disabled(effectiveYolo)
-                if conversation.maxToolRoundsOverride != nil {
-                    Button("Use default (\(maxToolRounds))") {
-                        conversation.maxToolRoundsOverride = nil
-                        context.saveOrLog()
-                    }
-                    .font(Theme.metric(11))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.textDim)
+                if conversation.projectPath?.isEmpty ?? true {
+                    Divider().overlay(Theme.line)
+                    workspaceSection
                 }
             }
             .padding(16)
             .frame(width: 320)
-            .onChange(of: conversation.yoloEnabled) { context.saveOrLog() }
-            .onChange(of: conversation.maxToolRoundsOverride) { context.saveOrLog() }
         }
     }
 
-    /// Opens the load-test sheet for the picked model (§2.5).
-    private var benchmarkButton: some View {
-        Button { showBenchmark = true } label: {
-            Image(systemName: "stopwatch")
+    /// Offered only while no workspace is set; once set, the header chip shows it.
+    private var workspaceSection: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Workspace").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                Text("A local folder the model can read and write on this Mac.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
+            }
+            Spacer()
+            Button("Choose…") { showSampling = false; pickWorkspace() }
+                .font(Theme.metric(11))
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.amber)
+        }
+    }
+
+    /// Rarely-used actions, kept off the primary row: the load-test sheet (§2.5) and
+    /// a share-ready PNG card of what's on screen (saved to ~/Downloads and copied).
+    private var moreMenu: some View {
+        Menu {
+            Button("Benchmark a model…") { showBenchmark = true }
+                .disabled(discovered.isEmpty)
+            Button("Screenshot this chat…") { takeScreenshot() }
+        } label: {
+            Image(systemName: "ellipsis")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.Palette.inkDim)
                 .frame(width: 30, height: 26)
                 .panel(Theme.Palette.panel, radius: 7)
         }
+        .menuStyle(.button)
         .buttonStyle(.plain)
-        .help("Benchmark a model")
-        .disabled(discovered.isEmpty)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More actions")
+        .accessibilityLabel("More actions")
         .sheet(isPresented: $showBenchmark) {
             BenchmarkView(discovered: discovered, initial: pickedModel)
         }
     }
+    /// Sampling controls for the settings popover (§1.4b).
+    private var samplingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Eyebrow("Sampling · this chat")
+                Spacer()
+                if !presets.isEmpty {
+                    Menu("Apply preset") {
+                        ForEach(presets) { preset in
+                            Button(preset.name) { apply(preset) }
+                        }
+                    }
+                    .font(Theme.metric(11))
+                    .fixedSize()
+                    .help("Apply a saved preset to this chat")
+                }
+                Button("Reset") { conversation.samplingOverride = SamplingParams(); context.saveOrLog() }
+                    .font(Theme.metric(11))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.textDim)
+                    .help("Reset to global defaults")
+                    .accessibilityLabel("Reset sampling to defaults")
+            }
+            SamplingControls(params: Binding(get: { conversation.samplingOverride },
+                                             set: { conversation.samplingOverride = $0 }))
+            Text("Overrides the global defaults from Settings for this chat only.")
+                .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
 
-    /// Captures the chat column as a share-ready PNG card: what's currently on
-    /// screen, on a themed backdrop with a caption. Saved to ~/Downloads and
-    /// copied to the clipboard.
-    private var screenshotButton: some View {
-        Button { takeScreenshot() } label: {
-            Image(systemName: "camera")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Palette.inkDim)
-                .frame(width: 30, height: 26)
-                .panel(Theme.Palette.panel, radius: 7)
+            Divider().overlay(Theme.line)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-compact long chats").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                    Text("Summarize older turns near the context limit (§1.5).")
+                        .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
+                }
+                Spacer()
+                PillToggle(isOn: $conversation.autoCompact)
+            }
         }
-        .buttonStyle(.plain)
-        .help("Screenshot this chat — opens a share-ready preview")
+        .onChange(of: conversation.samplingOverride) { context.saveOrLog() }
+        .onChange(of: conversation.autoCompact) { context.saveOrLog() }
     }
+
+    /// Per-chat agent behavior: the YOLO switch and the tool-call limit override.
+    private var agentSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Eyebrow("Agent · this chat")
+                Spacer()
+                Button("Reset") {
+                    conversation.yoloEnabled = false
+                    conversation.maxToolRoundsOverride = nil
+                    context.saveOrLog()
+                }
+                .font(Theme.metric(11))
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.textDim)
+                .help("Turn off YOLO and use the global tool-call limit")
+                .accessibilityLabel("Turn off YOLO mode")
+            }
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("YOLO mode").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                    Text("Run writes, edits and shell commands without asking; no tool-call limit.")
+                        .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
+                }
+                Spacer()
+                PillToggle(isOn: globalYolo ? .constant(true) : $conversation.yoloEnabled)
+                    .disabled(globalYolo)
+            }
+            if globalYolo {
+                Text("Enabled globally in Settings ▸ Tools.")
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
+            }
+            Divider().overlay(Theme.line)
+            Stepper(value: Binding(get: { conversation.maxToolRoundsOverride ?? maxToolRounds },
+                                   set: { conversation.maxToolRoundsOverride = $0 == maxToolRounds ? nil : $0 }),
+                    in: 1...20) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                        Text("Overrides the Settings default for this chat only.")
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
+                    }
+                    Spacer(minLength: 8)
+                    if effectiveYolo {
+                        Text("Unlimited").font(Theme.metric(11)).foregroundStyle(Theme.Palette.alert)
+                    } else {
+                        Text("\(effectiveMaxRounds)")
+                            .font(.mono(13)).monospacedDigit()
+                            .foregroundStyle(conversation.maxToolRoundsOverride != nil ? Theme.amber : Theme.textMid)
+                    }
+                }
+            }
+            .disabled(effectiveYolo)
+            if conversation.maxToolRoundsOverride != nil {
+                Button("Use default (\(maxToolRounds))") {
+                    conversation.maxToolRoundsOverride = nil
+                    context.saveOrLog()
+                }
+                .font(Theme.metric(11))
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.textDim)
+            }
+        }
+        .onChange(of: conversation.yoloEnabled) { context.saveOrLog() }
+        .onChange(of: conversation.maxToolRoundsOverride) { context.saveOrLog() }
+    }
+
 
     /// Snapshot → card → temp file → preview sheet with Share / Done.
     private func takeScreenshot() {
@@ -559,9 +614,9 @@ struct ChatView: View {
         pendingSnapshot = SnapshotItem(url: url)
     }
 
-    /// Shows the active workspace as an amber chip (tap to change, ✕ to clear),
-    /// or a folder+ button when no workspace is set. Lets the model on the
-    /// remote server read/write files on this Mac.
+    /// Shows the active workspace as an amber chip (tap to change, ✕ to clear);
+    /// renders nothing when no workspace is set (pick one in Chat settings).
+    /// Lets the model on the remote server read/write files on this Mac.
     @ViewBuilder private var workspaceButton: some View {
         if let path = conversation.projectPath, !path.isEmpty {
             let name = workspaceFolderName ?? path
@@ -600,16 +655,6 @@ struct ChatView: View {
             }
             .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.amberBorder))
-        } else {
-            Button(action: pickWorkspace) {
-                Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.inkDim)
-                    .frame(width: 30, height: 26)
-                    .panel(Theme.Palette.panel, radius: 7)
-            }
-            .buttonStyle(.plain)
-            .help("Set a local folder the model can read and write on this Mac")
         }
     }
 
@@ -665,8 +710,9 @@ struct ChatView: View {
                 }
                 .scrollIndicators(.hidden)
                 .hideScrollIndicators()
-                // Scroll to bottom when a new message is appended.
-                .onChange(of: conversation.messages.count) { scrollToBottom(proxy) }
+                // Scroll to bottom when a new message is appended, but only if
+                // the user hasn't scrolled away to read history.
+                .onChange(of: conversation.messages.count) { if isNearBottom { scrollToBottom(proxy) } }
                 // Timer-based scroll during streaming: fires at ~20fps instead of once
                 // per token, avoiding layout-pass spam from per-character onChange.
                 .task(id: session?.isStreaming) {
@@ -685,18 +731,82 @@ struct ChatView: View {
     /// Fills the message area before the first turn so a fresh chat reads as
     /// intentional empty space, not a dead gap above the composer.
     private var emptyConversationHint: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "text.bubble")
-                .font(.system(size: 30, weight: .light))
-                .foregroundStyle(Theme.textFaint)
-            Text(pickedModel == nil
-                 ? "Pick a model above, then say something."
-                 : "Send a message to \(pickedModel!.model.familyName) to begin.")
-                .font(.mono(12))
-                .foregroundStyle(Theme.textFaint)
-                .multilineTextAlignment(.center)
+        VStack(spacing: 18) {
+            if let picked = pickedModel {
+                // What this chat will talk to, at a glance: model, server, live state, window.
+                let status = registry.status(for: picked.server)
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        StatusLED(status: status, size: 6)
+                        Text(picked.model.familyName)
+                            .font(Theme.metric(15))
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Theme.textHi)
+                    }
+                    Text("\(picked.server.label) · \(status.displayLabel)"
+                         + (contextWindow > 0 ? " · \(contextWindow.formatted()) token context" : ""))
+                        .font(.mono(11))
+                        .foregroundStyle(Theme.textDim)
+                }
+                .accessibilityElement(children: .combine)
+
+                // Starters fill the composer; they never send on their own.
+                VStack(spacing: 6) {
+                    starterRow("terminal", "Type / for commands", "/help, /model, /compact, /export…") {
+                        draft = "/"
+                    }
+                    if picked.model.supportsToolUse {
+                        starterRow("wrench.and.screwdriver", "Try the tools",
+                                   "Ask what the model can do with them") {
+                            draft = "What tools can you use here, and what could you do with them?"
+                        }
+                    }
+                    starterRow("sidebar.right", "Build something to preview",
+                               "Code the model writes can open in the artifacts panel") {
+                        draft = "Make a small HTML page with a working counter button."
+                    }
+                }
+                .frame(maxWidth: 360)
+            } else {
+                Image(systemName: "text.bubble")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(Theme.textDim)
+                Text(discovered.isEmpty
+                     ? "No models found. Start a local server or add a cloud API in Settings."
+                     : "Pick a model above, then say something.")
+                    .font(.mono(12))
+                    .foregroundStyle(Theme.textDim)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(24)
+    }
+
+    /// One tappable suggestion in the empty state: icon, title, one line of detail.
+    private func starterRow(_ icon: String, _ title: String, _ detail: String,
+                            action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            composerFocused = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.amber)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(Theme.metric(12)).foregroundStyle(Theme.textMid)
+                    Text(detail).font(Theme.metric(10)).foregroundStyle(Theme.textDim)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .panel(Theme.Palette.panel, radius: 7)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Fills the message box without sending")
     }
 
     private let bottomAnchor = "BOTTOM"
@@ -712,33 +822,72 @@ struct ChatView: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
+            // The picked server is down: say so before the user types, not after Send.
+            if let server = boundServer, !isStreaming,
+               let reason = unavailableReason(for: server) {
+                HStack(spacing: 8) {
+                    StatusLED(status: registry.status(for: server), size: 6)
+                    Text(reason)
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.Palette.alert)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Theme.Palette.alert.opacity(0.10))
+                .accessibilityElement(children: .combine)
+            }
+
             if let error = session?.errorText {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(error, forType: .string)
-                    errorCopied = true
-                    Task { try? await Task.sleep(for: .seconds(1.5)); errorCopied = false }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Palette.alert)
-                        Text(error)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.alert)
+                        .accessibilityHidden(true)
+                    Text(error)
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.Palette.alert)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 0)
+                    if canRetry {
+                        Button("Retry") { retry() }
+                            .buttonStyle(.plain)
                             .font(Theme.metric(11))
+                            .fontWeight(.semibold)
                             .foregroundStyle(Theme.Palette.alert)
-                        Spacer(minLength: 0)
+                            .help("Run the failed turn again")
+                            .accessibilityHint("Runs the failed turn again")
+                    }
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(error, forType: .string)
+                        errorCopied = true
+                        Task { try? await Task.sleep(for: .seconds(1.5)); errorCopied = false }
+                    } label: {
                         Image(systemName: errorCopied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 10))
                             .foregroundStyle(errorCopied ? Theme.green : Theme.Palette.alert.opacity(0.7))
                             .animation(.easeOut(duration: 0.15), value: errorCopied)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .background(Theme.Palette.alert.opacity(0.10))
+                    .buttonStyle(.plain)
+                    .help("Copy error")
+                    .accessibilityLabel("Copy error")
+                    Button {
+                        session?.errorText = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.Palette.alert.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Dismiss")
+                    .accessibilityLabel("Dismiss error")
                 }
-                .buttonStyle(.plain)
-                .help("Click to copy error")
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Theme.Palette.alert.opacity(0.10))
             }
 
             // Standing cue that this chat runs tools unattended (YOLO mode).
@@ -890,6 +1039,7 @@ struct ChatView: View {
                         }
                         .buttonStyle(.plain)
                         .help("Remove from queue")
+                        .accessibilityLabel("Remove queued message")
                     }
                     .padding(.leading, 9).padding(.trailing, 7).padding(.vertical, 4)
                     .background(Theme.amberFillLo, in: Capsule())
@@ -911,11 +1061,13 @@ struct ChatView: View {
         return base + TokenEstimator.estimate(draft)
     }
 
-    private var isStreaming: Bool { session?.isStreaming == true }
+    /// Busy while a reply streams or the model is being loaded for it, so a second
+    /// Send during a slow load queues instead of starting a parallel turn.
+    private var isStreaming: Bool { session?.isStreaming == true || isLoadingModel }
     /// Enabled whenever there's something to send — during streaming a send is queued
     /// (§3.3) rather than blocked.
     private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespaces).isEmpty || !pendingAttachments.isEmpty
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
     }
     /// Amber gradient when the send/stop button is active, otherwise a flat fill.
     private var sendButtonBackground: AnyShapeStyle {
@@ -949,7 +1101,7 @@ struct ChatView: View {
                         Text(conversation.personaName ?? "No persona")
                             .font(Theme.label(10))
                     }
-                    .foregroundStyle(Theme.textFaint)
+                    .foregroundStyle(Theme.textDim)
                     .help("The persona is set before the first message and can't be changed after.")
                 } else {
                     Menu {
@@ -1022,7 +1174,8 @@ struct ChatView: View {
                               fontSize: messageFontSize,
                               onSubmit: submitComposer,
                               onMoveUp: { moveSlashSelection(-1) },
-                              onMoveDown: { moveSlashSelection(1) })
+                              onMoveDown: { moveSlashSelection(1) },
+                              onPasteImage: pasteImage)
                     .frame(height: composerHeight)
                     .onChange(of: draft) { slashSelection = 0 }
                     .padding(.horizontal, 14)
@@ -1036,7 +1189,7 @@ struct ChatView: View {
                     Text("~\(TokenEstimator.estimate(draft)) tok")
                         .font(.mono(10))
                         .monospacedDigit()
-                        .foregroundStyle(Theme.textFaint)
+                        .foregroundStyle(Theme.textDim)
                         .help("Estimated tokens in this message")
                         .padding(.bottom, 9)
                 }
@@ -1059,7 +1212,8 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend && !isStreaming)
-                .help(isStreaming ? "Stop generating" : "Send message")
+                .help(isStreaming ? "Stop generating (Esc)" : "Send message")
+                .accessibilityLabel(isStreaming ? "Stop generating" : "Send message")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -1119,6 +1273,7 @@ struct ChatView: View {
                         }
                         .buttonStyle(.plain)
                         .help("Remove attachment")
+                        .accessibilityLabel("Remove attachment")
                         .offset(x: 5, y: -5)
                     }
                 }
@@ -1139,6 +1294,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Attach images (vision model)")
+        .accessibilityLabel("Attach images")
     }
 
     private var attachFileButton: some View {
@@ -1150,6 +1306,7 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("Attach a file — text, code, PDF, CSV, JSON, notebooks…")
+        .accessibilityLabel("Attach a file")
     }
 
     // MARK: Image picking and drop handling
@@ -1183,6 +1340,18 @@ struct ChatView: View {
                 }
             }
         }
+        return true
+    }
+
+    /// Paste (⌘V) an image from the clipboard as a pending chat attachment, e.g. a
+    /// screenshot just captured to the clipboard — hands it to the vision path.
+    private func pasteImage(_ image: NSImage) -> Bool {
+        guard let data = Self.normalizeImageData(image) else {
+            flash("Couldn't paste that image.")
+            return true
+        }
+        pendingAttachments.append(MessageAttachment(data: data, mimeType: "image/jpeg", fileName: "image.jpg"))
+        composerFocused = true
         return true
     }
 
@@ -1428,6 +1597,13 @@ struct ChatView: View {
         case .help:
             flash(SlashParser.helpText)
         case .clear:
+            // Irreversible, and one Return from the slash popup — require a repeat.
+            guard let armed = clearArmedAt, Date().timeIntervalSince(armed) < 6 else {
+                clearArmedAt = Date()
+                flash("This deletes every message. Run /clear again within 6 seconds to confirm.")
+                return
+            }
+            clearArmedAt = nil
             for message in conversation.messages { context.delete(message) }
             conversation.messages.removeAll()
             conversation.summary = nil
@@ -1509,11 +1685,69 @@ struct ChatView: View {
             return
         }
         let id = convoID
+        // Regenerating is an explicit action — snap to the new turn even if
+        // the user had scrolled away to read history.
+        isNearBottom = true
         sessionStore.setTask(Task {
+            let window = await ensureLoaded() ?? contextWindow
             await session.regenerate(message, in: conversation, server: server,
                                      serverOnline: registry.isOnline(server),
                                      modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
-                                     sampling: effectiveSampling, contextWindow: contextWindow)
+                                     sampling: effectiveSampling, contextWindow: window)
+            sessionStore.setTask(nil, for: id)
+            drainQueue()
+        }, for: id)
+    }
+
+    /// Loads the picked LM Studio model, with Modelo's context cap, when it isn't loaded
+    /// yet — otherwise LM Studio loads it on first request at its own default, which can
+    /// be "model maximum" (Devstral at 393K, out of GPU memory). Best-effort: on failure
+    /// the turn still runs and LM Studio's error surfaces as usual.
+    ///
+    /// - Returns: The context window to use for this turn when a load happened (the
+    ///   live entry can't reflect it until the next monitor poll), else nil.
+    private func ensureLoaded() async -> Int? {
+        guard let live = discovered.first(where: { $0.id == pickedModel?.id }),
+              live.server.kind == .lmStudio, !live.model.isLoaded,
+              let onModelSelect else { return nil }
+        isLoadingModel = true
+        defer { isLoadingModel = false }
+        guard await onModelSelect(live) else { return nil }
+        return live.server.contextLength(for: live.model.id)
+            ?? LMStudioLoadContext.contextLength(for: live.model)
+    }
+
+    /// Why sending to `server` can't work right now, or nil when it can (or is still
+    /// being probed — we don't block on "unknown").
+    private func unavailableReason(for server: Server) -> String? {
+        switch registry.status(for: server) {
+        case .offline: "\(server.label) is offline. Your draft is kept — pick another model, or send once it's back."
+        case .needsKey: "\(server.label) needs an API key. Add one in Settings, then send."
+        case .online, .unknown: nil
+        }
+    }
+
+    /// True when the last turn failed: the path ends on a user message with no reply.
+    private var canRetry: Bool {
+        !isStreaming && conversation.activePath().last?.role == .user
+    }
+
+    /// Re-runs the failed turn against the currently picked server.
+    private func retry() {
+        guard let session, canRetry else { return }
+        bindPickedModel()
+        guard let server = boundServer else {
+            session.errorText = "Pick a model before retrying."
+            return
+        }
+        isNearBottom = true
+        let id = convoID
+        sessionStore.setTask(Task {
+            let window = await ensureLoaded() ?? contextWindow
+            await session.retry(in: conversation, server: server,
+                                serverOnline: registry.isOnline(server),
+                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
+                                sampling: effectiveSampling, contextWindow: window)
             sessionStore.setTask(nil, for: id)
             drainQueue()
         }, for: id)
@@ -1564,6 +1798,9 @@ struct ChatView: View {
             session.errorText = "Pick a model before sending."
             return
         }
+        // Don't consume the draft for a send that can't happen: the session would
+        // refuse an offline server only after `draft` was already cleared.
+        if unavailableReason(for: server) != nil { return }
         let text = draft
         let attachments = pendingAttachments
         let edited = editingSource
@@ -1571,11 +1808,15 @@ struct ChatView: View {
         pendingAttachments = []
         editingSource = nil
         let id = convoID
+        // Sending is an explicit action — snap to the new turn even if the
+        // user had scrolled away to read history.
+        isNearBottom = true
         sessionStore.setTask(Task {
+            let window = await ensureLoaded() ?? contextWindow
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
-                               sampling: effectiveSampling, contextWindow: contextWindow,
+                               sampling: effectiveSampling, contextWindow: window,
                                replacing: edited)
             sessionStore.setTask(nil, for: id)
             drainQueue()
@@ -1626,8 +1867,9 @@ private extension ChatView {
     ]
 }
 
-/// Confirmation card for a mutating file/shell tool call. Shows what the model wants
-/// to do (write/edit a file, run a command) and waits for Approve / Deny.
+/// Confirmation card for a mutating file/shell tool call or a gated MCP tool. Shows
+/// what the model wants to do (write/edit a file, run a command, call an MCP server
+/// with these arguments) and waits for Approve / Deny.
 private struct ToolApprovalCard: View {
     let pending: ChatSession.PendingApproval
     let onDecision: (ChatSession.ApprovalDecision) -> Void
@@ -1637,6 +1879,7 @@ private struct ToolApprovalCard: View {
         case .write: "square.and.pencil"
         case .edit:  "pencil.and.outline"
         case .shell: "terminal"
+        case .external: "puzzlepiece.extension"
         }
     }
 
@@ -1652,7 +1895,7 @@ private struct ToolApprovalCard: View {
                 Spacer(minLength: 0)
                 Text(pending.toolName)
                     .font(.mono(10))
-                    .foregroundStyle(Theme.textFaint)
+                    .foregroundStyle(Theme.textDim)
             }
             ScrollView {
                 Text(pending.preview.detail)
@@ -1676,18 +1919,22 @@ private struct ToolApprovalCard: View {
                     .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
                 Spacer(minLength: 0)
-                Button("Approve for session", action: { onDecision(.session) })
-                    .buttonStyle(.plain)
-                    .font(Theme.metric(12))
-                    .foregroundStyle(Theme.amber)
-                    .padding(.horizontal, 12).padding(.vertical, 5)
-                    .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.amberBorder))
-                    .help("Run \(pending.toolName) without asking again for the rest of this chat")
+                // Hidden where ChatSession wouldn't honor it, rather than silently
+                // downgrading the click to a one-off approval.
+                if pending.preview.allowsSessionGrant {
+                    Button("Approve for session", action: { onDecision(.session) })
+                        .buttonStyle(.plain)
+                        .font(Theme.metric(12))
+                        .foregroundStyle(Theme.amber)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.amberBorder))
+                        .help("Run \(pending.toolName) without asking again for the rest of this chat")
+                }
                 Button("Approve once", action: { onDecision(.once) })
                     .buttonStyle(.plain)
                     .font(Theme.metric(12).weight(.semibold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(Theme.windowBG)
                     .padding(.horizontal, 14).padding(.vertical, 5)
                     .background(Theme.sendGradient, in: RoundedRectangle(cornerRadius: 7))
             }

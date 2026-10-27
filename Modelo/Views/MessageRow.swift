@@ -34,13 +34,18 @@ struct MessageRow: View {
     private var isUser: Bool { message.role == .user }
 
     var body: some View {
-        if message.role == .tool {
-            ToolCard(title: "🔧 \(message.toolName ?? "tool")", detail: message.content)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if isUser {
-            userTurn
-        } else {
-            assistantTurn
+        // Single-root wrapper keeps this row "unary": its top-level shape is one
+        // VStack regardless of role, so the LazyVStack can template row identity
+        // from msg.id without evaluating every row's body on each list diff.
+        VStack(alignment: .leading, spacing: 0) {
+            if message.role == .tool {
+                ToolCard(title: "🔧 \(message.toolName ?? "tool")", detail: message.content)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if isUser {
+                userTurn
+            } else {
+                assistantTurn
+            }
         }
     }
 
@@ -99,7 +104,7 @@ struct MessageRow: View {
                     .lineLimit(1)
                 Text(Theme.timeFormatter.string(from: message.createdAt))
                     .font(.mono(10))
-                    .foregroundStyle(Theme.textFaint)
+                    .foregroundStyle(Theme.textDim)
             }
             .padding(.bottom, 11)
 
@@ -227,7 +232,7 @@ struct MessageRow: View {
         }
         .font(.mono(10))
         .monospacedDigit()
-        .foregroundStyle(Theme.textFaint)
+        .foregroundStyle(Theme.textDim)
     }
 
     // MARK: Branch navigation — ◀ k/n ▶ across sibling turns (§1.2)
@@ -274,7 +279,7 @@ struct MessageRow: View {
             Text(metaLine)
                 .font(.mono(9))
                 .monospacedDigit()
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textDim)
             branchNav
             if !message.content.isEmpty { actionCluster }
         }
