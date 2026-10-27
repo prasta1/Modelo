@@ -568,9 +568,11 @@ private struct ModelRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Fixed frames keep the name column stable regardless of which action renders.
-            starButton.frame(width: 20)
-            actionArea.frame(width: 52, alignment: .trailing)
+            // Actions appear on hover only; a favorite's filled star and an in-flight
+            // spinner stay visible because they're state, not controls. Fixed frames
+            // keep the name column stable whether or not anything renders.
+            Group { if hovering || isFavorite { starButton } }.frame(width: 20)
+            Group { if hovering || busy { actionArea } }.frame(width: 52, alignment: .trailing)
         }
         .padding(.horizontal, 10).padding(.vertical, 9)
         .background(rowFill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
@@ -579,6 +581,12 @@ private struct ModelRow: View {
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
         .help("Select \(model.familyName) · Double-click to open in new chat")
+        // VoiceOver can't hover, so the hidden star needs another way in.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: isFavorite ? "Remove from favorites" : "Add to favorites") {
+            favorites.toggle(model.id)
+        }
     }
 
     /// "7B · Q4_K_M · 32K · 4.2 GB", skipping unknown values; nil when none are known.
@@ -619,8 +627,10 @@ private struct ModelRow: View {
         }
     }
 
+    private var isFavorite: Bool { favorites.isFavorite(model.id) }
+
     private var starButton: some View {
-        let isFav = favorites.isFavorite(model.id)
+        let isFav = isFavorite
         return Button {
             favorites.toggle(model.id)
         } label: {

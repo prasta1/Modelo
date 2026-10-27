@@ -25,7 +25,8 @@ private enum Col {
     /// (`.lineLimit(1)`) rather than break the layout, so a future long name
     /// degrades quietly — worth re-measuring if that matters.
     static let nameMax: CGFloat = 320
-    static let caps: CGFloat = 148
+    /// Five 14pt capability icons at 8pt spacing, plus a little air.
+    static let caps: CGFloat = 108
     /// Merged metrics cell: size · speed · used×, omitting missing values.
     static let metrics: CGFloat = 148
 }
@@ -398,12 +399,12 @@ struct ModelTableRow: View {
                 .frame(maxWidth: Col.nameMax, alignment: .leading)
 
             // Capabilities
-            HStack(spacing: 3) {
-                if model.isFree           { capPill("free",   Theme.green) }
-                if model.supportsToolUse  { capPill("tools",  Theme.amber) }
-                if model.supportsVision   { capPill("vision", Theme.blue) }
-                if model.supportsThinking { capPill("reason", Theme.purple) }
-                if model.isLoaded         { capPill("local",  Theme.amber) }
+            HStack(spacing: 8) {
+                if model.isFree           { capIcon("gift",                    "Free",      Theme.green) }
+                if model.supportsToolUse  { capIcon("wrench.and.screwdriver", "Tool use",  Theme.amber) }
+                if model.supportsVision   { capIcon("eye",                     "Vision",    Theme.blue) }
+                if model.supportsThinking { capIcon("brain",                   "Reasoning", Theme.purple) }
+                if model.isLoaded         { capIcon("memorychip",              "Loaded",    Theme.amber) }
             }
             .frame(width: Col.caps, alignment: .leading)
 
@@ -467,19 +468,15 @@ struct ModelTableRow: View {
         }
     }
 
-    @ViewBuilder private func capPill(_ label: String, _ tint: Color) -> some View {
-        Text(label.uppercased())
-            .font(Theme.label(7.5))
-            .tracking(0.4)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
+    /// A tinted capability glyph. Shape carries the meaning, so it still reads
+    /// with Differentiate Without Color on; the name lives in the tooltip and
+    /// the VoiceOver label.
+    private func capIcon(_ symbol: String, _ label: String, _ tint: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 12))
             .foregroundStyle(tint)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .strokeBorder(tint.opacity(0.32), lineWidth: 0.5)
-            )
+            .frame(width: 14)
+            .help(label)
+            .accessibilityLabel(label)
     }
 }
