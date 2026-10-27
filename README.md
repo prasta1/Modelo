@@ -91,6 +91,10 @@ only way to get correct VRAM on unified-memory boxes like the GB10).
 
 Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**.
 
+## Install
+
+Download `Modelo-vX.Y.Z.zip` from the **[latest release](https://github.com/prasta1/Modelo/releases/latest)**, unzip it, and drag `Modelo.app` to `/Applications`. Builds are signed with Developer ID and notarized by Apple, so they open without Gatekeeper warnings. Universal binary (Apple Silicon + Intel). To build from source instead, see [Building](#building).
+
 ## Requirements
 
 - macOS 14.0+
