@@ -54,8 +54,7 @@ struct EndpointDraft: Equatable {
     var isValid: Bool {
         guard !trimmed(label).isEmpty else { return false }
         if kind.isLocal {
-            let bare = normalizedHost.replacingOccurrences(of: "https://", with: "")
-            return !bare.isEmpty && (1...65535).contains(port)
+            return !parsedHost.host.isEmpty && (1...65535).contains(effectivePort)
         }
         if kind.hasFixedURL { return true }
         guard let url = URL(string: trimmed(host)),
@@ -67,7 +66,7 @@ struct EndpointDraft: Equatable {
     /// A Sendable endpoint for these unsaved values, for "Test connection".
     var endpoint: Endpoint {
         let key = trimmed(apiKey)
-        return Endpoint(baseURL: Server.baseURL(kind: kind, host: storedHost, port: port),
+        return Endpoint(baseURL: Server.baseURL(kind: kind, host: storedHost, port: effectivePort),
                         kind: kind, apiKey: key.isEmpty ? nil : key)
     }
 
@@ -88,7 +87,7 @@ struct EndpointDraft: Equatable {
         server.label = trimmed(label)
         server.kind = kind
         server.host = storedHost
-        server.port = kind.isLocal ? port : 0
+        server.port = kind.isLocal ? effectivePort : 0
         server.connectionID = trimmed(connectionID)
         if !kind.isLocal {
             let key = trimmed(apiKey)
@@ -98,11 +97,25 @@ struct EndpointDraft: Equatable {
         return server
     }
 
-    private var normalizedHost: String { Server.normalizedHost(host) }
+    /// Splits a pasted address like `http://1.2.3.4:1234/v1` into a bare host (keeping a
+    /// leading `https://`, as `Server.normalizedHost` does) and any embedded port. Without
+    /// this, `host:port` was stored whole and `baseURL` became `http://host:1234:1234`,
+    /// which never parses — the server read as offline forever.
+    private var parsedHost: (host: String, port: Int?) {
+        let raw = trimmed(host)
+        let hasScheme = raw.range(of: "^[A-Za-z][A-Za-z0-9+.-]*://", options: .regularExpression) != nil
+        guard let parts = URLComponents(string: hasScheme ? raw : "http://\(raw)"),
+              let bare = parts.host, !bare.isEmpty else { return ("", nil) }
+        let isTLS = parts.scheme?.lowercased() == "https"
+        return (isTLS ? "https://\(bare)" : bare, parts.port)
+    }
+
+    /// A port embedded in the pasted host wins over the port field.
+    private var effectivePort: Int { parsedHost.port ?? port }
 
     /// The `host` value as persisted for this kind.
     private var storedHost: String {
-        if kind.isLocal { return normalizedHost }
+        if kind.isLocal { return parsedHost.host }
         return kind.hasFixedURL ? "" : trimmed(host)
     }
 

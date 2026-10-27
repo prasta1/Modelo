@@ -94,6 +94,24 @@ final class EndpointDraftTests: XCTestCase {
         XCTAssertEqual(local("  spark ").save(into: context, keychain: keychain, existing: nil).host, "spark")
     }
 
+    func test_save_movesPastedPortIntoPortField() {
+        let s = local("http://192.168.1.5:1234", port: 8080).save(into: context, keychain: keychain, existing: nil)
+        XCTAssertEqual(s.host, "192.168.1.5")
+        XCTAssertEqual(s.port, 1234)
+        XCTAssertEqual(s.baseURL, "http://192.168.1.5:1234")
+    }
+
+    func test_save_dropsPastedPath() {
+        XCTAssertEqual(local("spark/v1").save(into: context, keychain: keychain, existing: nil).host, "spark")
+        let tls = local("https://box.ts.net:443/v1").save(into: context, keychain: keychain, existing: nil)
+        XCTAssertEqual(tls.host, "https://box.ts.net")
+        XCTAssertEqual(tls.port, 443)
+    }
+
+    func test_endpoint_usesPastedPort() {
+        XCTAssertEqual(local("http://spark:8080").endpoint.baseURL, "http://spark:8080")
+    }
+
     func test_save_keepsHTTPSPrefix() {
         let s = local("https://box.ts.net").save(into: context, keychain: keychain, existing: nil)
         XCTAssertEqual(s.host, "https://box.ts.net")
