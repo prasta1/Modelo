@@ -566,6 +566,7 @@ private struct ModelRow: View {
                         .font(Theme.mono(11))
                         .foregroundStyle(Theme.textDim)
                         .lineLimit(1)
+                        .help(model.contextHelp ?? "")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -604,7 +605,7 @@ private struct ModelRow: View {
     private var specLine: String? {
         let parts = [model.parameterSize,
                      model.quantization,
-                     model.maxContextLength.map { contextLabel($0) },
+                     model.contextDisplay(compact: true),
                      model.displaySizeFormatted].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -683,10 +684,5 @@ private struct ModelRow: View {
     private var rowFill: Color {
         if isSelected { return Theme.amberFillLo }
         return hovering ? Theme.fillHi : Color.clear
-    }
-
-    private func contextLabel(_ n: Int) -> String {
-        if n >= 1_000_000 { return "\(n / 1_000_000)M" }
-        return n >= 1000 ? "\(n / 1000)K" : "\(n)"
     }
 }

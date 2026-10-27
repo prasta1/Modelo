@@ -29,7 +29,39 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// Publisher / organization, e.g. `"mlx-community"`, `"lmstudio-community"`.
     let publisher: String?
     /// Context length the model is currently loaded with (`loaded_context_length`), when reported.
-    let loadedContextLength: Int?
+    /// `var` so the live monitor overlay can refresh it as models load and unload.
+    var loadedContextLength: Int?
+    /// The context actually available: what the model is loaded with when known,
+    /// otherwise the most it supports. A model loaded at 64K reports 64K here even
+    /// when it declares 393K.
+    var contextWindow: Int? { loadedContextLength ?? maxContextLength }
+
+    /// Context for display. While loaded below its maximum it names both, so the
+    /// loaded figure can't be misread as "used so far": `"131K loaded, 393K max"`
+    /// (`compact`: `"131K / 393K max"`). Otherwise just the maximum, `"393K"`.
+    ///
+    /// - Parameter compact: Short form for tight rows such as the picker.
+    /// - Returns: The label, or nil when the API reports no maximum.
+    func contextDisplay(compact: Bool = false) -> String? {
+        guard let max = maxContextLength else { return nil }
+        guard let loaded = loadedContextLength, loaded != max else { return Self.tokenLabel(max) }
+        let l = Self.tokenLabel(loaded), m = Self.tokenLabel(max)
+        return compact ? "\(l) / \(m) max" : "\(l) loaded, \(m) max"
+    }
+
+    /// Tooltip explaining a below-maximum load; nil when there's nothing to explain.
+    var contextHelp: String? {
+        guard let max = maxContextLength, let loaded = loadedContextLength, loaded != max else { return nil }
+        let l = Self.tokenLabel(loaded), m = Self.tokenLabel(max)
+        return "Loaded with \(l) of the \(m) this model supports. Chats compact as they approach \(l). "
+            + "A larger load uses more memory — change it in Settings ▸ Endpoints."
+    }
+
+    /// Compact token count: 1048576 → "1M", 65536 → "65K", 512 → "512".
+    static func tokenLabel(_ n: Int) -> String {
+        if n >= 1_000_000 { return "\(n / 1_000_000)M" }
+        return n >= 1_000 ? "\(n / 1_000)K" : "\(n)"
+    }
     /// File size on disk in bytes. LM Studio's `/api/v0/models` reports this as `size_bytes`;
     /// some OpenAI-compatible backends (llama-swap, MLX) use `size`. Decode whichever is present
     /// and read through `fileSizeBytes`.
