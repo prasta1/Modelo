@@ -77,6 +77,7 @@ targets:
       - Modelo/Services/PollingLoop.swift
       - Modelo/Services/LMStudioClient.swift
       - Modelo/Services/StoreBootstrap.swift
+      - Modelo/Services/CloudPreset.swift
       - Modelo/Services/Tool.swift
       - Modelo/Services/SSELineParser.swift
       - Modelo/Services/OpenRouterCatalog.swift

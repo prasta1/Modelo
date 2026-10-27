@@ -23,20 +23,6 @@ struct SettingsView: View {
     private static let tabTitles = ["Endpoints",
                                     "Presets", "Appearance", "Tools", "Memory", "MCP Servers"]
 
-    private struct CloudPreset: Identifiable {
-        var id: String { name }
-        let name: String
-        let baseURL: String
-    }
-    private static let cloudPresets: [CloudPreset] = [
-        .init(name: "OpenAI",     baseURL: "https://api.openai.com/v1"),
-        .init(name: "Groq",       baseURL: "https://api.groq.com/openai/v1"),
-        .init(name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1"),
-        .init(name: "Together",   baseURL: "https://api.together.xyz/v1"),
-        .init(name: "DeepSeek",   baseURL: "https://api.deepseek.com/v1"),
-        .init(name: "Mistral",    baseURL: "https://api.mistral.ai/v1"),
-    ]
-
     var body: some View {
         VStack(spacing: 0) {
             // Themed segmented tab bar (matches the Reports range selector) instead of
@@ -111,7 +97,7 @@ struct SettingsView: View {
                         Menu("Cloud API") {
                             Button("Nous Research") { addNousServer() }
                             Divider()
-                            ForEach(Self.cloudPresets) { preset in
+                            ForEach(CloudPreset.all) { preset in
                                 Button(preset.name) {
                                     addCloudServer(label: preset.name, baseURL: preset.baseURL)
                                 }
