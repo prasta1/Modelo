@@ -97,6 +97,10 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body \
             | awk '/^\* /{b[n++]=$0; next} {while(n) print b[--n]; print} END{while(n) print b[--n]}' \
             > "$RUNNER_TEMP/notes.md"
+          # GitHub also records each asset's digest, but it's easy to miss; surface it in the notes.
+          ZIP="Modelo-$GITHUB_REF_NAME.zip"
+          printf '\n**SHA-256** `%s`: `%s` — verify with `shasum -a 256 %s`\n' \
+            "$ZIP" "$(shasum -a 256 "$ZIP" | cut -d' ' -f1)" "$ZIP" >> "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" "Modelo-$GITHUB_REF_NAME.zip" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Clean up keychain
