@@ -95,9 +95,15 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(s.baseURL, "http://localhost:1234")
     }
 
-    func test_baseURL_stripsHttpsScheme_alwaysHTTPForLMStudio() {
-        let s = Server(label: "MacBook", host: "https://localhost", port: 1234)
-        XCTAssertEqual(s.baseURL, "http://localhost:1234")
+    // TLS-only servers (llama-swap behind `tailscale serve`) reject plain http with a 400.
+    func test_baseURL_keepsHttpsScheme() {
+        let s = Server(label: "Studio", host: " HTTPS://studio.example.ts.net/ ", port: 9292, kind: .llamaSwap)
+        XCTAssertEqual(s.baseURL, "https://studio.example.ts.net:9292")
+    }
+
+    func test_normalizedHost_keepsHttps_stripsHttp() {
+        XCTAssertEqual(Server.normalizedHost("https://studio/"), "https://studio")
+        XCTAssertEqual(Server.normalizedHost("http://studio/"), "studio")
     }
 
     func test_baseURL_bareHost_unchanged() {

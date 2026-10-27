@@ -1023,7 +1023,7 @@ private struct ServerSettingsRow: View {
                     // Local runtimes (LM Studio, llama.cpp/llama-swap, oMLX) are all addressed by host:port.
                     HStack(alignment: .bottom, spacing: 12) {
                         FieldGroup(caption: "Host") {
-                            TextField("hostname or IP", text: $server.host)
+                            TextField("hostname, IP, or https://host", text: $server.host)
                                 .textFieldStyle(.plain)
                                 .focused($focus, equals: .host)
                                 .fieldChrome(focused: focus == .host)
