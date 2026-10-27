@@ -99,8 +99,11 @@ final class ChatSession {
     /// instructions §2.4, the memory index). Re-evaluated at the top of every round so
     /// a memory saved mid-turn — or edited in Settings — is in the prompt next round
     /// without rebuilding the session. The argument is whether tools are offered this
-    /// request, so the suffix can drop call-these-tools phrasing when they aren't.
-    private let systemSuffix: @MainActor (_ toolsActive: Bool) -> String?
+    /// request, so the suffix can drop call-these-tools phrasing when they aren't; the
+    /// second is whether this turn goes to a cloud endpoint.
+    private let systemSuffix: @MainActor (_ toolsActive: Bool, _ cloud: Bool) -> String?
+    /// Per-tool treatment on cloud turns, keyed by tool name (e.g. memory tools).
+    private let cloudPolicy: [String: CloudToolPolicy]
     /// The best-effort title run, tracked so it can be cancelled when the view
     /// goes away (e.g. the user switches conversations mid-titling).
     private var titleTask: Task<Void, Never>?
@@ -110,7 +113,8 @@ final class ChatSession {
     init(client: any ChatProvider, context: ModelContext, recorder: UsageRecorder,
          keychain: KeychainStore = KeychainStore(),
          registry: ToolRegistry = ToolRegistry([]),
-         systemSuffix: @escaping @MainActor (Bool) -> String? = { _ in nil },
+         systemSuffix: @escaping @MainActor (Bool, Bool) -> String? = { _, _ in nil },
+         cloudPolicy: [String: CloudToolPolicy] = [:],
          maxToolRounds: Int = defaultMaxToolRounds,
          yoloMode: Bool = false) {
         self.client = client
@@ -119,6 +123,7 @@ final class ChatSession {
         self.keychain = keychain
         self.registry = registry
         self.systemSuffix = systemSuffix
+        self.cloudPolicy = cloudPolicy
         self.maxToolRounds = maxToolRounds
         self.yoloMode = yoloMode
     }
@@ -231,6 +236,10 @@ final class ChatSession {
         await compactIfNeeded(conversation, server: server, contextWindow: contextWindow)
 
         let endpoint = Endpoint(server: server, keychain: keychain)
+        // Decided per turn from the server actually sent to, so a chat switched from a
+        // local model to a cloud one is covered without rebuilding the session.
+        let cloud = !server.kind.isLocal
+        let withheld: Set<String> = cloud ? Set(cloudPolicy.filter { $0.value == .withhold }.keys) : []
         // Global tools toggle (Settings ▸ Tools); defaults on when unset.
         let globalToolsEnabled = UserDefaults.standard.object(forKey: "toolsGloballyEnabled") as? Bool ?? true
         let toolsActive = globalToolsEnabled && modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
@@ -272,14 +281,15 @@ final class ChatSession {
                 // just-appended empty assistant is dropped by wireKeep.
                 let wire = conversation.wireContext()
                 let toolSpecs = activeToolSpecs(active: toolsActive, progressive: progressive, query: queryText)
-                let system = [wire.system, systemSuffix(toolsActive)]
+                    .map { $0.filter { !withheld.contains($0.function.name) } }
+                let system = [wire.system, systemSuffix(toolsActive, cloud)]
                     .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
                 let stream = client.streamChat(
                     endpoint: endpoint, modelID: conversation.modelID,
                     messages: wire.messages.filter(wireKeep),
                     systemPrompt: system,
                     sampling: sampling,
-                    tools: toolSpecs)
+                    tools: toolSpecs?.isEmpty == true ? nil : toolSpecs)
                 // Buffer incoming tokens and flush to the observable property at ~20fps
                 // rather than on every character. This prevents SwiftUI from scheduling a
                 // full layout pass for each token, which was the primary source of latency.
@@ -360,8 +370,17 @@ final class ChatSession {
                     appendToolResult(revealTools(matching: call.arguments), call: call, in: conversation)
                     continue
                 }
-                // Mutating tools (write/edit/bash) pause for the user's approval.
-                if let preview = registry.approvalPreview(name: call.name, argumentsJSON: call.arguments) {
+                if withheld.contains(call.name) {
+                    appendToolResult("Error: unknown tool \"\(call.name)\".", call: call, in: conversation)
+                    continue
+                }
+                // Mutating tools (write/edit/bash) pause for the user's approval, as do
+                // tools whose result a cloud endpoint would receive.
+                let cloudPreview = cloud && cloudPolicy[call.name] == .approve
+                    ? ToolApprovalPreview(kind: .cloud, title: "Send \(call.name) result to \(server.label)",
+                                          detail: MCPTool.prettyArguments(call.arguments))
+                    : nil
+                if let preview = registry.approvalPreview(name: call.name, argumentsJSON: call.arguments) ?? cloudPreview {
                     let approved = await requestApproval(toolName: call.name, preview: preview)
                     if Task.isCancelled { break }
                     if !approved {

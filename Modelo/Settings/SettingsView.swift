@@ -710,6 +710,7 @@ private struct GlobalToolsCard: View {
 /// prompt and the memory tools aren't registered — zero context cost.
 private struct MemoryEnableCard: View {
     @AppStorage(MemoryStore.enabledKey) private var enabled = false
+    @AppStorage(MemoryStore.shareWithCloudKey) private var shareWithCloud = false
 
     var body: some View {
         SettingsSection("Memory") {
@@ -724,6 +725,16 @@ private struct MemoryEnableCard: View {
                 .toggleStyle(.switch)
                 Text("Off by default — one-off conversations stay one-off. Costs a line of context per memory. Open chats pick the change up from their next message.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                Toggle(isOn: $shareWithCloud) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Share memories with cloud models").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                        Text("Off: cloud chats (OpenRouter, Nous, custom APIs) get no memory index or memory tools. On: they see the index, and each read_memory asks before a memory's content is sent. Local servers always get full memory.")
+                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch)
+                .disabled(!enabled)
             }
         }
     }

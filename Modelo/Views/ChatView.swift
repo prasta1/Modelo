@@ -68,6 +68,7 @@ struct ChatView: View {
     @AppStorage(FSToolSettings.shellKey)   private var shellToolEnabled = false
     @AppStorage(FSToolSettings.rootKey)    private var fsToolsRoot = ""
     @AppStorage(MemoryStore.enabledKey)    private var memoryEnabled = false
+    @AppStorage(MemoryStore.shareWithCloudKey) private var memoryShareWithCloud = false
     @Query(sort: \Preset.sortOrder) private var presets: [Preset]
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     @State private var showSampling = false
@@ -1517,17 +1518,21 @@ struct ChatView: View {
         // round 2 with no rebuild.
         let staticSuffix = combinedSystemSuffix
         let includeMemory = memoryEnabled
+        let shareWithCloud = memoryShareWithCloud
         let session = ChatSession(client: LMStudioClient.shared, context: context,
                                   recorder: UsageRecorder(context: context),
                                   keychain: keychain,
                                   registry: ToolRegistry(tools),
-                                  systemSuffix: { toolsActive in
-                                      let memoryIndex = includeMemory
+                                  systemSuffix: { toolsActive, cloud in
+                                      let memoryIndex = includeMemory && (shareWithCloud || !cloud)
                                           ? MemoryStore.indexInjection(scopes: memoryScopes,
                                                                        toolsAvailable: toolsActive) : nil
                                       let parts = [staticSuffix, memoryIndex].compactMap(\.self).filter { !$0.isEmpty }
                                       return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
                                   },
+                                  cloudPolicy: shareWithCloud
+                                      ? ["read_memory": .approve]
+                                      : ["read_memory": .withhold, "save_memory": .withhold],
                                   maxToolRounds: effectiveMaxRounds,
                                   yoloMode: effectiveYolo)
         // Notify when a reply finishes and the user has moved to another chat/app.
@@ -1880,6 +1885,7 @@ private struct ToolApprovalCard: View {
         case .edit:  "pencil.and.outline"
         case .shell: "terminal"
         case .external: "puzzlepiece.extension"
+        case .cloud: "icloud.and.arrow.up"
         }
     }
 
