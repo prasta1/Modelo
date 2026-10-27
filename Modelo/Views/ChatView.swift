@@ -25,6 +25,8 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var pendingAttachments: [MessageAttachment] = []
     @State private var isDragTarget = false
+    /// True while `ensureLoaded()` waits on an LM Studio load before a turn.
+    @State private var isLoadingModel = false
     /// Set when the user taps "edit & resend" on a past user turn; the next send
     /// forks a sibling branch under that message instead of extending the path.
     @State private var editingSource: Message?
@@ -1061,7 +1063,9 @@ struct ChatView: View {
         return base + TokenEstimator.estimate(draft)
     }
 
-    private var isStreaming: Bool { session?.isStreaming == true }
+    /// Busy while a reply streams or the model is being loaded for it, so a second
+    /// Send during a slow load queues instead of starting a parallel turn.
+    private var isStreaming: Bool { session?.isStreaming == true || isLoadingModel }
     /// Enabled whenever there's something to send — during streaming a send is queued
     /// (§3.3) rather than blocked.
     private var canSend: Bool {
@@ -1687,13 +1691,32 @@ struct ChatView: View {
         // the user had scrolled away to read history.
         isNearBottom = true
         sessionStore.setTask(Task {
+            let window = await ensureLoaded() ?? contextWindow
             await session.regenerate(message, in: conversation, server: server,
                                      serverOnline: registry.isOnline(server),
                                      modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
-                                     sampling: effectiveSampling, contextWindow: contextWindow)
+                                     sampling: effectiveSampling, contextWindow: window)
             sessionStore.setTask(nil, for: id)
             drainQueue()
         }, for: id)
+    }
+
+    /// Loads the picked LM Studio model, with Modelo's context cap, when it isn't loaded
+    /// yet — otherwise LM Studio loads it on first request at its own default, which can
+    /// be "model maximum" (Devstral at 393K, out of GPU memory). Best-effort: on failure
+    /// the turn still runs and LM Studio's error surfaces as usual.
+    ///
+    /// - Returns: The context window to use for this turn when a load happened (the
+    ///   live entry can't reflect it until the next monitor poll), else nil.
+    private func ensureLoaded() async -> Int? {
+        guard let live = discovered.first(where: { $0.id == pickedModel?.id }),
+              live.server.kind == .lmStudio, !live.model.isLoaded,
+              let onModelSelect else { return nil }
+        isLoadingModel = true
+        defer { isLoadingModel = false }
+        guard await onModelSelect(live) else { return nil }
+        return live.server.contextLength(for: live.model.id)
+            ?? LMStudioLoadContext.contextLength(for: live.model)
     }
 
     /// Why sending to `server` can't work right now, or nil when it can (or is still
@@ -1722,10 +1745,11 @@ struct ChatView: View {
         isNearBottom = true
         let id = convoID
         sessionStore.setTask(Task {
+            let window = await ensureLoaded() ?? contextWindow
             await session.retry(in: conversation, server: server,
                                 serverOnline: registry.isOnline(server),
                                 modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
-                                sampling: effectiveSampling, contextWindow: contextWindow)
+                                sampling: effectiveSampling, contextWindow: window)
             sessionStore.setTask(nil, for: id)
             drainQueue()
         }, for: id)
@@ -1790,10 +1814,11 @@ struct ChatView: View {
         // user had scrolled away to read history.
         isNearBottom = true
         sessionStore.setTask(Task {
+            let window = await ensureLoaded() ?? contextWindow
             await session.send(text, attachments: attachments, in: conversation, server: server,
                                serverOnline: registry.isOnline(server),
                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
-                               sampling: effectiveSampling, contextWindow: contextWindow,
+                               sampling: effectiveSampling, contextWindow: window,
                                replacing: edited)
             sessionStore.setTask(nil, for: id)
             drainQueue()
