@@ -88,10 +88,16 @@ jobs:
           xcrun stapler staple "$APP"
           ditto -c -k --keepParent "$APP" "Modelo-$GITHUB_REF_NAME.zip"
 
+      # GitHub's generated notes list oldest change first; reverse each run of
+      # "* " bullets so the newest is on top, leaving section headings in place.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "Modelo-$GITHUB_REF_NAME.zip" --generate-notes
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body \
+            | awk '/^\* /{b[n++]=$0; next} {while(n) print b[--n]; print} END{while(n) print b[--n]}' \
+            > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" "Modelo-$GITHUB_REF_NAME.zip" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Clean up keychain
         if: always()
