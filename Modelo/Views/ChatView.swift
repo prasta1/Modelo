@@ -301,8 +301,6 @@ struct ChatView: View {
                 }
                 workspaceButton
                 artifactsButton
-                workspaceButton
-                artifactsButton
                 settingsButton
                 moreMenu
                 Spacer(minLength: 8)
@@ -616,9 +614,9 @@ struct ChatView: View {
         pendingSnapshot = SnapshotItem(url: url)
     }
 
-    /// Shows the active workspace as an amber chip (tap to change, ✕ to clear),
-    /// or a folder+ button when no workspace is set. Lets the model on the
-    /// remote server read/write files on this Mac.
+    /// Shows the active workspace as an amber chip (tap to change, ✕ to clear);
+    /// renders nothing when no workspace is set (pick one in Chat settings).
+    /// Lets the model on the remote server read/write files on this Mac.
     @ViewBuilder private var workspaceButton: some View {
         if let path = conversation.projectPath, !path.isEmpty {
             let name = workspaceFolderName ?? path
