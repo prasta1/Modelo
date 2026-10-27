@@ -55,7 +55,11 @@ final class Server {
     /// Base URL used by the networking layer.
     /// - LM Studio: `http://host:port`, or `https://host:port` when the host was entered with `https://`.
     /// - Cloud API: the value stored in `host` (the user's full base URL, e.g. `https://api.together.xyz/v1`).
-    var baseURL: String {
+    var baseURL: String { Server.baseURL(kind: kind, host: host, port: port) }
+
+    /// The base URL for these field values — `baseURL` without needing a saved `Server`,
+    /// so a form can test a connection before anything is persisted.
+    static func baseURL(kind: ServerKind, host: String, port: Int) -> String {
         switch kind {
         // Local runtimes are addressed by host:port.
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo:

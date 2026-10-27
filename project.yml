@@ -76,6 +76,7 @@ targets:
       - Modelo/Services/ReachabilityMonitor.swift
       - Modelo/Services/PollingLoop.swift
       - Modelo/Services/LMStudioClient.swift
+      - Modelo/Services/EndpointDraft.swift
       - Modelo/Services/StoreBootstrap.swift
       - Modelo/Services/CloudPreset.swift
       - Modelo/Services/Tool.swift
