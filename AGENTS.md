@@ -91,5 +91,6 @@ Settings → Accounts → Manage Certificates) and these repo secrets:
 |---|---|
 | `DEVID_P12` | Developer ID Application cert + key exported as `.p12`, base64 (`base64 -i cert.p12 \| pbcopy`) |
 | `DEVID_P12_PASSWORD` | The `.p12` export password |
-| `ASC_KEY_P8` | App Store Connect Team API key (`.p8`, Admin role), base64 — fetches the Developer ID profile and notarizes |
+| `DEVID_PROFILE` | Developer ID provisioning profile named exactly `Modelo Developer ID` (developer portal → Profiles → Developer ID, macOS), base64. Manual export signing uses it — automatic export needs cloud signing, which API keys can't do for Developer ID |
+| `ASC_KEY_P8` | App Store Connect Team API key (`.p8`, Admin role), base64 — signs the archive and notarizes |
 | `ASC_KEY_ID`, `ASC_ISSUER_ID` | The IDs shown beside that key in App Store Connect → Users & Access → Integrations |
