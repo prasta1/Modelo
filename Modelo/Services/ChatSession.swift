@@ -393,15 +393,22 @@ final class ChatSession {
             return
         }
 
-        // tok/s is measured over the full request lifecycle (from send to stream
-        // end) to align with llama-swap's gen_speed, which divides tokens by total
-        // request duration including prefill and TTFT. This makes the client-side
-        // reading directly comparable to the server's reported figure.
-        let elapsed = Date().timeIntervalSince(start)
-        let tps = UsageMath.tokensPerSecond(completionTokens: totalCompletionTokens, elapsed: elapsed)
-        let ttft = UsageMath.millis((firstTokenAt ?? start).timeIntervalSince(start))
+        // Two speeds, because servers disagree on which one "tok/s" means and this
+        // formula has flipped between them before:
+        // - decode: first token → stream end, excluding prefill and TTFT. Matches the
+        //   benchmark and the "Decode Speed" labels in the console, stats and reports.
+        // - end-to-end: send → stream end, so prefill and TTFT are folded in — what
+        //   the user actually waits for. Shown beside decode on the reply only.
+        let end = Date()
+        let decodeStart = firstTokenAt ?? start
+        let tps = UsageMath.tokensPerSecond(completionTokens: totalCompletionTokens,
+                                            elapsed: end.timeIntervalSince(decodeStart))
+        let endToEndTps = UsageMath.tokensPerSecond(completionTokens: totalCompletionTokens,
+                                                    elapsed: end.timeIntervalSince(start))
+        let ttft = UsageMath.millis(decodeStart.timeIntervalSince(start))
         lastAssistant?.tokenCount = totalCompletionTokens
         lastAssistant?.tokensPerSecond = tps
+        lastAssistant?.endToEndTokensPerSecond = endToEndTps
         conversation.contextTokensUsed = lastPromptTokens + lastCompletionTokens
         // Re-encode the active leaf now that the message has a permanent
         // persistentModelID (the id assigned before the first save was temporary),

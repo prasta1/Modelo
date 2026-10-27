@@ -52,9 +52,13 @@ final class Message {
     var createdAt: Date = Date()
     /// Completion token count, set after streaming finishes (assistant only).
     var tokenCount: Int?
-    /// End-to-end throughput for this turn (completion tokens ÷ total turn time,
-    /// so it includes prompt processing + TTFT — not decode-only speed). Assistant only.
+    /// Decode speed for this turn (completion tokens ÷ time from first token to
+    /// stream end). Assistant only.
     var tokensPerSecond: Double?
+    /// End-to-end speed for this turn (completion tokens ÷ time from send to stream
+    /// end, so prefill + TTFT included). Assistant only; nil on replies saved before
+    /// it was recorded. Optional, so SwiftData migrates it without a schema version.
+    var endToEndTokensPerSecond: Double?
     /// On an assistant message that requested tools: JSON array of the calls
     /// (`[ToolCall]`), so the turn re-sends correctly and renders as cards.
     var toolCallsJSON: String?

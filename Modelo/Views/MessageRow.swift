@@ -194,6 +194,11 @@ struct MessageRow: View {
         HStack(spacing: 16) {
             if let tps = message.tokensPerSecond {
                 Text(String(format: "%.0f tok/s", tps))
+                    .help("Decode speed: tokens ÷ time from the first token to the end")
+            }
+            if let e2e = message.endToEndTokensPerSecond {
+                Text(String(format: "%.0f e2e", e2e))
+                    .help("End-to-end speed: tokens ÷ the whole request, including prompt processing and time to first token")
             }
             if let tokens = message.tokenCount {
                 Text("\(tokens) tok")
@@ -286,10 +291,11 @@ struct MessageRow: View {
         .padding(.horizontal, 2)
     }
 
-    /// "142 tok/s · 13:05" — shown on hover only.
+    /// "142 tok/s · 88 e2e · 13:05" — shown on hover only.
     private var metaLine: String {
         var parts: [String] = []
         if let tps = message.tokensPerSecond { parts.append(String(format: "%.0f tok/s", tps)) }
+        if let e2e = message.endToEndTokensPerSecond { parts.append(String(format: "%.0f e2e", e2e)) }
         parts.append(Theme.timeFormatter.string(from: message.createdAt))
         return parts.joined(separator: " · ")
     }

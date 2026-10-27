@@ -5,11 +5,18 @@ import SwiftData
 /// A ChatProvider that replays one scripted event-list per streamChat call.
 final class FakeProvider: ChatProvider {
     let scripts: [[StreamEvent]]
+    /// When non-zero, each `.delta` event is delayed by this amount before
+    /// being yielded — lets tests simulate decode timing and TTFT.
+    let deltaDelay: TimeInterval
     private(set) var callCount = 0
     private(set) var lastTools: [ToolSpec]?
     private(set) var systemPrompts: [String] = []
-    init(scripts: [[StreamEvent]]) { self.scripts = scripts }
-    convenience init(events: [StreamEvent]) { self.init(scripts: [events]) }
+    init(scripts: [[StreamEvent]], deltaDelay: TimeInterval = 0) {
+        self.scripts = scripts; self.deltaDelay = deltaDelay
+    }
+    convenience init(events: [StreamEvent], deltaDelay: TimeInterval = 0) {
+        self.init(scripts: [events], deltaDelay: deltaDelay)
+    }
 
     func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] { [] }
     func streamChat(endpoint: Endpoint, modelID: String, messages: [Message],
@@ -19,9 +26,22 @@ final class FakeProvider: ChatProvider {
         callCount += 1
         lastTools = tools
         systemPrompts.append(systemPrompt)
+        let delay = deltaDelay
         return AsyncThrowingStream { continuation in
-            for e in events { continuation.yield(e) }
-            continuation.finish()
+            if delay > 0 {
+                Task {
+                    for e in events {
+                        if case .delta = e {
+                            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        }
+                        continuation.yield(e)
+                    }
+                    continuation.finish()
+                }
+            } else {
+                for e in events { continuation.yield(e) }
+                continuation.finish()
+            }
         }
     }
 }
@@ -393,6 +413,51 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(usage.first?.completionTokens, 130)
         let assistant = convo.messages.first { $0.role == .assistant && $0.content == "Final" }
         XCTAssertEqual(assistant?.tokenCount, 130)
+    }
+
+    func test_tps_recordsDecodeAndEndToEnd() async throws {
+        let context = try makeContext()
+        // Each .delta is delayed 0.5s, so:
+        //   start = T0
+        //   first .delta at T0+0.5 → firstTokenAt (0.5s TTFT)
+        //   second .delta at T0+1.0
+        //   .usage at T0+1.0
+        //
+        // Old formula (total elapsed):  ~1.0s → 4/1.0 ≈ 4 tok/s
+        // New formula (decode only):    ~0.5s → 4/0.5 ≈ 8 tok/s
+        // Assert > 6: only decode-only timing can satisfy this.
+        let provider = FakeProvider(events: [
+            .delta("Hello"), .delta(" world"),
+            .usage(promptTokens: 10, completionTokens: 4)
+        ], deltaDelay: 0.5)
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "Test", host: "t")
+        context.insert(server)
+        let convo = Conversation(modelID: "qwen3", serverID: server.id)
+        context.insert(convo)
+
+        await session.send("Hi", in: convo, server: server)
+
+        let usage = try context.fetch(FetchDescriptor<UsageRecord>())
+        XCTAssertEqual(usage.count, 1)
+        let record = try XCTUnwrap(usage.first)
+        XCTAssertEqual(record.completionTokens, 4)
+        // TTFT should reflect the ~0.5s delay before the first token.
+        XCTAssertGreaterThan(record.ttftMillis, 300)
+        // Decode-only TPS: 4 tokens over ~0.5s (first token → finish).
+        // Old total-time formula would give ~4 tok/s; decode-only gives ~8.
+        XCTAssertGreaterThan(record.tokensPerSecond, 6)
+
+        // The assistant message carries the same compute metrics.
+        let assistant = try XCTUnwrap(convo.messages.first { $0.role == .assistant })
+        XCTAssertEqual(assistant.content, "Hello world")
+        XCTAssertEqual(assistant.tokenCount, 4)
+        XCTAssertGreaterThan(try XCTUnwrap(assistant.tokensPerSecond), 6)
+        // End-to-end folds the ~0.5s TTFT back in: 4 tokens over ~1.0s ≈ 4 tok/s.
+        let e2e = try XCTUnwrap(assistant.endToEndTokensPerSecond)
+        XCTAssertLessThan(e2e, 6)
+        XCTAssertLessThan(e2e, try XCTUnwrap(assistant.tokensPerSecond))
     }
 
     func test_withoutYolo_mutatingToolStillPrompts() async throws {
