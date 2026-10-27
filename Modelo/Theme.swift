@@ -236,7 +236,7 @@ struct SpecStrip: View {
         if showArch, let a = model.displayArch { p.append(a.uppercased()) }
         if let s = model.parameterSize   { p.append(s) }
         if let q = model.quantization    { p.append(q) }
-        if let c = model.contextDisplay   { p.append("\(c) ctx") }
+        if let c = model.contextDisplay() { p.append("\(c) ctx") }
         if let f = model.displaySizeFormatted { p.append(f) }
         return p
     }
@@ -246,6 +246,7 @@ struct SpecStrip: View {
             .font(Theme.metric(11))
             .foregroundStyle(Theme.Palette.inkDim)
             .lineLimit(1)
+            .help(model.contextHelp ?? "")
     }
 }
 

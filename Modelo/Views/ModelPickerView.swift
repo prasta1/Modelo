@@ -566,6 +566,7 @@ private struct ModelRow: View {
                         .font(Theme.mono(11))
                         .foregroundStyle(Theme.textDim)
                         .lineLimit(1)
+                        .help(model.contextHelp ?? "")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -604,7 +605,7 @@ private struct ModelRow: View {
     private var specLine: String? {
         let parts = [model.parameterSize,
                      model.quantization,
-                     model.contextDisplay,
+                     model.contextDisplay(compact: true),
                      model.displaySizeFormatted].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

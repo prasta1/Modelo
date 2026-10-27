@@ -152,6 +152,7 @@ private struct DetailPanel: View {
                 barFrac: ctxFrac,
                 barAccent: false
             )
+            .help(m.contextHelp ?? "")
 
             // SIZE
             let sizeStr = m.displaySizeFormatted ?? m.parameterSize ?? "—"
@@ -171,7 +172,7 @@ private struct DetailPanel: View {
     }
 
     private var contextLabel: String {
-        m.contextDisplay ?? "not reported, set in Settings"
+        m.contextDisplay() ?? "not reported, set in Settings"
     }
 
     // MARK: History block

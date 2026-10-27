@@ -36,14 +36,25 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// when it declares 393K.
     var contextWindow: Int? { loadedContextLength ?? maxContextLength }
 
-    /// Context for display: `"64K of 393K"` while loaded below its maximum, otherwise
-    /// just the maximum (`"393K"`). nil when the API reports no maximum.
-    var contextDisplay: String? {
+    /// Context for display. While loaded below its maximum it names both, so the
+    /// loaded figure can't be misread as "used so far": `"131K loaded, 393K max"`
+    /// (`compact`: `"131K / 393K max"`). Otherwise just the maximum, `"393K"`.
+    ///
+    /// - Parameter compact: Short form for tight rows such as the picker.
+    /// - Returns: The label, or nil when the API reports no maximum.
+    func contextDisplay(compact: Bool = false) -> String? {
         guard let max = maxContextLength else { return nil }
-        if let loaded = loadedContextLength, loaded != max {
-            return "\(Self.tokenLabel(loaded)) of \(Self.tokenLabel(max))"
-        }
-        return Self.tokenLabel(max)
+        guard let loaded = loadedContextLength, loaded != max else { return Self.tokenLabel(max) }
+        let l = Self.tokenLabel(loaded), m = Self.tokenLabel(max)
+        return compact ? "\(l) / \(m) max" : "\(l) loaded, \(m) max"
+    }
+
+    /// Tooltip explaining a below-maximum load; nil when there's nothing to explain.
+    var contextHelp: String? {
+        guard let max = maxContextLength, let loaded = loadedContextLength, loaded != max else { return nil }
+        let l = Self.tokenLabel(loaded), m = Self.tokenLabel(max)
+        return "Loaded with \(l) of the \(m) this model supports. Chats compact as they approach \(l). "
+            + "A larger load uses more memory — change it in Settings ▸ Endpoints."
     }
 
     /// Compact token count: 1048576 → "1M", 65536 → "65K", 512 → "512".
