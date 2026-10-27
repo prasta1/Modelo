@@ -17,7 +17,7 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check tag matches MARKETING_VERSION
         run: |
@@ -46,7 +46,18 @@ jobs:
           security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PW" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KC"
 
-      # One App Store Connect API key authenticates both profile fetching and notarization.
+      # Xcode looks profiles up by UUID filename in this folder.
+      - name: Install Developer ID profile
+        env:
+          PROFILE: ${{ secrets.DEVID_PROFILE }}
+        run: |
+          DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$DIR"
+          echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/devid.provisionprofile"
+          UUID=$(security cms -D -i "$RUNNER_TEMP/devid.provisionprofile" | plutil -extract UUID raw -o - -)
+          cp "$RUNNER_TEMP/devid.provisionprofile" "$DIR/$UUID.provisionprofile"
+
+      # One App Store Connect API key authenticates archive signing and notarization.
       - name: Write API key
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
@@ -61,9 +72,10 @@ jobs:
           xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Release \
             -destination 'generic/platform=macOS' \
             -archivePath build-release/Modelo.xcarchive archive "${AUTH[@]}"
+          # Export signs manually with the installed profile — no API key, so no cloud signing.
           xcodebuild -exportArchive -archivePath build-release/Modelo.xcarchive \
             -exportOptionsPlist scripts/ExportOptions.plist \
-            -exportPath build-release/export "${AUTH[@]}"
+            -exportPath build-release/export
 
       # Notarize the zip, staple the ticket onto the app, then re-zip so the
       # shipped copy carries the ticket for offline Gatekeeper checks.

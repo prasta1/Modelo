@@ -3,11 +3,22 @@
 <plist version="1.0">
 <dict>
 	<!-- Developer ID: signed for distribution outside the App Store, then notarized.
-	Automatic signing fetches a Developer ID provisioning profile, which keeps the
-	keychain-access-groups entitlement (see Modelo/Modelo.entitlements). -->
+	Manual signing, because automatic export falls back to cloud signing, which an
+	App Store Connect API key isn't permitted to use for Developer ID. The profile is
+	created once in the developer portal and installed by the release workflow; it
+	grants the keychain-access-groups entitlement (see Modelo/Modelo.entitlements). -->
 	<key>method</key>
 	<string>developer-id</string>
 	<key>signingStyle</key>
-	<string>automatic</string>
+	<string>manual</string>
+	<key>teamID</key>
+	<string>QVYZN4MJ67</string>
+	<key>signingCertificate</key>
+	<string>Developer ID Application</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>com.peregrine.modelo</key>
+		<string>Modelo Developer ID</string>
+	</dict>
 </dict>
 </plist>
