@@ -74,3 +74,22 @@ whitelist Apple's tools for the key once (asks for the login password):
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
   ~/Library/Keychains/login.keychain-db
 ```
+
+## Releasing
+
+`.github/workflows/release.yml` builds a Developer ID-signed, notarized
+`Modelo.app` and attaches it to a GitHub release. Bump `MARKETING_VERSION` in
+`project.yml`, merge, then push a matching tag (`v0.3.1` ↔ `"0.3.1"`); the job
+fails fast if they disagree. Tags pushed before the workflow existed don't run it.
+
+Needs a paid Apple Developer Program team and these repo secrets:
+
+| Secret | Value |
+|---|---|
+| `DEVID_P12` | Developer ID Application cert + key exported as `.p12`, base64 (`base64 -i cert.p12 \| pbcopy`) |
+| `DEVID_P12_PASSWORD` | The `.p12` export password |
+| `ASC_KEY_P8` | App Store Connect API key (`.p8`), base64 — fetches the Developer ID profile and notarizes |
+| `ASC_KEY_ID`, `ASC_ISSUER_ID` | The IDs shown beside that key in App Store Connect → Users & Access → Integrations |
+
+If the team ID changes on enrollment (e.g. enrolling as an organization),
+update `DEVELOPMENT_TEAM` in `Signing.xcconfig`.
