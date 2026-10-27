@@ -191,14 +191,14 @@ private struct TableColumnHeader: View {
 
             // Capabilities — fixed width, not sortable
             Text("Capabilities")
-                .font(Theme.label(8))
+                .font(Theme.label(10))
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.caps, alignment: .leading)
 
             // Single merged metrics column header
             Text("Metrics")
-                .font(Theme.label(8))
+                .font(Theme.label(10))
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
@@ -228,7 +228,7 @@ private struct TableColumnHeader: View {
             else { vm.sortKey = key; vm.sortDescending = true }
         } label: {
             Text(text)
-                .font(Theme.label(8))
+                .font(Theme.label(10))
                 .tracking(0.8)
                 .foregroundStyle(isActive ? Theme.amber : Theme.textFaint)
         }
@@ -265,9 +265,12 @@ private struct CatalogGroupHeader: View {
                 .fill(Theme.textFaint)
                 .frame(width: 4, height: 4)
 
+            // Small-caps section label, same treatment as the picker's server
+            // headers. Rank comes from caps + tracking + position, not size — at
+            // 13pt it competed with the model names it was meant to label.
             Text(label)
-                .font(Theme.label(13))
-                .tracking(0.6)
+                .font(Theme.label(11))
+                .tracking(1)
                 .foregroundStyle(Theme.textFaint)
 
             if isLocal {
@@ -277,8 +280,8 @@ private struct CatalogGroupHeader: View {
             Spacer()
 
             Text("\(count) model\(count == 1 ? "" : "s")")
-                .font(Theme.metric(8))
-                .foregroundStyle(Theme.textFaint.opacity(0.45))
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textFaint)
         }
         .padding(.vertical, 7)
         .padding(.top, 4)
@@ -329,13 +332,13 @@ private struct VendorGroupHeader: View {
                     .frame(width: Col.star)
 
                 Text(name)
-                    .font(Theme.metric(10))
+                    .font(Theme.metric(12))
                     .foregroundStyle(isCollapsed ? Theme.textFaint : Theme.textMid)
 
                 Text("\(count)")
-                    .font(Theme.mono(9))
+                    .font(Theme.mono(10))
                     .monospacedDigit()
-                    .foregroundStyle(Theme.textFaint.opacity(0.5))
+                    .foregroundStyle(Theme.textFaint)
 
                 Spacer()
             }
@@ -385,8 +388,8 @@ struct ModelTableRow: View {
             // Star toggle
             Button(action: onToggleFav) {
                 Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundStyle(isFavorite ? Theme.amber : Theme.fillHi)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isFavorite ? Theme.amber : Theme.textFaint)
             }
             .buttonStyle(.plain)
             .frame(width: Col.star)

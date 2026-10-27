@@ -329,11 +329,13 @@ private struct ModelPickerList: View {
         HStack(spacing: 10) {
             Text(server.kind == .cloudAPI ? "\(server.label.uppercased()) · CLOUD"
                                          : server.label.uppercased())
-                .font(.system(size: 13, weight: .semibold)).tracking(0.6)
-                .foregroundStyle(Theme.textLo)
+                // Small-caps section label (popover convention), quieter than the
+                // 13pt model names it sits over.
+                .font(Theme.label(11)).tracking(1)
+                .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textDim)
+                .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
@@ -344,11 +346,11 @@ private struct ModelPickerList: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(Theme.amber)
             Text("FAVORITES")
-                .font(.mono(9.5)).tracking(1.2)
+                .font(Theme.label(11)).tracking(1)
                 .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(favoriteItems.count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textDim)
+                .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
