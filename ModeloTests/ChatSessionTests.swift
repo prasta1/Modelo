@@ -256,7 +256,7 @@ final class ChatSessionTests: XCTestCase {
         let session = ChatSession(client: provider, context: context,
                                   recorder: UsageRecorder(context: context),
                                   registry: ToolRegistry([SaveMemoryTool(scopes: [.global], root: root)]),
-                                  systemSuffix: { MemoryStore.indexInjection(scopes: [.global], toolsAvailable: $0, root: root) })
+                                  systemSuffix: { toolsActive, _ in MemoryStore.indexInjection(scopes: [.global], toolsAvailable: toolsActive, root: root) })
         let server = Server(label: "Studio", host: "studio"); context.insert(server)
         let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
 
@@ -269,6 +269,73 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(provider.systemPrompts.count, 2)
         XCTAssertFalse(provider.systemPrompts[0].contains("## Memory"))
         XCTAssertTrue(provider.systemPrompts[1].contains("- [global] prefers-tabs — Tabs over spaces"))
+    }
+
+    /// Memory sharing off: a cloud turn gets no memory index and no memory tools, and
+    /// a read_memory call made anyway is refused as unknown.
+    func test_send_cloudTurn_withholdsMemory() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "memory-cloud-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try MemoryStore.save(name: "pet-name", description: "Dog is Rex", body: "Rex.", scope: .global, root: root)
+
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: "read_memory", arguments: #"{"name":"pet-name"}"#)])],
+            [.delta("Ok"), .usage(promptTokens: 20, completionTokens: 1)]
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([SaveMemoryTool(scopes: [.global], root: root),
+                                                          ReadMemoryTool(scopes: [.global], root: root)]),
+                                  systemSuffix: { toolsActive, cloud in
+                                      cloud ? nil : MemoryStore.indexInjection(scopes: [.global], toolsAvailable: toolsActive, root: root)
+                                  },
+                                  cloudPolicy: ["read_memory": .withhold, "save_memory": .withhold])
+        let server = Server(label: "OpenRouter", host: "https://openrouter.ai/api/v1")
+        server.kind = .openRouter; context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("What's my dog called?", in: convo, server: server, modelSupportsTools: true)
+
+        XCTAssertNil(provider.lastTools)
+        XCTAssertFalse(provider.systemPrompts.contains { $0.contains("pet-name") })
+        XCTAssertEqual(convo.messages.first { $0.role == .tool }?.content, #"Error: unknown tool "read_memory"."#)
+    }
+
+    /// Memory sharing on: read_memory pauses for approval on a cloud turn only.
+    func test_send_cloudTurn_readMemoryNeedsApproval() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "memory-cloud-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try MemoryStore.save(name: "pet-name", description: "Dog is Rex", body: "Rex.", scope: .global, root: root)
+
+        func run(on kind: ServerKind, deny: Bool) async throws -> Conversation {
+            let context = try makeContext()
+            let provider = FakeProvider(scripts: [
+                [.toolCalls([ToolCall(id: "c1", name: "read_memory", arguments: #"{"name":"pet-name"}"#)])],
+                [.delta("Ok"), .usage(promptTokens: 20, completionTokens: 1)]
+            ])
+            let session = ChatSession(client: provider, context: context,
+                                      recorder: UsageRecorder(context: context),
+                                      registry: ToolRegistry([ReadMemoryTool(scopes: [.global], root: root)]),
+                                      cloudPolicy: ["read_memory": .approve])
+            let server = Server(label: "S", host: "s"); server.kind = kind; context.insert(server)
+            let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+            let turn = Task { await session.send("dog?", in: convo, server: server, modelSupportsTools: true) }
+            if deny {
+                try await waitForPendingApproval(in: session)
+                XCTAssertEqual(session.pendingApproval?.preview.kind, .cloud)
+                session.respondToApproval(.deny)
+            }
+            await turn.value
+            return convo
+        }
+
+        let cloud = try await run(on: .openRouter, deny: true)
+        XCTAssertEqual(cloud.messages.first { $0.role == .tool }?.content, "The user declined to run read_memory.")
+        let local = try await run(on: .lmStudio, deny: false)
+        XCTAssertEqual(local.messages.first { $0.role == .tool }?.content, "Rex.")
     }
 
     func test_send_capsToolRounds() async throws {
