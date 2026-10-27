@@ -86,9 +86,13 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
 
     /// The provider / organization prefix in OpenRouter IDs (`org/model` format).
     /// Returns nil for LM Studio IDs that have no slash.
+    ///
+    /// OpenRouter's auto-updating aliases (`~anthropic/claude-sonnet-latest`) carry
+    /// a leading `~`; it's stripped so they group with their real vendor instead of
+    /// spawning a parallel `~anthropic` bucket. `id` keeps the `~` for requests.
     var providerID: String? {
         guard let slash = id.firstIndex(of: "/") else { return nil }
-        return String(id[id.startIndex..<slash])
+        return String(id[id.startIndex..<slash]).trimmingCharacters(in: ["~"])
     }
 
     /// Unified family grouping key for filter pills.

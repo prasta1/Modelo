@@ -225,40 +225,67 @@ private struct ModelPickerList: View {
         !freeOnly || item.server.kind.isLocal || item.model.isFree
     }
 
-    private var serverPillStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                FilterPill(label: "All", isActive: selectedServer == nil) {
-                    selectedServer = nil
-                }
-                FilterPill(label: "free", isActive: freeOnly) {
-                    freeOnly.toggle()
-                }
-                ForEach(groups, id: \.server.id) { group in
-                    FilterPill(
-                        label: group.server.label,
-                        isActive: selectedServer?.id == group.server.id
-                    ) {
-                        selectedServer = selectedServer?.id == group.server.id ? nil : group.server
+    /// Server pills scroll on the left; the filter + sort menus stay pinned right,
+    /// so every control lives in one band instead of three stacked strips.
+    private var filterBar: some View {
+        HStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    if groups.count > 1 {
+                        FilterPill(label: "All", isActive: selectedServer == nil) {
+                            selectedServer = nil
+                        }
+                        ForEach(groups, id: \.server.id) { group in
+                            FilterPill(
+                                label: group.server.label,
+                                isActive: selectedServer?.id == group.server.id
+                            ) {
+                                selectedServer = selectedServer?.id == group.server.id ? nil : group.server
+                            }
+                        }
                     }
                 }
             }
-            .padding(.horizontal, 13)
+            .scrollIndicators(.hidden)
+            filterMenu
+            ModelSortMenu(sort: $sortKey)
         }
-        .scrollIndicators(.hidden)
-        .frame(height: 26)
+        .padding(.horizontal, 13)
+        .padding(.bottom, 10)
+    }
+
+    /// Loaded / Favorites / Free toggles folded into one menu; the label tints
+    /// amber and shows a count while any of them is on.
+    private var filterMenu: some View {
+        let active = [loadedOnly, favoritesOnly, freeOnly].filter { $0 }.count
+        return Menu {
+            Toggle("Loaded", isOn: $loadedOnly)
+            Toggle("Favorites", isOn: $favoritesOnly)
+            Toggle("Free", isOn: $freeOnly)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 9, weight: .medium))
+                Text(active == 0 ? "Filter" : "Filter · \(active)")
+                    .font(Theme.label(9))
+                    .tracking(0.8)
+            }
+            .foregroundStyle(active == 0 ? Theme.textDim : Theme.amber)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(active == 0 ? Theme.fill : Theme.amberFill, in: Capsule())
+            .overlay(Capsule().strokeBorder(active == 0 ? Theme.line : Theme.amberBorder, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 
     var body: some View {
         VStack(spacing: 0) {
             searchField
+            filterBar
             Divider().overlay(Theme.line)
-            filterSortRow
-            Divider().overlay(Theme.line)
-            if groups.count > 1 {
-                serverPillStrip
-                Divider().overlay(Theme.line)
-            }
             content
             Divider().overlay(Theme.line)
             footer
@@ -302,11 +329,13 @@ private struct ModelPickerList: View {
         HStack(spacing: 10) {
             Text(server.kind == .cloudAPI ? "\(server.label.uppercased()) · CLOUD"
                                          : server.label.uppercased())
-                .font(.system(size: 13, weight: .semibold)).tracking(0.6)
-                .foregroundStyle(Theme.textLo)
+                // Small-caps section label (popover convention), quieter than the
+                // 13pt model names it sits over.
+                .font(Theme.label(11)).tracking(1)
+                .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textDim)
+                .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
@@ -317,11 +346,11 @@ private struct ModelPickerList: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(Theme.amber)
             Text("FAVORITES")
-                .font(.mono(9.5)).tracking(1.2)
+                .font(Theme.label(11)).tracking(1)
                 .foregroundStyle(Theme.textDim)
             Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
             Text("\(favoriteItems.count)")
-                .font(.mono(9.5)).foregroundStyle(Theme.textDim)
+                .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
         .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 5)
     }
@@ -446,17 +475,6 @@ private struct ModelPickerList: View {
         .background(Color.white.opacity(0.012))
     }
 
-    private var filterSortRow: some View {
-        HStack(spacing: 6) {
-            FilterPill(label: "Loaded", isActive: loadedOnly) { loadedOnly.toggle() }
-            FilterPill(label: "Favorites", isActive: favoritesOnly) { favoritesOnly.toggle() }
-            Spacer(minLength: 0)
-            ModelSortMenu(sort: $sortKey)
-        }
-        .padding(.horizontal, 13)
-        .frame(height: 26)
-    }
-
     /// Local servers list in full; cloud catalogs stay behind search
     /// so hundreds of remote models don't dump into the popover unfiltered.
     /// Within each group, loaded models float to the top, then sorted by sortKey.
@@ -536,21 +554,27 @@ private struct ModelRow: View {
         HStack(spacing: 8) {
             indicator.frame(width: 16)
 
-            Text(model.familyName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(nameColor)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Specs ride on a second line so the name gets the full row width
+            // instead of competing with four fixed metric columns.
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.familyName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(nameColor)
+                    .lineLimit(1)
+                if let specLine {
+                    Text(specLine)
+                        .font(Theme.mono(11))
+                        .foregroundStyle(Theme.textDim)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Fixed-width metric columns so values register across all rows.
-            metricCell(model.parameterSize, width: 30)
-            metricCell(model.quantization, width: 58)
-            metricCell(model.maxContextLength.map { contextLabel($0) }, width: 30)
-            metricCell(model.displaySizeFormatted, width: 44)
-
-            // Fixed frames keep the name column stable regardless of which action renders.
-            starButton.frame(width: 20)
-            actionArea.frame(width: 52, alignment: .trailing)
+            // Actions appear on hover only; a favorite's filled star and an in-flight
+            // spinner stay visible because they're state, not controls. Fixed frames
+            // keep the name column stable whether or not anything renders.
+            Group { if hovering || isFavorite { starButton } }.frame(width: 20)
+            Group { if hovering || busy { actionArea } }.frame(width: 52, alignment: .trailing)
         }
         .padding(.horizontal, 10).padding(.vertical, 9)
         .background(rowFill, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
@@ -559,14 +583,30 @@ private struct ModelRow: View {
         .onTapGesture { if !busy { onSelect() } }
         .onHover { hovering = $0 }
         .help("Select \(model.familyName) · Double-click to open in new chat")
+        // VoiceOver can't hover or double-click, so the hidden buttons and the
+        // double-click shortcut are re-exposed as named actions.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityActions {
+            if let onNewChat {
+                Button("Open in new chat") { if !busy { onSelect(); onNewChat() } }
+            }
+            Button(isFavorite ? "Remove from favorites" : "Add to favorites") {
+                favorites.toggle(model.id)
+            }
+            if model.isLoaded, let onEject {
+                Button("Unload model", action: onEject)
+            }
+        }
     }
 
-    private func metricCell(_ value: String?, width: CGFloat) -> some View {
-        Text(value ?? "—")
-            .font(Theme.mono(9.5))
-            .foregroundStyle(value != nil ? Theme.textDim : Theme.textFaint.opacity(0.4))
-            .lineLimit(1)
-            .frame(width: width, alignment: .trailing)
+    /// "7B · Q4_K_M · 32K · 4.2 GB", skipping unknown values; nil when none are known.
+    private var specLine: String? {
+        let parts = [model.parameterSize,
+                     model.quantization,
+                     model.maxContextLength.map { contextLabel($0) },
+                     model.displaySizeFormatted].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder private var actionArea: some View {
@@ -580,6 +620,7 @@ private struct ModelRow: View {
             }
             .buttonStyle(.plain)
             .help("Unload model")
+            .accessibilityLabel("Unload \(model.familyName)")
         } else if !isSelected {
             // Only LM Studio loads on select (handleModelSelection). Everywhere else this
             // just picks the model, so don't promise a load that won't happen.
@@ -598,8 +639,10 @@ private struct ModelRow: View {
         }
     }
 
+    private var isFavorite: Bool { favorites.isFavorite(model.id) }
+
     private var starButton: some View {
-        let isFav = favorites.isFavorite(model.id)
+        let isFav = isFavorite
         return Button {
             favorites.toggle(model.id)
         } label: {
@@ -609,6 +652,7 @@ private struct ModelRow: View {
         }
         .buttonStyle(.plain)
         .help(isFav ? "Remove from favorites" : "Add to favorites")
+        .accessibilityLabel(isFav ? "Remove from favorites" : "Add to favorites")
     }
 
     @ViewBuilder private var indicator: some View {
@@ -642,6 +686,7 @@ private struct ModelRow: View {
     }
 
     private func contextLabel(_ n: Int) -> String {
-        n >= 1000 ? "\(n / 1000)K" : "\(n)"
+        if n >= 1_000_000 { return "\(n / 1_000_000)M" }
+        return n >= 1000 ? "\(n / 1000)K" : "\(n)"
     }
 }

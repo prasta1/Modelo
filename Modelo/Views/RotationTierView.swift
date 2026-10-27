@@ -49,22 +49,9 @@ struct RotationTierView: View {
             }
             .padding(.top, 24)
             .padding(.bottom, 10)
-        } else {
-            HStack(spacing: 6) {
-                Eyebrow("Rotation", color: Theme.textFaint.opacity(0.6), size: 9)
-                Text("·")
-                    .font(Theme.metric(9))
-                    .foregroundStyle(Theme.textFaint.opacity(0.25))
-                Text("Pin models here with ⌥1–4")
-                    .font(Theme.metric(9))
-                    .foregroundStyle(Theme.textFaint.opacity(0.3))
-            }
-            .padding(.horizontal, Theme.gutter)
-            .padding(.vertical, 7)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(Theme.line.opacity(0.4)).frame(height: 1)
-            }
         }
+        // No pins → no band. Pinning is offered by the inspector's Pin button,
+        // so an empty hint strip here only cost vertical space.
     }
 }
 

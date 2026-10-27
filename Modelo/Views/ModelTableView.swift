@@ -19,12 +19,14 @@ private enum Col {
     /// and the column still shrinks below it on a narrow window.
     ///
     /// Sized against the real catalog: of OpenRouter's 406 model names measured
-    /// at SF Pro medium 11pt, the widest is 262.7pt and the next is 198.3pt, so
-    /// 270 clears the single outlier with headroom to spare. Names that do
-    /// overflow ellipsize (`.lineLimit(1)`) rather than break the layout, so a
-    /// future long name degrades quietly — worth re-measuring if that matters.
-    static let nameMax: CGFloat = 270
-    static let caps: CGFloat = 148
+    /// at SF Pro medium 11pt, the widest is 262.7pt and the next is 198.3pt.
+    /// Rows now render at 13pt, which scales those to ~310pt and ~234pt, so 320
+    /// clears the single outlier. Names that do overflow ellipsize
+    /// (`.lineLimit(1)`) rather than break the layout, so a future long name
+    /// degrades quietly — worth re-measuring if that matters.
+    static let nameMax: CGFloat = 320
+    /// Five 14pt capability icons at 8pt spacing, plus a little air.
+    static let caps: CGFloat = 108
     /// Merged metrics cell: size · speed · used×, omitting missing values.
     static let metrics: CGFloat = 148
 }
@@ -189,14 +191,14 @@ private struct TableColumnHeader: View {
 
             // Capabilities — fixed width, not sortable
             Text("Capabilities")
-                .font(Theme.label(8))
+                .font(Theme.label(10))
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.caps, alignment: .leading)
 
             // Single merged metrics column header
             Text("Metrics")
-                .font(Theme.label(8))
+                .font(Theme.label(10))
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
@@ -226,7 +228,7 @@ private struct TableColumnHeader: View {
             else { vm.sortKey = key; vm.sortDescending = true }
         } label: {
             Text(text)
-                .font(Theme.label(8))
+                .font(Theme.label(10))
                 .tracking(0.8)
                 .foregroundStyle(isActive ? Theme.amber : Theme.textFaint)
         }
@@ -263,9 +265,12 @@ private struct CatalogGroupHeader: View {
                 .fill(Theme.textFaint)
                 .frame(width: 4, height: 4)
 
+            // Small-caps section label, same treatment as the picker's server
+            // headers. Rank comes from caps + tracking + position, not size — at
+            // 13pt it competed with the model names it was meant to label.
             Text(label)
-                .font(Theme.label(13))
-                .tracking(0.6)
+                .font(Theme.label(11))
+                .tracking(1)
                 .foregroundStyle(Theme.textFaint)
 
             if isLocal {
@@ -275,8 +280,8 @@ private struct CatalogGroupHeader: View {
             Spacer()
 
             Text("\(count) model\(count == 1 ? "" : "s")")
-                .font(Theme.metric(8))
-                .foregroundStyle(Theme.textFaint.opacity(0.45))
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textFaint)
         }
         .padding(.vertical, 7)
         .padding(.top, 4)
@@ -327,13 +332,13 @@ private struct VendorGroupHeader: View {
                     .frame(width: Col.star)
 
                 Text(name)
-                    .font(Theme.metric(10))
+                    .font(Theme.metric(12))
                     .foregroundStyle(isCollapsed ? Theme.textFaint : Theme.textMid)
 
                 Text("\(count)")
-                    .font(Theme.mono(9))
+                    .font(Theme.mono(10))
                     .monospacedDigit()
-                    .foregroundStyle(Theme.textFaint.opacity(0.5))
+                    .foregroundStyle(Theme.textFaint)
 
                 Spacer()
             }
@@ -383,32 +388,33 @@ struct ModelTableRow: View {
             // Star toggle
             Button(action: onToggleFav) {
                 Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundStyle(isFavorite ? Theme.amber : Theme.fillHi)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isFavorite ? Theme.amber : Theme.textFaint)
             }
             .buttonStyle(.plain)
             .frame(width: Col.star)
+            .accessibilityLabel(isFavorite ? "Remove from favorites" : "Add to favorites")
 
             // Name — flexible up to Col.nameMax
             Text(model.shortName)
-                .font(Theme.metric(11))
+                .font(Theme.metric(13))
                 .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
                 .lineLimit(1)
                 .frame(maxWidth: Col.nameMax, alignment: .leading)
 
             // Capabilities
-            HStack(spacing: 3) {
-                if model.isFree           { capPill("free",   Theme.green) }
-                if model.supportsToolUse  { capPill("tools",  Theme.amber) }
-                if model.supportsVision   { capPill("vision", Theme.blue) }
-                if model.supportsThinking { capPill("reason", Theme.purple) }
-                if model.isLoaded         { capPill("local",  Theme.amber) }
+            HStack(spacing: 8) {
+                if model.isFree           { capIcon("gift",                    "Free",      Theme.green) }
+                if model.supportsToolUse  { capIcon("wrench.and.screwdriver", "Tool use",  Theme.amber) }
+                if model.supportsVision   { capIcon("eye",                     "Vision",    Theme.blue) }
+                if model.supportsThinking { capIcon("brain",                   "Reasoning", Theme.purple) }
+                if model.isLoaded         { capIcon("memorychip",              "Loaded",    Theme.green) }
             }
             .frame(width: Col.caps, alignment: .leading)
 
             // Merged metrics: size · speed · used×
             Text(metricsLabel)
-                .font(Theme.mono(10))
+                .font(Theme.mono(11))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
@@ -443,13 +449,24 @@ struct ModelTableRow: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 7)
+        .padding(.vertical, 10)
         .background(rowBackground)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { onLaunch() }
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
         .help("Double-click to open in new chat")
+        // One VoiceOver element per row; the tap-gesture behaviours and inline
+        // buttons are re-exposed as named actions so nothing needs a mouse.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityActions {
+            Button("Open in new chat", action: onLaunch)
+            Button(isFavorite ? "Remove from favorites" : "Add to favorites", action: onToggleFav)
+            if model.isLoaded, let onEject {
+                Button("Unload model") { Task { await onEject() } }
+            }
+        }
     }
 
     @ViewBuilder private var rowBackground: some View {
@@ -466,19 +483,15 @@ struct ModelTableRow: View {
         }
     }
 
-    @ViewBuilder private func capPill(_ label: String, _ tint: Color) -> some View {
-        Text(label.uppercased())
-            .font(Theme.label(7.5))
-            .tracking(0.4)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
+    /// A tinted capability glyph. Shape carries the meaning, so it still reads
+    /// with Differentiate Without Color on; the name lives in the tooltip and
+    /// the VoiceOver label.
+    private func capIcon(_ symbol: String, _ label: String, _ tint: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 12))
             .foregroundStyle(tint)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .strokeBorder(tint.opacity(0.32), lineWidth: 0.5)
-            )
+            .frame(width: 14)
+            .help(label)
+            .accessibilityLabel(label)
     }
 }
