@@ -274,47 +274,7 @@ final class LMStudioClient: ChatProvider {
         // main actor is a data race — and a hard error under Swift 6 strict
         // concurrency. `wire`/`body` are plain value types, so the Task below
         // captures only Sendable data.
-        var wire: [WireMessage] = []
-        let sys = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !sys.isEmpty { wire.append(WireMessage(role: "system", content: sys)) }
-        for m in messages {
-            switch m.role {
-            case .system:
-                continue
-            case .user:
-                let allAtts = m.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
-                let imageAtts = allAtts.filter { $0.isImage }
-                let textAtts  = allAtts.filter { !$0.isImage }
-
-                if allAtts.isEmpty {
-                    if !m.content.isEmpty { wire.append(WireMessage(role: "user", content: m.content)) }
-                } else {
-                    var blocks: [WireContentBlock] = []
-                    // Text file attachments come first, each as a labeled fenced block.
-                    for att in textAtts {
-                        let text = String(data: att.data, encoding: .utf8) ?? "[unreadable]"
-                        let safeName = att.fileName.replacingOccurrences(of: "\"", with: "\\\"")
-                        blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
-                    }
-                    // User's typed message (may be empty if they attached without typing).
-                    if !m.content.isEmpty { blocks.append(.text(m.content)) }
-                    // Image attachments last (vision models only).
-                    for att in imageAtts { blocks.append(.imageURL(att.dataURL)) }
-                    wire.append(WireMessage(role: "user", blocks: blocks))
-                }
-            case .assistant:
-                if let json = m.toolCallsJSON, let calls = ToolCall.decodeList(json) {
-                    wire.append(WireMessage(
-                        role: "assistant",
-                        content: m.content.isEmpty ? nil : m.content,
-                        toolCalls: calls.map { WireToolCall(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments)) }))
-                } else if !m.content.isEmpty {
-                    wire.append(WireMessage(role: "assistant", content: m.content))
-                }
-            case .tool:
-                wire.append(WireMessage(role: "tool", content: m.content, toolCallID: m.toolCallID))
-            }
-        }
+        let wire = Self.wireMessages(messages, systemPrompt: systemPrompt)
 
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -344,6 +304,79 @@ final class LMStudioClient: ChatProvider {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Converts the conversation's active path into OpenAI-style wire messages,
+    /// with the system prompt first.
+    ///
+    /// Consecutive user turns are folded into one. A failed or stopped reply drops
+    /// its empty assistant message, so the next send would otherwise put two user
+    /// turns back to back — and strict chat templates (Mistral/Devstral, Gemma)
+    /// reject that with a 500 on every later send, bricking the chat.
+    ///
+    /// - Parameters:
+    ///   - messages: The active path, oldest first. `.system` entries are skipped;
+    ///     the system prompt is passed separately.
+    ///   - systemPrompt: Sent as the leading system message when non-blank.
+    /// - Returns: The messages to send, in order.
+    static func wireMessages(_ messages: [Message], systemPrompt: String) -> [WireMessage] {
+        var wire: [WireMessage] = []
+        let sys = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !sys.isEmpty { wire.append(WireMessage(role: "system", content: sys)) }
+
+        func appendUser(_ msg: WireMessage) {
+            guard let last = wire.last, last.role == "user",
+                  let prev = last.content, let next = msg.content else {
+                wire.append(msg)
+                return
+            }
+            if case .text(let a) = prev, case .text(let b) = next {
+                wire[wire.count - 1] = WireMessage(role: "user", content: a + "\n\n" + b)
+            } else {
+                wire[wire.count - 1] = WireMessage(role: "user", blocks: prev.blocks + next.blocks)
+            }
+        }
+
+        for m in messages {
+            switch m.role {
+            case .system:
+                continue
+            case .user:
+                let allAtts = m.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
+                let imageAtts = allAtts.filter { $0.isImage }
+                let textAtts  = allAtts.filter { !$0.isImage }
+
+                if allAtts.isEmpty {
+                    if !m.content.isEmpty { appendUser(WireMessage(role: "user", content: m.content)) }
+                } else {
+                    var blocks: [WireContentBlock] = []
+                    // Text file attachments come first, each as a labeled fenced block.
+                    for att in textAtts {
+                        let text = String(data: att.data, encoding: .utf8) ?? "[unreadable]"
+                        let safeName = att.fileName.replacingOccurrences(of: "\"", with: "\\\"")
+                        blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
+                    }
+                    // User's typed message (may be empty if they attached without typing).
+                    if !m.content.isEmpty { blocks.append(.text(m.content)) }
+                    // Image attachments last (vision models only).
+                    for att in imageAtts { blocks.append(.imageURL(att.dataURL)) }
+                    appendUser(WireMessage(role: "user", blocks: blocks))
+                }
+            case .assistant:
+                if let json = m.toolCallsJSON, let calls = ToolCall.decodeList(json) {
+                    wire.append(WireMessage(
+                        role: "assistant",
+                        content: m.content.isEmpty ? nil : m.content,
+                        toolCalls: calls.map { WireToolCall(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments)) }))
+                } else if !m.content.isEmpty {
+                    wire.append(WireMessage(role: "assistant", content: m.content))
+                }
+            case .tool:
+                wire.append(WireMessage(role: "tool", content: m.content, toolCallID: m.toolCallID))
+            }
+        }
+
+        return wire
     }
 
     /// Executes one HTTP streaming attempt. Returns `true` when the caller should
