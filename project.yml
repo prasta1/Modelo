@@ -18,14 +18,6 @@ settings:
     # Automatic signing lets Xcode pick the right identity per machine.
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
-    DEVELOPMENT_TEAM: QVYZN4MJ67
-packages:
-  MarkdownUI:
-    url: https://github.com/gonzalezreal/swift-markdown-ui
-    from: 2.4.1
-  Highlightr:
-    url: https://github.com/raspu/Highlightr
-    from: 2.3.0
 targets:
   Modelo:
     type: application
@@ -50,9 +42,12 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSHumanReadableCopyright: "© 2025 Patrick Ruster"
+    # See Signing.xcconfig for why signing is per-dev.
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.peregrine.modelo
         PRODUCT_NAME: Modelo
         PRODUCT_MODULE_NAME: Modelo
         MARKETING_VERSION: "0.3.0"
@@ -67,6 +62,10 @@ targets:
   ModeloTests:
     type: bundle.unit-test
     platform: macOS
+    # Same team as the app; without it, Xcode test runs fail to sign.
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     sources:
       - ModeloTests
     dependencies:
@@ -74,6 +73,8 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        # Distinct from the app's ID, which Signing.xcconfig would otherwise apply.
+        PRODUCT_BUNDLE_IDENTIFIER: $(PRODUCT_BUNDLE_IDENTIFIER_BASE).tests
         SWIFT_VERSION: "5.0"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Modelo.app/Contents/MacOS/Modelo"
         BUNDLE_LOADER: "$(TEST_HOST)"

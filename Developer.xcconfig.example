@@ -1,0 +1,12 @@
+// Copy to Developer.xcconfig (gitignored) and fill in YOUR values.
+// See Signing.xcconfig for why signing is per-dev.
+//
+// Find your team ID from your "Apple Development" certificate:
+//   security find-certificate -c "Apple Development" -p \
+//     | openssl x509 -noout -subject | sed -n 's/.*OU *= *\([^,/]*\).*/\1/p'
+//
+// Pick a bundle ID suffix unique to you; your Apple team must be able to
+// register it (it must not already belong to another team).
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+// The app signs as this ID; the test bundle as <this>.tests.
+PRODUCT_BUNDLE_IDENTIFIER_BASE = com.peregrine.modelo.YOUR_HANDLE

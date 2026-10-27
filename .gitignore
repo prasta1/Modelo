@@ -40,3 +40,6 @@ Modelo/.impeccable/
 Modelo/.agents/
 Modelo/PRODUCT.md
 Modelo/DESIGN.md
+
+# Per-developer signing overrides (each dev keeps their own, uncommitted)
+Developer.xcconfig
