@@ -171,10 +171,7 @@ private struct DetailPanel: View {
     }
 
     private var contextLabel: String {
-        guard let c = m.maxContextLength else { return "not reported, set in Settings" }
-        if c >= 1_000_000 { return "\(c / 1_000_000)M" }
-        if c >= 1_000     { return "\(c / 1_000)K" }
-        return "\(c)"
+        m.contextDisplay ?? "not reported, set in Settings"
     }
 
     // MARK: History block

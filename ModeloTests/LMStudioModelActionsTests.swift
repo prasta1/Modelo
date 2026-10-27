@@ -50,6 +50,18 @@ final class LMStudioModelActionsTests: XCTestCase {
         }
     }
 
+    /// Loaded below its maximum shows both; otherwise just the maximum.
+    func test_contextDisplay_showsLoadedOfMax() throws {
+        func model(_ json: String) throws -> LMStudioModel {
+            try JSONDecoder().decode(LMStudioModel.self, from: Data(json.utf8))
+        }
+        let loaded = try model(#"{"id":"d","max_context_length":393216,"loaded_context_length":65536}"#)
+        XCTAssertEqual(loaded.contextDisplay, "65K of 393K")
+        XCTAssertEqual(loaded.contextWindow, 65_536)
+        XCTAssertEqual(try model(#"{"id":"d","max_context_length":393216}"#).contextDisplay, "393K")
+        XCTAssertNil(try model(#"{"id":"d"}"#).contextDisplay)
+    }
+
     func test_contextLength_capsAtModelMaxAndHonorsLMStudioDefault() {
         XCTAssertEqual(LMStudioLoadContext.contextLength(cap: 65_536, modelMax: 393_216), 65_536)
         XCTAssertEqual(LMStudioLoadContext.contextLength(cap: 65_536, modelMax: 32_768), 32_768)

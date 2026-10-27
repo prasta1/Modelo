@@ -35,6 +35,22 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// otherwise the most it supports. A model loaded at 64K reports 64K here even
     /// when it declares 393K.
     var contextWindow: Int? { loadedContextLength ?? maxContextLength }
+
+    /// Context for display: `"64K of 393K"` while loaded below its maximum, otherwise
+    /// just the maximum (`"393K"`). nil when the API reports no maximum.
+    var contextDisplay: String? {
+        guard let max = maxContextLength else { return nil }
+        if let loaded = loadedContextLength, loaded != max {
+            return "\(Self.tokenLabel(loaded)) of \(Self.tokenLabel(max))"
+        }
+        return Self.tokenLabel(max)
+    }
+
+    /// Compact token count: 1048576 → "1M", 65536 → "65K", 512 → "512".
+    static func tokenLabel(_ n: Int) -> String {
+        if n >= 1_000_000 { return "\(n / 1_000_000)M" }
+        return n >= 1_000 ? "\(n / 1_000)K" : "\(n)"
+    }
     /// File size on disk in bytes. LM Studio's `/api/v0/models` reports this as `size_bytes`;
     /// some OpenAI-compatible backends (llama-swap, MLX) use `size`. Decode whichever is present
     /// and read through `fileSizeBytes`.
