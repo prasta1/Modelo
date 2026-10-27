@@ -1323,7 +1323,7 @@ private struct LocalSetupHint: View {
     private var hint: String {
         switch kind {
         case .lmStudio:
-            return "Install LM Studio from lmstudio.ai. Load a model in the Models tab, then start the local server from the Developer tab. Default port: 1234."
+            return "Install LM Studio from lmstudio.ai. Load a model in the Models tab, then start the local server from the Developer tab. Default port: 1234. Seeing another Mac's models here? Turn off LM Link in LM Studio — Modelo already connects to each machine directly."
         case .ollama:
             return "Install Ollama from ollama.com, then pull a model: ollama pull llama3.2. The server starts automatically. Default port: 11434."
         case .llamaCpp:
