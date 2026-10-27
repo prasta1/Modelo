@@ -1,0 +1,86 @@
+# Builds a Developer ID-signed, notarized Modelo.app and attaches it to a GitHub
+# release. Triggered by pushing a tag like v0.3.1 whose version matches
+# MARKETING_VERSION in project.yml. Required secrets are listed in AGENTS.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches MARKETING_VERSION
+        run: |
+          grep -q "MARKETING_VERSION: \"${GITHUB_REF_NAME#v}\"" project.yml || {
+            echo "::error::Tag $GITHUB_REF_NAME does not match MARKETING_VERSION in project.yml"
+            exit 1
+          }
+
+      - name: Generate project
+        run: brew install xcodegen && xcodegen generate
+
+      # The runner is a fresh Mac, so the cert goes into a temporary keychain that
+      # codesign can use without a password prompt.
+      - name: Import signing cert
+        env:
+          P12: ${{ secrets.DEVID_P12 }}
+          P12_PW: ${{ secrets.DEVID_P12_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain"
+          KC_PW=$(uuidgen)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security list-keychains -d user -s "$KC" login.keychain
+          security unlock-keychain -p "$KC_PW" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PW" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KC"
+
+      # One App Store Connect API key authenticates both profile fetching and notarization.
+      - name: Write API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: echo "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Archive + export
+        run: |
+          AUTH=(-allowProvisioningUpdates
+                -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"
+                -authenticationKeyID "$ASC_KEY_ID"
+                -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath build-release/Modelo.xcarchive archive "${AUTH[@]}"
+          xcodebuild -exportArchive -archivePath build-release/Modelo.xcarchive \
+            -exportOptionsPlist scripts/ExportOptions.plist \
+            -exportPath build-release/export "${AUTH[@]}"
+
+      # Notarize the zip, staple the ticket onto the app, then re-zip so the
+      # shipped copy carries the ticket for offline Gatekeeper checks.
+      - name: Notarize + staple
+        run: |
+          APP=build-release/export/Modelo.app
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
+          xcrun stapler staple "$APP"
+          ditto -c -k --keepParent "$APP" "Modelo-$GITHUB_REF_NAME.zip"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "Modelo-$GITHUB_REF_NAME.zip" --generate-notes
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain" || true

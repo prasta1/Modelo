@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Developer ID: signed for distribution outside the App Store, then notarized.
+	Automatic signing fetches a Developer ID provisioning profile, which keeps the
+	keychain-access-groups entitlement (see Modelo/Modelo.entitlements). -->
+	<key>method</key>
+	<string>developer-id</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+</dict>
+</plist>

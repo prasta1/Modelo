@@ -1,6 +1,6 @@
 #!/bin/bash
-# Rebuild a signed Release and install it. Run this every ~7 days (free
-# personal-team profiles expire weekly) or after any change.
+# Rebuild a signed Release and install it after any change. On a free personal
+# team, also re-run it every ~7 days (those profiles expire weekly).
 # Team + bundle ID come from Signing.xcconfig, or your gitignored Developer.xcconfig.
 # See AGENTS.md "Build, test, validate & install" for rationale.
 set -euo pipefail
