@@ -29,7 +29,12 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// Publisher / organization, e.g. `"mlx-community"`, `"lmstudio-community"`.
     let publisher: String?
     /// Context length the model is currently loaded with (`loaded_context_length`), when reported.
-    let loadedContextLength: Int?
+    /// `var` so the live monitor overlay can refresh it as models load and unload.
+    var loadedContextLength: Int?
+    /// The context actually available: what the model is loaded with when known,
+    /// otherwise the most it supports. A model loaded at 64K reports 64K here even
+    /// when it declares 393K.
+    var contextWindow: Int? { loadedContextLength ?? maxContextLength }
     /// File size on disk in bytes. LM Studio's `/api/v0/models` reports this as `size_bytes`;
     /// some OpenAI-compatible backends (llama-swap, MLX) use `size`. Decode whichever is present
     /// and read through `fileSizeBytes`.

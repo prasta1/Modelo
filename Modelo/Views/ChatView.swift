@@ -121,8 +121,12 @@ struct ChatView: View {
         )
     }
 
+    /// User override first, then the live entry's loaded context. `pickedModel` is a
+    /// copy taken at pick time — before an LM Studio load — so it only knows the
+    /// declared maximum; `discovered` carries the monitor's live state.
     private var contextWindow: Int {
-        boundServer?.contextLength(for: pickedModel?.model.id ?? "") ?? pickedModel?.model.maxContextLength ?? 0
+        let live = discovered.first { $0.id == pickedModel?.id }?.model ?? pickedModel?.model
+        return boundServer?.contextLength(for: pickedModel?.model.id ?? "") ?? live?.contextWindow ?? 0
     }
 
     /// Display name of the per-chat workspace folder, or nil when none is set.

@@ -321,7 +321,9 @@ struct ContentView: View {
                              snapshot: monitor.snapshot(for: server),
                              gpu: gpuMonitor.snapshot(for: server),
                              contextUsed: inspectorContextUsed,
-                             contextWindow: pickedModel?.model.maxContextLength ?? 0)
+                             // Live entry, not the stored pick: the pick predates the load.
+                             contextWindow: discoveredWithLiveState
+                                .first { $0.id == pickedModel?.id }?.model.contextWindow ?? 0)
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "chart.bar.xaxis")
@@ -593,6 +595,7 @@ struct ContentView: View {
             if snapshot != nil {
                 updated.state = liveModel != nil ? "loaded" : "not-loaded"
                 if let live = liveModel { updated.keepInRam = live.keepInRam }
+                updated.loadedContextLength = liveModel?.loadedContextLength
             }
             return DiscoveredModel(server: item.server, model: updated)
         }
