@@ -1,7 +1,7 @@
 # Design: Apple Intelligence (Foundation Models) as a provider
 
 **Date:** 2026-10-28
-**Status:** Scoped (no code changes yet)
+**Status:** Scoped, decisions made (no code changes yet)
 **Author:** Patrick + Claude
 
 ## Problem
@@ -88,7 +88,16 @@ in `Modelo/Services/`, all of it `@available(macOS 26, *)`.
    (`apple.intelligence` SF Symbol), no host/port/key fields, and a status line
    explaining *why* when unavailable ("Turn on Apple Intelligence in System
    Settings", "Model still downloading", "This Mac isn't eligible").
-7. **`ServerRegistry`:** see open decision 1 for how the row appears.
+7. **`ServerRegistry`:** on launch, on an eligible Mac, insert one
+   "Apple Intelligence" server row if this hasn't been done before (a
+   `UserDefaults` flag, so a deleted row stays deleted). The user hides it from
+   the picker with the existing per-server show/hide toggle (`isPaused`,
+   `SettingsView.swift:989`), which also stops its background polling. No new
+   setting.
+8. **Context overflow notice:** when trimming drops turns, surface a one-line
+   notice in the chat ("Earlier messages were dropped to fit Apple
+   Intelligence's context window"). Exact surface is decided in the plan (an
+   inline system note or the existing error banner).
 
 The compiler will add any `switch` sites missed above.
 
@@ -130,18 +139,16 @@ behind `#available`. Bump the runner first.
   as a dead LM Studio server, which is acceptable on a downgrade.
 - Private by construction: nothing leaves the Mac. No keys.
 
-## Open decisions
+## Decisions (2026-10-28)
 
-1. **How it appears:** auto-seed an "Apple Intelligence" server row on eligible
-   Macs (zero setup; the user can pause or delete it), or require adding it
-   through Add Endpoint like every other provider? *Leaning: auto-seed once,
-   remembered so a deleted row stays deleted.*
-2. **`isLocal`:** it runs locally, but `isLocal` also drives host:port UI, the
-   `modelo-tap` GPU agent, the "free" filter and "NOT LOADED" labels. *Leaning:
-   `true` for semantics (free, private), with the host:port and GPU-agent sites
-   excluding it explicitly.*
-3. **Context overflow UX:** silently trim old turns (the model forgets the start
-   of the chat) or trim and show a one-line notice? *Leaning: trim plus notice.*
-4. **Session caching:** Tier 1 rebuilds the session each turn, so the model
-   re-reads the transcript with no KV cache. At ≤4K tokens on-device this should
-   be fast. Measure before adding a per-conversation session cache.
+1. **How it appears:** auto-added once on eligible Macs. Hidden from the picker
+   via the existing per-server show/hide toggle; a deleted row stays deleted.
+2. **`isLocal`:** `true` (free, private, never "NOT LOADED"). The host:port
+   fields and `modelo-tap` GPU-agent sites exclude it explicitly.
+3. **Context overflow:** trim the oldest turns and show a one-line notice.
+
+## Open (resolve in the plan)
+
+- **Session caching:** Tier 1 rebuilds the session each turn, so the model
+  re-reads the transcript with no KV cache. At ≤4K tokens on-device this should
+  be fast. Measure before adding a per-conversation session cache.
