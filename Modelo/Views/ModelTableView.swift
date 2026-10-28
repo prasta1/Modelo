@@ -29,10 +29,12 @@ private enum Col {
     static let caps: CGFloat = 108
     /// Merged metrics cell: size · speed · used×, omitting missing values.
     static let metrics: CGFloat = 148
+    /// Price cell: "$0.25 · $1.00" (input · output per million) or "FREE · Oct 31".
+    static let price: CGFloat = 120
 }
 
 /// Dense sortable model table: sticky column header + scrollable grouped rows.
-/// Columns: name (flex, capped) | capabilities | context | size | speed | used — see `Col`.
+/// Columns: name (flex, capped) | capabilities | metrics | price — see `Col`.
 /// BENCH column omitted — no external benchmark data source.
 struct ModelTableView: View {
     let vm: ModelCatalogViewModel
@@ -50,6 +52,7 @@ struct ModelTableView: View {
             isFavorite: favorites.isFavorite(item.model.id),
             speedLabel: vm.speedLabel(for: item.id),
             usedCount: vm.usageCount(for: item.id),
+            showPrices: vm.pricesFresh,
             onSelect: { vm.selectedID = item.id },
             onLaunch: { vm.onLaunch?(item) },
             onEject: item.server.kind.canEject ? vm.onEject.map { eject in { await eject(item) } } : nil,
@@ -202,6 +205,13 @@ private struct TableColumnHeader: View {
                 .tracking(0.8)
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
+
+            Text("Price")
+                .font(Theme.label(10))
+                .tracking(0.8)
+                .foregroundStyle(Theme.textFaint)
+                .frame(width: Col.price, alignment: .trailing)
+                .help("Per million tokens: input · output, from the provider's own list")
 
             // All spare width pools after the metrics group so the content
             // cluster stays left rather than pushing metrics to the window edge.
@@ -363,6 +373,8 @@ struct ModelTableRow: View {
     let isFavorite: Bool
     let speedLabel: String
     let usedCount: Int?
+    /// False once prices are over a day old; the cell then shows "—" rather than mislead.
+    let showPrices: Bool
     let onSelect: () -> Void
     let onLaunch: () -> Void
     /// Unloads this model. Only offered while it is loaded.
@@ -373,6 +385,21 @@ struct ModelTableRow: View {
     @State private var ejecting = false
 
     private var model: LMStudioModel { item.model }
+
+    /// "local" never goes stale; prices and free promos can.
+    private var priceLabel: ModelPricing.Label? {
+        guard let label = ModelPricing.label(for: model, kind: item.server.kind, now: Date()) else { return nil }
+        if case .local = label { return label }
+        return showPrices ? label : nil
+    }
+
+    private var priceColor: Color {
+        switch priceLabel {
+        case .price?: Theme.amber
+        case .free?:  Theme.green
+        default:      Theme.textFaint
+        }
+    }
 
     /// size · speed t/s · count×, omitting whichever values are unavailable.
     private var metricsLabel: String {
@@ -418,6 +445,13 @@ struct ModelTableRow: View {
                 .monospacedDigit()
                 .foregroundStyle(Theme.textFaint)
                 .frame(width: Col.metrics, alignment: .trailing)
+                .lineLimit(1)
+
+            Text(ModelPricing.tableText(priceLabel))
+                .font(Theme.mono(11))
+                .monospacedDigit()
+                .foregroundStyle(priceColor)
+                .frame(width: Col.price, alignment: .trailing)
                 .lineLimit(1)
 
             // Unload a loaded model without leaving the list.

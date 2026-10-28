@@ -164,9 +164,8 @@ private struct DetailPanel: View {
             SpecRow(label: "Size", value: sizeStr, rank: nil, barFrac: sizeFrac, barAccent: false)
 
             // COST
-            let costStr = (m.isLoaded || model.server.kind.isLocal)
-                ? "free — runs locally"
-                : (m.isFree ? "free" : "paid · \(model.server.label)")
+            let costStr = ModelPricing.costText(for: m, kind: model.server.kind, serverLabel: model.server.label,
+                                                showPrices: vm.pricesFresh, now: Date())
             SpecRow(label: "Cost", value: costStr, rank: nil, barFrac: 0, barAccent: false)
         }
     }

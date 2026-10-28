@@ -25,6 +25,15 @@ struct ModelCatalogHeader: View {
                         .fixedSize()
                 }
                 if let onRefresh {
+                    // "Prices updated 3h ago", or "Prices out of date" once they're hidden.
+                    if vm.anyPriced {
+                        Text(vm.pricesFresh
+                             ? vm.pricesRefreshedAt.map { ModelPricing.ageText(refreshedAt: $0, now: Date()) } ?? ""
+                             : "Prices out of date")
+                            .font(Theme.metric(10))
+                            .foregroundStyle(vm.pricesFresh ? Theme.textFaint : Theme.amber)
+                            .fixedSize()
+                    }
                     refreshButton(onRefresh)
                 }
             }
