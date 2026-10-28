@@ -25,4 +25,18 @@ final class ScrollFollowTests: XCTestCase {
         XCTAssertFalse(ScrollFollow.isFollowing(was: false, oldOffsetY: 500, newOffsetY: 700,
                                                 distanceFromBottom: 400))
     }
+
+    /// Logged 2026-10-28: small scroll-ups stayed inside the "at the bottom" zone, so
+    /// following stayed on and auto-scroll pulled the reader back between gestures.
+    func test_userNudgeUpNearTheBottomStillPauses() {
+        XCTAssertFalse(ScrollFollow.isFollowing(was: true, oldOffsetY: 11003, newOffsetY: 10990,
+                                                distanceFromBottom: 33, userScrolling: true))
+    }
+
+    /// The app's own upward shift near the end (a draft box collapsing into a card)
+    /// isn't the reader leaving.
+    func test_nonUserShiftNearTheBottomKeepsFollowing() {
+        XCTAssertTrue(ScrollFollow.isFollowing(was: true, oldOffsetY: 11003, newOffsetY: 10990,
+                                               distanceFromBottom: 20, userScrolling: false))
+    }
 }
