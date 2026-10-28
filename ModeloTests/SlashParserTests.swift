@@ -78,11 +78,22 @@ final class SlashParserTests: XCTestCase {
         XCTAssertTrue(SlashParser.isSkillsListMode("/skills "))
         XCTAssertFalse(SlashParser.isSkillsListMode("/skills"))
         XCTAssertEqual(SlashParser.suggestions(for: "/skills ", skills: skills).map(\.token),
-                       ["brainstorming", "system"])
+                       ["brainstorming"])   // `system` clashes with a built-in, so it can't run
         XCTAssertEqual(SlashParser.suggestions(for: "/Skills AIN", skills: skills).map(\.token), ["brainstorming"])
     }
 
     func test_skillsCatalogEntry_takesFilterSoPickingOpensList() {
         XCTAssertEqual(SlashParser.catalog.first { $0.token == "skills" }?.takesArg, true)
+    }
+
+    /// A skill named like a built-in alias (`/summarize` = `/compact`) must not be
+    /// offered: picking it would run the built-in and drop the typed request.
+    func test_suggestions_hideSkillsNamedLikeBuiltInAliases() {
+        let clashing = ["summarize", "Help", "save", "sys"].map {
+            AgentSkill(name: $0, description: "", instructions: "x")
+        }
+        XCTAssertTrue(SlashParser.suggestions(for: "/su", skills: clashing).allSatisfy { !$0.isSkill })
+        XCTAssertTrue(SlashParser.suggestions(for: "/", skills: clashing).allSatisfy { !$0.isSkill })
+        XCTAssertTrue(SlashParser.suggestions(for: "/skills ", skills: clashing).isEmpty)
     }
 }

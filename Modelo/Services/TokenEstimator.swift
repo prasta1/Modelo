@@ -18,4 +18,13 @@ enum TokenEstimator {
     static func estimate(_ messages: [Message]) -> Int {
         messages.reduce(0) { $0 + estimate($1.wireContent) }
     }
+
+    /// Whether `text` fits `contextWindow` with room left for the reply: the same
+    /// response reserve Apple Intelligence keeps (1,024 tokens), capped at a quarter of
+    /// small windows. An unknown window (0) always fits.
+    static func fits(_ text: String, contextWindow: Int) -> Bool {
+        guard contextWindow > 0 else { return true }
+        let reserve = min(AppleIntelligenceRequest.defaultResponseReserve, contextWindow / 4)
+        return estimate(text) <= contextWindow - reserve
+    }
 }

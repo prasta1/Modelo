@@ -154,6 +154,24 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(ChatSession.provisionalTitle(from: "  \n "), "")
     }
 
+    /// A chat opened with a bare `/skill` has an empty first user message; the
+    /// provisional title comes from the first one with text, so that's the opener.
+    func test_needsModelTitle_skipsEmptySkillOpener() throws {
+        let context = try makeContext()
+        let convo = Conversation(modelID: "m", serverID: UUID())
+        context.insert(convo)
+        let bare = Message(role: .user, content: "")
+        bare.skillName = "brainstorming"
+        bare.skillInstructions = "Ask one question."
+        bare.createdAt = Date(timeIntervalSince1970: 1)
+        let next = Message(role: .user, content: "A settings page for skills")
+        next.createdAt = Date(timeIntervalSince1970: 2)
+        convo.appendToPath(bare)
+        convo.appendToPath(next)
+        convo.title = ChatSession.provisionalTitle(from: "A settings page for skills")
+        XCTAssertTrue(ChatSession.needsModelTitle(convo))
+    }
+
     func test_needsModelTitle_trueOnlyForMissingOrProvisional() throws {
         let context = try makeContext()
         let convo = Conversation(modelID: "qwen3", serverID: UUID())

@@ -93,18 +93,27 @@ enum SlashParser {
     /// argument) — except `/skills <filter>`, which lists only skills matching the filter.
     static func suggestions(for input: String, skills: [AgentSkill] = []) -> [Spec] {
         guard input.hasPrefix("/") else { return [] }
+        // Skills named like a built-in can never run (`parse` matches the built-in first),
+        // so they're never offered.
+        let runnable = skills.filter { !reservedWords.contains($0.name.lowercased()) }
         if isSkillsListMode(input) {
             let filter = input.dropFirst("/skills ".count).lowercased()
-            return skills.filter { filter.isEmpty || $0.name.lowercased().contains(filter) }.map(spec(for:))
+            return runnable.filter { filter.isEmpty || $0.name.lowercased().contains(filter) }.map(spec(for:))
         }
         let body = input.dropFirst()
         guard !body.contains(" ") else { return [] }     // typing an argument → stop suggesting
         let typed = body.lowercased()
         let builtIns = catalog.filter { typed.isEmpty || $0.token.hasPrefix(typed) }
-        let tokens = Set(catalog.map(\.token))
-        let matching = skills.filter { !tokens.contains($0.name) && (typed.isEmpty || $0.name.lowercased().hasPrefix(typed)) }
+        let matching = runnable.filter { typed.isEmpty || $0.name.lowercased().hasPrefix(typed) }
         return builtIns + matching.map(spec(for:))
     }
+
+    /// Every word `parse` treats as a built-in command, aliases included. Keep in sync
+    /// with the switch in `parse`.
+    static let reservedWords: Set<String> = [
+        "help", "?", "h", "clear", "reset", "copy", "skills", "compact", "summarize",
+        "export", "save", "temp", "temperature", "system", "sys", "model", "m",
+    ]
 
     /// True once the draft is `/skills ` (with the space): the popup shows the skill list.
     static func isSkillsListMode(_ input: String) -> Bool {

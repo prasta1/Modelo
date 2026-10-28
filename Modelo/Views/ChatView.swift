@@ -1061,6 +1061,14 @@ struct ChatView: View {
         return true
     }
 
+    /// Esc closes the slash popup (including the `/skills` list) by clearing the
+    /// command; otherwise Esc behaves normally.
+    private func dismissSlashPopup() -> Bool {
+        guard !slashSpecs.isEmpty || SlashParser.isSkillsListMode(draft) else { return false }
+        draft = ""
+        return true
+    }
+
     /// Up/Down within the slash popup. Returns true (consumes the key) only while the
     /// popup is open, so arrows behave normally for ordinary text.
     private func moveSlashSelection(_ delta: Int) -> Bool {
@@ -1241,6 +1249,7 @@ struct ChatView: View {
                               onMoveUp: { moveSlashSelection(-1) },
                               onMoveDown: { moveSlashSelection(1) },
                               onTab: acceptSlashSuggestion,
+                              onCancel: dismissSlashPopup,
                               onPasteImage: pasteImage)
                     .frame(height: composerHeight)
                     .onChange(of: draft) { old, new in
@@ -1887,9 +1896,9 @@ struct ChatView: View {
            let found = enabledSkills.first(where: { $0.name == name }) {
             // A skill too big for the model's window would fail on every later turn
             // too, so refuse up front and keep the draft (§3.7).
-            let needed = TokenEstimator.estimate(found.instructions) + TokenEstimator.estimate(request)
-            if contextWindow > 0, needed > contextWindow {
-                flash("\"\(name)\" is ~\(needed.formatted()) tokens — too big for this model's \(contextWindow.formatted())-token context.")
+            let wanted = found.instructions + "\n\n" + request
+            if !TokenEstimator.fits(wanted, contextWindow: contextWindow) {
+                flash("\"\(name)\" is ~\(TokenEstimator.estimate(wanted).formatted()) tokens — too big for this model's \(contextWindow.formatted())-token context.")
                 return
             }
             skill = found
