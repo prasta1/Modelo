@@ -111,6 +111,10 @@ struct ModelPickerView: View {
     let onModelEject: ((DiscoveredModel) async -> Void)?
     /// Optional callback fired when the user double-clicks a model row to start a new chat.
     let onNewChat: (() -> Void)?
+    /// When the model lists (and the prices in them) were last fetched, and how to
+    /// refetch them. Without `onRefresh` the picker shows no freshness line.
+    var pricesRefreshedAt: Date? = nil
+    var onRefresh: (() async -> Void)? = nil
     @State private var hovering = false
     @State private var showingPopover = false
 
@@ -148,7 +152,9 @@ struct ModelPickerView: View {
                             onEject: onModelEject == nil ? nil : { item in
                                 Task { await onModelEject?(item) }
                             },
-                            onNewChat: onNewChat) { item in
+                            onNewChat: onNewChat,
+                            refreshedAt: pricesRefreshedAt,
+                            onRefresh: onRefresh) { item in
                 // Reflect the pick immediately. Selection must NOT be gated on the
                 // load below: an OpenAI-compatible server (oMLX, vLLM…) classified as
                 // LM Studio can't be "loaded" and would otherwise fail, leaving the
@@ -209,7 +215,10 @@ private struct ModelPickerList: View {
     let selection: DiscoveredModel?
     let onEject: ((DiscoveredModel) -> Void)?
     let onNewChat: (() -> Void)?
+    let refreshedAt: Date?
+    let onRefresh: (() async -> Void)?
     let onSelect: (DiscoveredModel) -> Void
+    @State private var refreshing = false
     @State private var loadingID: String?
     @State private var ejectingID: String?
     @State private var searchText = ""
@@ -336,6 +345,49 @@ private struct ModelPickerList: View {
         .frame(width: 560)
         .frame(maxHeight: 560)
         .background(Theme.popoverBG)
+        // Prices ride in the model lists; quietly refetch them when they're old.
+        .onAppear {
+            if ModelPricing.needsRefresh(refreshedAt: refreshedAt, now: Date()) { refreshPrices() }
+        }
+    }
+
+    /// Prices are shown only while they're under a day old (`ModelPricing.hideAfter`).
+    private var pricesFresh: Bool {
+        !ModelPricing.isStale(refreshedAt: refreshedAt, now: Date())
+    }
+
+    /// True when some listed model has a price, so the freshness line is worth showing.
+    private var anyPriced: Bool {
+        groups.contains { $0.models.contains { $0.model.inputPricePerM != nil } }
+    }
+
+    private func refreshPrices() {
+        guard let onRefresh, !refreshing else { return }
+        refreshing = true
+        Task { @MainActor in
+            await onRefresh()
+            refreshing = false
+        }
+    }
+
+    /// "Prices updated 3h ago ↻", or "Prices out of date ↻" once they're hidden.
+    @ViewBuilder private var pricesFreshness: some View {
+        if onRefresh != nil, anyPriced {
+            HStack(spacing: 4) {
+                Text(pricesFresh ? refreshedAt.map { ModelPricing.ageText(refreshedAt: $0, now: Date()) } ?? ""
+                                 : "Prices out of date")
+                    .font(Theme.mono(10))
+                    .foregroundStyle(pricesFresh ? Theme.textDim : Theme.amber)
+                Button(action: refreshPrices) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .foregroundStyle(refreshing ? Theme.textFaint : Theme.textMute)
+                }
+                .buttonStyle(.plain)
+                .disabled(refreshing)
+                .help("Refresh models and prices")
+            }
+        }
     }
 
     private var searchField: some View {
@@ -481,7 +533,8 @@ private struct ModelPickerList: View {
                         if ejectingID == item.id { ejectingID = nil }
                     }
                  },
-                 onNewChat: onNewChat) {
+                 onNewChat: onNewChat,
+                 showPrices: pricesFresh) {
             loadingID = item.id
             onSelect(item)
             Task { @MainActor in
@@ -525,6 +578,7 @@ private struct ModelPickerList: View {
             .buttonStyle(.plain)
             .help("Manage models in Settings")
             Spacer()
+            pricesFreshness
             ModelSortMenu(sort: $sortKey)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
@@ -687,11 +741,49 @@ private struct ModelRow: View {
     let isEjecting: Bool
     let onEject: (() -> Void)?
     let onNewChat: (() -> Void)?
+    /// False once the picker's prices are over a day old; they hide rather than mislead.
+    let showPrices: Bool
     let onSelect: () -> Void
     @State private var hovering = false
     @Environment(FavoritesStore.self) private var favorites
 
     private var model: LMStudioModel { item.model }
+
+    /// The cost line for this row; "local · no cost" never goes stale, prices can.
+    private var priceLabel: ModelPricing.Label? {
+        guard let label = ModelPricing.label(for: model, kind: item.server.kind, now: Date()) else { return nil }
+        if case .local = label { return label }
+        return showPrices ? label : nil
+    }
+
+    @ViewBuilder private func priceLine(_ label: ModelPricing.Label) -> some View {
+        switch label {
+        case .local:
+            Text("local · no cost")
+                .font(Theme.mono(11)).foregroundStyle(Theme.textFaint)
+        case .price(let input, let output):
+            Text(ModelPricing.priceText(input: input, output: output))
+                .font(Theme.mono(11)).foregroundStyle(Theme.amber)
+        case .free(let until, let normalInput, let normalOutput):
+            HStack(spacing: 5) {
+                pill("FREE", color: Theme.green)
+                if let until { pill(ModelPricing.endsText(until), color: Theme.amber) }
+                if let normalInput, let normalOutput {
+                    Text("normally " + ModelPricing.priceText(input: normalInput, output: normalOutput))
+                        .font(Theme.mono(10)).foregroundStyle(Theme.textFaint)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func pill(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(Theme.mono(9, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(color.opacity(0.15), in: Capsule())
+    }
     private var busy: Bool { isLoading || isEjecting }
 
     var body: some View {
@@ -712,6 +804,7 @@ private struct ModelRow: View {
                         .lineLimit(1)
                         .help(model.contextHelp ?? "")
                 }
+                if let priceLabel { priceLine(priceLabel) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

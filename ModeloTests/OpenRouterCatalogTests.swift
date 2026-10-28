@@ -39,4 +39,50 @@ final class OpenRouterCatalogTests: XCTestCase {
         let json = #"{"data":[{"context_length":1},{"id":"ok/model","context_length":4096,"pricing":{"prompt":"0","completion":"0"},"architecture":{"input_modalities":["text"]},"supported_parameters":[]}]}"#
         XCTAssertEqual(try models(json).map(\.id), ["ok/model"])
     }
+
+    // MARK: Prices ("how much for everything")
+
+    func test_pricesConvertedToPerMillionTokens() throws {
+        // Nous-style padded strings; per-token USD → per million.
+        let json = #"{"data":[{"id":"p/particle-1","pricing":{"prompt":"0.0000002500","completion":"0.0000010000"}}]}"#
+        let m = try XCTUnwrap(models(json).first)
+        XCTAssertEqual(try XCTUnwrap(m.inputPricePerM), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(m.outputPricePerM), 1.00, accuracy: 1e-9)
+    }
+
+    func test_missingPricing_leavesPricesNil() throws {
+        let m = try XCTUnwrap(models(#"{"data":[{"id":"x/y"}]}"#).first)
+        XCTAssertNil(m.inputPricePerM)
+        XCTAssertNil(m.outputPricePerM)
+    }
+
+    /// Nous writes zero as "0.0000000000"; that must still count as free.
+    func test_freeByPaddedZeroPricing() throws {
+        let json = #"{"data":[{"id":"x/y","pricing":{"prompt":"0.0000000000","completion":"0.0000000000"}}]}"#
+        XCTAssertTrue(try XCTUnwrap(models(json).first).isFree)
+    }
+
+    func test_freeVariant_getsEndDateAndPaidSiblingsPrices() throws {
+        let json = #"""
+        {"data":[
+          {"id":"poolside/laguna-s-2.1:free","expiration_date":"2026-10-31","pricing":{"prompt":"0","completion":"0"}},
+          {"id":"poolside/laguna-s-2.1","expiration_date":"2026-10-31","pricing":{"prompt":"0.0000004","completion":"0.0000016"}}
+        ]}
+        """#
+        let all = try models(json)
+        let free = try XCTUnwrap(all.first { $0.id.hasSuffix(":free") })
+        XCTAssertEqual(free.freeUntil, ISO8601DateFormatter.dayUTC("2026-10-31"))
+        XCTAssertEqual(try XCTUnwrap(free.normalInputPricePerM), 0.40, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(free.normalOutputPricePerM), 1.60, accuracy: 1e-9)
+        // A paid model's expiration_date is a retirement, not a promo end.
+        XCTAssertNil(try XCTUnwrap(all.first { $0.id == "poolside/laguna-s-2.1" }).freeUntil)
+    }
+}
+
+private extension ISO8601DateFormatter {
+    static func dayUTC(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate]
+        return f.date(from: s)
+    }
 }
