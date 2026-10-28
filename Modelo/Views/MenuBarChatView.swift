@@ -71,7 +71,12 @@ final class QuickChatSession {
                     tools: nil
                 )
                 for try await event in stream {
-                    if case .delta(let token) = event { streamingText += token }
+                    switch event {
+                    case .delta(let token): streamingText += token
+                    // e.g. Apple Intelligence trimmed old turns to fit its context.
+                    case .notice(let text): errorText = text
+                    case .usage, .toolCalls: break
+                    }
                 }
             } catch is CancellationError {
                 // User tapped stop — leave partial text in messages if any.
