@@ -64,6 +64,7 @@ final class Server {
         case .cloudAPI:   return host
         case .openRouter: return Endpoint.openRouterBaseURL
         case .nous:       return Endpoint.nousBaseURL
+        case .appleIntelligence: return Endpoint.appleIntelligenceBaseURL
         }
     }
 

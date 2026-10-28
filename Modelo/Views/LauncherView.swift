@@ -161,7 +161,7 @@ struct LauncherView: View {
                 ForEach(models) { item in
                     ModelTile(item: item,
                               onTap: { onLaunch(item) },
-                              onUnload: onUnload.map { fn in { await fn(item) } },
+                              onUnload: item.server.kind.canEject ? onUnload.map { fn in { await fn(item) } } : nil,
                               onPin: onPin.map { fn in { Task<Void, Never> { await fn(item) } } },
                               onUnpin: onUnpin.map { fn in { Task<Void, Never> { await fn(item) } } })
                 }

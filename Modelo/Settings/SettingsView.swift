@@ -72,7 +72,13 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func endpointRow(for server: Server) -> some View {
-        if server.kind.isLocal {
+        // Checked before isLocal: it's local, but has no host:port or GPU agent to edit.
+        if server.kind == .appleIntelligence {
+            AppleIntelligenceSettingsRow(server: server, onDelete: {
+                context.delete(server)
+                context.saveOrLog()
+            })
+        } else if server.kind.isLocal {
             ServerSettingsRow(server: server,
                               onDelete: {
                 context.delete(server)
@@ -288,6 +294,7 @@ struct SettingsView: View {
         case .oMLX:                        return "cpu"
         case .ollama:                      return "cylinder"
         case .exo:                         return "point.3.connected.trianglepath.dotted"
+        case .appleIntelligence:           return "apple.intelligence"
         case .cloudAPI, .openRouter, .nous: return "server.rack"
         }
     }
@@ -1370,7 +1377,7 @@ private struct LocalSetupHint: View {
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
         case .exo:
             return "Run exo (exolabs.net) on this or another Mac. Add its host and port (default 52415). Models must be launched in exo's dashboard before you can chat with them."
-        case .cloudAPI, .openRouter, .nous:
+        case .cloudAPI, .openRouter, .nous, .appleIntelligence:
             return ""
         }
     }
@@ -1468,6 +1475,52 @@ private struct ServerProbeRow: View {
 
 /// One cloud API endpoint: a user-supplied base URL + a bearer token from Keychain.
 /// The `host` field on the `Server` model stores the full base URL for cloud kind.
+/// Settings row for the auto-added Apple Intelligence server: the endpoint header
+/// (status, show/hide toggle, delete) with no editable fields, plus why the model
+/// is unavailable when it is.
+private struct AppleIntelligenceSettingsRow: View {
+    @Bindable var server: Server
+    let onDelete: () -> Void
+
+    @State private var showDeleteConfirm = false
+    @Environment(ServerRegistry.self) private var registry
+
+    var body: some View {
+        HStack(spacing: 8) {
+            StatusLED(status: server.isPaused ? .offline : registry.status(for: server))
+                .help(server.isPaused ? "Paused — hidden from the picker" : registry.status(for: server).displayLabel)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(server.label.isEmpty ? "Apple Intelligence" : server.label)
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                Text(AppleIntelligenceClient.statusMessage() ?? "On-device · private · free")
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.textFaint)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Chip(text: server.kind.displayName.lowercased(), tint: Theme.amber)
+            PillToggle(isOn: Binding(get: { !server.isPaused }, set: { server.isPaused = !$0 }))
+                .help(server.isPaused ? "Resume: show Apple Intelligence in the picker" : "Pause: hide Apple Intelligence from the picker")
+            Button(action: { showDeleteConfirm = true }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.alert.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+            .help("Remove Apple Intelligence")
+            .confirmationDialog("Remove endpoint?", isPresented: $showDeleteConfirm) {
+                Button("Remove", role: .destructive) { onDelete() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes Apple Intelligence from Modelo and it won't be added back. To hide it for now, use the toggle instead.")
+            }
+        }
+        .padding(16)
+        .panel(Theme.popoverBG)
+    }
+}
+
 private struct CloudServerSettingsRow: View {
     @Bindable var server: Server
     let keychain: KeychainStore

@@ -88,6 +88,8 @@ final class LMStudioClient: ChatProvider {
         case .ollama:
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
+        case .appleIntelligence:
+            return AppleIntelligenceClient.models()
         }
     }
 
@@ -129,6 +131,7 @@ final class LMStudioClient: ChatProvider {
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
         case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .appleIntelligence: return AppleIntelligenceClient.isAvailable()
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
         var request = URLRequest(url: url)
@@ -181,6 +184,7 @@ final class LMStudioClient: ChatProvider {
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
         case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .appleIntelligence: return AppleIntelligenceClient.isAvailable() ? .reachable : .unreachable
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
         var request = URLRequest(url: url)
@@ -313,6 +317,10 @@ final class LMStudioClient: ChatProvider {
         // concurrency. `wire`/`body` are plain value types, so the Task below
         // captures only Sendable data.
         let wire = Self.wireMessages(messages, systemPrompt: systemPrompt)
+        // In-process on-device model: no HTTP, its own client.
+        if endpoint.kind == .appleIntelligence {
+            return AppleIntelligenceClient.streamChat(messages: wire, sampling: sampling)
+        }
 
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -435,6 +443,9 @@ final class LMStudioClient: ChatProvider {
             case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .exo: chatPath = "/v1/chat/completions"
             case .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
             case .ollama: chatPath = "/v1/chat/completions"
+            case .appleIntelligence:
+                // Unreachable: streamChat forwards this kind before any HTTP.
+                throw ClientError.unsupported
             }
             guard let url = URL(string: "\(endpoint.baseURL)\(chatPath)") else {
                 throw ClientError.invalidURL

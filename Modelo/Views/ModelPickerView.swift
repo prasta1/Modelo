@@ -473,7 +473,7 @@ private struct ModelPickerList: View {
                  isSelected: item.id == selection?.id,
                  isLoading: loadingID == item.id,
                  isEjecting: ejectingID == item.id,
-                 onEject: onEject == nil ? nil : {
+                 onEject: onEject == nil || !item.server.kind.canEject ? nil : {
                     ejectingID = item.id
                     onEject!(item)
                     Task { @MainActor in
