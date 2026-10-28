@@ -68,6 +68,17 @@ private struct MutatingEchoTool: Tool {
     func execute(argumentsJSON: String) async throws -> String { "MUTATED" }
 }
 
+/// A provider whose stream fails immediately, like a server erroring mid-turn.
+private final class ThrowingProvider: ChatProvider {
+    struct Boom: Error {}
+    func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] { [] }
+    func streamChat(endpoint: Endpoint, modelID: String, messages: [Message],
+                    systemPrompt: String, sampling: SamplingParams,
+                    tools: [ToolSpec]?) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { $0.finish(throwing: Boom()) }
+    }
+}
+
 /// Stands in for the Fetch MCP server's tool: approval-gated, granted per server+tool.
 private struct FetchLikeTool: Tool {
     let name = "fetch"
@@ -231,6 +242,44 @@ final class ChatSessionTests: XCTestCase {
         }
 
         XCTAssertEqual(convo.title, "Swift Concurrency Basics")
+    }
+
+    // MARK: lastTurnFailed (sidebar's red "problem" light)
+
+    func test_lastTurnFailed_whenServerOffline() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: FakeProvider(events: []), context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server, serverOnline: false)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    func test_lastTurnFailed_whenTheStreamThrows() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: ThrowingProvider(), context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    /// A notice reuses the error banner ("earlier messages dropped") but isn't a failure.
+    func test_lastTurnFailed_notForANotice_andClearsOnTheNextTurn() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: FakeProvider(events: [.notice("Earlier messages were dropped."),
+                                                                .delta("ok"),
+                                                                .usage(promptTokens: 1, completionTokens: 1)]),
+                                  context: context, recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server, serverOnline: false)
+        XCTAssertTrue(session.lastTurnFailed)
+        await session.send("Hi again", in: convo, server: server)
+        XCTAssertNotNil(session.errorText)          // the notice still shows in the banner…
+        XCTAssertFalse(session.lastTurnFailed)      // …but the turn didn't fail
     }
 
     func test_send_setsErrorMessage_whenServerOffline() async throws {
