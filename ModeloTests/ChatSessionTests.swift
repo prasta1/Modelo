@@ -68,6 +68,18 @@ private struct MutatingEchoTool: Tool {
     func execute(argumentsJSON: String) async throws -> String { "MUTATED" }
 }
 
+/// Stands in for the Fetch MCP server's tool: approval-gated, granted per server+tool.
+private struct FetchLikeTool: Tool {
+    let name = "fetch"
+    let description = "Fetches a URL"
+    let parameters = JSONSchema(properties: [:], required: [])
+    func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview? {
+        ToolApprovalPreview(kind: .external, title: "Call Fetch server", detail: argumentsJSON,
+                            grantKey: "mcp:Fetch/fetch")
+    }
+    func execute(argumentsJSON: String) async throws -> String { "PAGE" }
+}
+
 @MainActor
 final class ChatSessionTests: XCTestCase {
     func makeContext() throws -> ModelContext {
@@ -478,6 +490,32 @@ final class ChatSessionTests: XCTestCase {
         let e2e = try XCTUnwrap(assistant.endToEndTokensPerSecond)
         XCTAssertLessThan(e2e, 6)
         XCTAssertLessThan(e2e, try XCTUnwrap(assistant.tokensPerSecond))
+    }
+
+    /// Long research: approving an MCP tool (Fetch) for the session lets its later calls
+    /// in the same chat run without another click.
+    func test_sessionGrant_forMCPTool_skipsLaterPrompts() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: "fetch", arguments: #"{"url":"https://a.example"}"#)])],
+            [.toolCalls([ToolCall(id: "c2", name: "fetch", arguments: #"{"url":"https://b.example"}"#)])],
+            [.delta("Done"), .usage(promptTokens: 20, completionTokens: 1)]
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([FetchLikeTool()]))
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        let turn = Task { await session.send("research", in: convo, server: server, modelSupportsTools: true) }
+        try await waitForPendingApproval(in: session)
+        session.respondToApproval(.session)
+        await turn.value
+
+        XCTAssertNil(session.pendingApproval)                       // never asked a second time
+        XCTAssertEqual(convo.messages.filter { $0.role == .tool }.count, 2)
+        // `messages` isn't stored in time order, so look for the final reply directly.
+        XCTAssertTrue(convo.messages.contains { $0.role == .assistant && $0.content == "Done" })
     }
 
     func test_withoutYolo_mutatingToolStillPrompts() async throws {

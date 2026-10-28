@@ -72,7 +72,8 @@ final class ChatSession {
     /// proceed, and remembers session-wide approvals so we don't ask again.
     private func requestApproval(toolName: String, preview: ToolApprovalPreview) async -> Bool {
         if yoloMode { return true }
-        if sessionApprovedTools.contains(toolName) { return true }
+        let key = Self.grantKey(toolName: toolName, preview: preview)
+        if sessionApprovedTools.contains(key) { return true }
         let decision = await withTaskCancellationHandler {
             await withCheckedContinuation { (cont: CheckedContinuation<ApprovalDecision, Never>) in
                 pendingApproval = PendingApproval(toolName: toolName, preview: preview) { cont.resume(returning: $0) }
@@ -83,11 +84,17 @@ final class ChatSession {
             Task { @MainActor in self.cancelPendingApproval() }
         }
         // "Approve for session" is deliberately NOT honored for the shell tool: one grant
-        // must never authorize every later command. Writes/edits stay workspace-scoped,
-        // so a session grant for those is acceptable. MCP tools aren't workspace-scoped
-        // (a Filesystem server rooted at ~, Fetch to any URL), so they're excluded too.
-        if decision == .session && preview.allowsSessionGrant { sessionApprovedTools.insert(toolName) }
+        // must never authorize every later command. Writes/edits stay workspace-scoped;
+        // an MCP grant is keyed to its server + tool, so it can't leak to a same-named
+        // built-in (or vice versa).
+        if decision == .session && preview.allowsSessionGrant { sessionApprovedTools.insert(key) }
         return decision != .deny
+    }
+
+    /// What a session grant is remembered under: the preview's server-qualified key for
+    /// MCP tools, else the tool name.
+    nonisolated static func grantKey(toolName: String, preview: ToolApprovalPreview) -> String {
+        preview.grantKey ?? toolName
     }
 
     private let client: any ChatProvider

@@ -2115,7 +2115,9 @@ private struct ToolApprovalCard: View {
                 if pending.preview.allowsSessionGrant {
                     Button("Approve for session", action: { onDecision(.session) })
                         .buttonStyle(ApprovalButtonStyle(kind: .secondary))
-                        .help("Run \(pending.toolName) without asking again for the rest of this chat")
+                        .help(pending.preview.kind == .external
+                              ? "Let \(pending.toolName) run without asking for the rest of this chat — any arguments (for Fetch, any URL)"
+                              : "Run \(pending.toolName) without asking again for the rest of this chat")
                 }
                 Spacer(minLength: 0)
                 Button("Deny", action: { onDecision(.deny) })
