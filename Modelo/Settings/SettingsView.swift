@@ -832,6 +832,7 @@ private struct AppearanceSettingsTab: View {
     @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage("showPersonasInSidebar") private var showPersonasInSidebar = true
+    @AppStorage("showPersonaBar") private var showPersonaBar = true
     @AppStorage("toolCallsExpandedByDefault") private var toolCallsExpandedByDefault = false
 
     var body: some View {
@@ -851,6 +852,11 @@ private struct AppearanceSettingsTab: View {
                                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                             }
                             VStack(alignment: .leading, spacing: 2) {
+                                Text("Show persona picker in chat").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+                                Text("Displays the persona selector above the message box.")
+                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text("Expand tool call details by default").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
                                 Text("Show tool call arguments and results expanded in new messages.")
                                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
@@ -861,6 +867,9 @@ private struct AppearanceSettingsTab: View {
                                 .toggleStyle(.switch)
                                 .labelsHidden()
                             Toggle("", isOn: $showPersonasInSidebar)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                            Toggle("", isOn: $showPersonaBar)
                                 .toggleStyle(.switch)
                                 .labelsHidden()
                             Toggle("", isOn: $toolCallsExpandedByDefault)

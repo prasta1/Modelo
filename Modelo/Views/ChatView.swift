@@ -68,6 +68,8 @@ struct ChatView: View {
     @AppStorage(FSToolSettings.shellKey)   private var shellToolEnabled = false
     @AppStorage(FSToolSettings.rootKey)    private var fsToolsRoot = ""
     @AppStorage(MemoryStore.enabledKey)    private var memoryEnabled = false
+    // Settings ▸ General: show the persona picker above the composer.
+    @AppStorage("showPersonaBar") private var showPersonaBar = true
     @Query(sort: \Preset.sortOrder) private var presets: [Preset]
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     @State private var showSampling = false
@@ -1090,9 +1092,10 @@ struct ChatView: View {
 
     /// Persona control above the input. A chat's system prompt is set once, at
     /// the start, so the picker is editable only on an empty chat and becomes a
-    /// static label afterward. Hidden in project chats — those own their prompt.
+    /// static label afterward. Hidden in project chats — those own their prompt —
+    /// and when turned off in Settings.
     @ViewBuilder private var personaBar: some View {
-        if conversation.projectPath == nil {
+        if showPersonaBar && conversation.projectPath == nil {
             HStack(spacing: 8) {
                 if chatHasHistory {
                     HStack(spacing: 5) {
