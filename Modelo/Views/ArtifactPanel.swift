@@ -294,7 +294,9 @@ struct ArtifactCard: View {
 enum ArtifactPanelSizing {
     static let minWidth = 320.0
     /// The chat column never shrinks below this; it's the panel's only upper limit.
-    static let minChatWidth = 360.0
+    /// Sized for the chat header (model picker, Tools chip, buttons) to fit on one row —
+    /// at 360 it wrapped and stretched tall.
+    static let minChatWidth = 560.0
 
     /// The width the panel is shown at for a stored (possibly out-of-range) width.
     static func clamp(_ width: Double, detailWidth: Double) -> Double {

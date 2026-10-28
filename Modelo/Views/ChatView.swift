@@ -720,7 +720,7 @@ struct ChatView: View {
                 }
                 .scrollIndicators(.hidden)
                 .hideScrollIndicators()
-                .modifier(FollowsScrollPosition(isNearBottom: $isNearBottom))
+                .modifier(FollowsScrollPosition(isNearBottom: $isNearBottom, userScrolling: $userScrolling))
                 // Shown while the user reads history; returns to the latest turn and
                 // resumes following.
                 .overlay(alignment: .bottomTrailing) {
@@ -745,17 +745,20 @@ struct ChatView: View {
                 }
                 // Scroll to bottom when a new message is appended, but only if
                 // the user hasn't scrolled away to read history.
-                .onChange(of: conversation.messages.count) { if isNearBottom { scrollToBottom(proxy) } }
+                .onChange(of: conversation.messages.count) {
+                    if isNearBottom && !userScrolling { scrollToBottom(proxy) }
+                }
                 // Timer-based scroll during streaming: fires at ~20fps instead of once
                 // per token, avoiding layout-pass spam from per-character onChange.
+                // Never while the user's own scroll gesture (or its momentum) is running.
                 .task(id: session?.isStreaming) {
                     guard session?.isStreaming == true else { return }
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .milliseconds(50))
                         // Don't yank the view back down while the user reads scrollback.
-                        if isNearBottom { scrollToBottom(proxy) }
+                        if isNearBottom && !userScrolling { scrollToBottom(proxy) }
                     }
-                    if isNearBottom { scrollToBottom(proxy) }
+                    if isNearBottom && !userScrolling { scrollToBottom(proxy) }
                 }
             }
         }
@@ -846,6 +849,9 @@ struct ChatView: View {
 
     /// False while the user has scrolled away from the bottom; gates streaming auto-scroll.
     @State private var isNearBottom = true
+    /// True during the user's own scroll gesture and its momentum (macOS 15+); auto-scroll
+    /// waits it out so it never fights the user's hand.
+    @State private var userScrolling = false
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         proxy.scrollTo(bottomAnchor, anchor: .bottom)
@@ -2112,6 +2118,7 @@ private struct TranscriptStack<Content: View>: View {
 /// keeps the bottom-sentinel fallback in `messageStream`).
 private struct FollowsScrollPosition: ViewModifier {
     @Binding var isNearBottom: Bool
+    @Binding var userScrolling: Bool
 
     private struct Sample: Equatable {
         var offsetY: CGFloat
@@ -2132,11 +2139,28 @@ private struct FollowsScrollPosition: ViewModifier {
                 // Write only on a real change: this runs inside layout, and a write on every
                 // geometry tick fed a layout loop until AppKit threw ("more Update Constraints
                 // passes than there are views", 2026-10-28).
-                if following != isNearBottom { isNearBottom = following }
+                if following != isNearBottom {
+                    isNearBottom = following
+                    // SCROLLDIAG (temporary): which rule flipped following, and where.
+                    Log.chat.notice("SCROLLDIAG follow -> \(following) offset \(Int(old.offsetY))->\(Int(new.offsetY)) fromBottom \(Int(new.distanceFromBottom)) userScrolling \(userScrolling)")
+                }
                 // SCROLLDIAG — temporary evidence for the jumping-thumb / blank-overscroll
                 // bug. Remove once that's fixed.
                 if old.contentHeight != new.contentHeight {
                     Log.chat.notice("SCROLLDIAG height \(Int(old.contentHeight)) -> \(Int(new.contentHeight)) offset \(Int(new.offsetY)) fromBottom \(Int(new.distanceFromBottom))")
+                }
+            }
+            // The user's own gesture (and its momentum), as opposed to programmatic
+            // scrolls, which report `.idle` or `.animating`.
+            .onScrollPhaseChange { _, phase in
+                let byUser: Bool
+                switch phase {
+                case .tracking, .interacting, .decelerating: byUser = true
+                default: byUser = false
+                }
+                if byUser != userScrolling {
+                    userScrolling = byUser
+                    Log.chat.notice("SCROLLDIAG phase \(String(describing: phase)) userScrolling \(byUser)")
                 }
             }
         } else {

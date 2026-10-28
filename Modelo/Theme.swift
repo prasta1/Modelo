@@ -206,6 +206,9 @@ private struct ChipToggleLabel<Label: View>: View {
 
     var body: some View {
         label()
+            // A chip never wraps ("TO/OL/S" stacked vertically in a narrow header).
+            .lineLimit(1)
+            .fixedSize()
             .font(Theme.label(9))
             .tracking(0.8)
             .textCase(.uppercase)
