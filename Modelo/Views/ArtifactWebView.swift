@@ -19,13 +19,38 @@ struct ArtifactWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        webView.loadHTMLString(html, baseURL: nil)
+        // Only on a new document: SwiftUI calls this on every parent re-render (~20×/s
+        // while a reply streams), and reloading wiped whatever the user was doing.
+        if context.coordinator.shouldLoad(html) {
+            webView.loadHTMLString(html, baseURL: nil)
+        }
     }
 
     /// Keeps model-generated previews from navigating out to the network: the initial
     /// in-memory document loads, but any attempt to follow a remote (http/https) link or
     /// redirect is cancelled, so the sandbox can't be used to exfiltrate or phone home.
+    /// Also tracks which document is loaded, so re-renders don't reload it.
     final class Coordinator: NSObject, WKNavigationDelegate {
+        private var loadedHTML: String?
+
+        /// True (and recorded) when `html` isn't the document already showing.
+        func shouldLoad(_ html: String) -> Bool {
+            guard html != loadedHTML else { return false }
+            loadedHTML = html
+            return true
+        }
+
+        /// Makes the next `shouldLoad` true again (e.g. after the web engine died).
+        func forgetLoadedDocument() { loadedHTML = nil }
+
+        /// The page's web process died (memory pressure, a runaway script): reload the
+        /// same document rather than leave a blank preview until the panel is reopened.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            guard let html = loadedHTML else { return }
+            forgetLoadedDocument()
+            if shouldLoad(html) { webView.loadHTMLString(html, baseURL: nil) }
+        }
+
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if let scheme = navigationAction.request.url?.scheme?.lowercased(),
