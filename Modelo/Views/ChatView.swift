@@ -2126,9 +2126,13 @@ private struct FollowsScrollPosition: ViewModifier {
                        distanceFromBottom: g.contentSize.height - g.visibleRect.maxY,
                        contentHeight: g.contentSize.height)
             } action: { old, new in
-                isNearBottom = ScrollFollow.isFollowing(was: isNearBottom, oldOffsetY: old.offsetY,
-                                                        newOffsetY: new.offsetY,
-                                                        distanceFromBottom: new.distanceFromBottom)
+                let following = ScrollFollow.isFollowing(was: isNearBottom, oldOffsetY: old.offsetY,
+                                                         newOffsetY: new.offsetY,
+                                                         distanceFromBottom: new.distanceFromBottom)
+                // Write only on a real change: this runs inside layout, and a write on every
+                // geometry tick fed a layout loop until AppKit threw ("more Update Constraints
+                // passes than there are views", 2026-10-28).
+                if following != isNearBottom { isNearBottom = following }
                 // SCROLLDIAG — temporary evidence for the jumping-thumb / blank-overscroll
                 // bug. Remove once that's fixed.
                 if old.contentHeight != new.contentHeight {
