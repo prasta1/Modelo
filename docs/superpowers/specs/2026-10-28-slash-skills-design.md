@@ -86,13 +86,15 @@ what someone uses Modelo for. Users should choose where skills come from and whi
 
 ## Builder's calls (Claude's, open to change)
 
-- **How instructions reach the model:** store the skill name on the user `Message` (new
-  optional `skillName: String?`); `content` holds only what the user typed after the
-  name. When building the wire request (`LMStudioClient`, where user messages become
-  `WireMessage`s), expand a skill-tagged user message into the skill's current
-  `SKILL.md` body followed by the user's text. The bubble renders a chip from
-  `skillName`. If the skill can no longer be found when the request is built, send the
-  user text alone with a one-line note that the skill wasn't found.
+- **How instructions reach the model:** at send time, snapshot the skill onto the user
+  `Message` (new optional `skillName: String?` and `skillInstructions: String?`);
+  `content` holds only what the user typed after the name. When building the wire
+  request (`LMStudioClient.wireMessages`), a skill-tagged user message expands to the
+  snapshotted instructions followed by the user's text. The bubble renders a chip from
+  `skillName`. *(Revised while planning: snapshotting instead of re-reading `SKILL.md`
+  on every request means no disk reads during estimates or rendering, no "skill wasn't
+  found" path, and an old chat behaves the same even if the skill file is later edited
+  or deleted.)*
 - **Persistence of settings:** `@AppStorage` JSON-encoded string for the folder list
   (path + enabled), a set of *disabled* skill names, a set of *known* skill names (to
   tell "new" skills apart for the auto-enable switch), and a Bool for auto-enable.
@@ -114,11 +116,11 @@ what someone uses Modelo for. Users should choose where skills come from and whi
   so compaction triggers at the right time.
 - **Turning a skill off affects new use only.** Switching a skill (or its folder) off
   hides it from the popup, `/skills` and `use_skill`. A conversation that already
-  invoked it keeps receiving it. Expanding a tagged message looks the name up across
-  all configured folders, enabled or not. "Skill wasn't found" is sent only when the file
-  is actually gone.
-- **Too big for the model's context.** If the skill body plus history won't fit the
-  current model's context window (likely with Apple Intelligence's ~4K window), the
+  invoked it keeps receiving it, because the instructions were snapshotted onto that
+  message.
+- **Too big for the model's context.** If the skill body plus the user's text won't fit
+  the current model's context window (history is left out because compaction can shrink
+  it) (likely with Apple Intelligence's ~4K window), the
   composer refuses the send with a flash message naming the skill and its size, and
   nothing goes to the model. Skills stay listed in the popup regardless of window size.
 - **Edge cases:** a bare `/skill` with no extra text is still sent (it must not be
