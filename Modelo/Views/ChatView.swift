@@ -2110,6 +2110,11 @@ private struct FollowsScrollPosition: ViewModifier {
                 isNearBottom = ScrollFollow.isFollowing(was: isNearBottom, oldOffsetY: old.offsetY,
                                                         newOffsetY: new.offsetY,
                                                         distanceFromBottom: new.distanceFromBottom)
+                // SCROLLDIAG — temporary evidence for the jumping-thumb / blank-overscroll
+                // bug. Remove once that's fixed.
+                if old.contentHeight != new.contentHeight {
+                    Log.chat.notice("SCROLLDIAG height \(Int(old.contentHeight)) -> \(Int(new.contentHeight)) offset \(Int(new.offsetY)) fromBottom \(Int(new.distanceFromBottom))")
+                }
             }
         } else {
             content
