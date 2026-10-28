@@ -967,13 +967,19 @@ struct ChatView: View {
                 .background(Theme.amberFillLo)
             }
 
-            // Mutating tool call awaiting the user's go-ahead (file/shell tools).
-            if let pending = session?.pendingApproval {
-                ToolApprovalCard(pending: pending,
-                                 onDecision: { session?.respondToApproval($0) })
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
+            // Mutating tool call awaiting the user's go-ahead (file/shell tools). Slides up
+            // so a paused reply visibly asks for attention (a fade under Reduce Motion).
+            VStack(spacing: 0) {
+                if let pending = session?.pendingApproval {
+                    ToolApprovalCard(pending: pending,
+                                     onDecision: { session?.respondToApproval($0) })
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.3, bounce: 0.15),
+                       value: session?.pendingApproval?.preview.id)
 
             // Slash-command autocomplete (§3.1): appears when the draft starts with "/".
             slashSuggestions
@@ -2048,38 +2054,86 @@ private struct ToolApprovalCard: View {
             .background(Theme.consoleBG, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.line))
 
+            // macOS dialog order: the alternate choice on the leading edge, Cancel
+            // directly left of the default button on the trailing edge.
             HStack(spacing: 8) {
-                Button("Deny", action: { onDecision(.deny) })
-                    .buttonStyle(.plain)
-                    .font(Theme.metric(12))
-                    .foregroundStyle(Theme.textLo)
-                    .padding(.horizontal, 12).padding(.vertical, 5)
-                    .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
-                Spacer(minLength: 0)
                 // Hidden where ChatSession wouldn't honor it, rather than silently
                 // downgrading the click to a one-off approval.
                 if pending.preview.allowsSessionGrant {
                     Button("Approve for session", action: { onDecision(.session) })
-                        .buttonStyle(.plain)
-                        .font(Theme.metric(12))
-                        .foregroundStyle(Theme.amber)
-                        .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.amberBorder))
+                        .buttonStyle(ApprovalButtonStyle(kind: .secondary))
                         .help("Run \(pending.toolName) without asking again for the rest of this chat")
                 }
+                Spacer(minLength: 0)
+                Button("Deny", action: { onDecision(.deny) })
+                    .buttonStyle(ApprovalButtonStyle(kind: .plain))
                 Button("Approve once", action: { onDecision(.once) })
-                    .buttonStyle(.plain)
-                    .font(Theme.metric(12).weight(.semibold))
-                    .foregroundStyle(Theme.windowBG)
-                    .padding(.horizontal, 14).padding(.vertical, 5)
-                    .background(Theme.sendGradient, in: RoundedRectangle(cornerRadius: 7))
+                    .buttonStyle(ApprovalButtonStyle(kind: .primary))
             }
         }
         .padding(11)
         .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.amberBorder))
+    }
+}
+
+/// One look for the approval card's buttons, with hover and press feedback (each was
+/// hand-styled on `.plain` before, so none of them reacted to the pointer).
+private struct ApprovalButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, plain }
+    let kind: Kind
+
+    func makeBody(configuration: Configuration) -> some View {
+        ApprovalButtonLabel(configuration: configuration, kind: kind)
+    }
+}
+
+/// Split out so it can hold hover state — a `ButtonStyle` itself can't.
+private struct ApprovalButtonLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let kind: ApprovalButtonStyle.Kind
+    @State private var hovering = false
+
+    private var foreground: Color {
+        switch kind {
+        case .primary:   Theme.windowBG
+        case .secondary: Theme.amber
+        case .plain:     Theme.textLo
+        }
+    }
+
+    private var fill: AnyShapeStyle {
+        switch kind {
+        case .primary:   AnyShapeStyle(Theme.sendGradient)
+        case .secondary: AnyShapeStyle(Theme.amberFillLo)
+        case .plain:     AnyShapeStyle(Theme.fill)
+        }
+    }
+
+    private var border: Color {
+        switch kind {
+        case .primary:   .clear
+        case .secondary: Theme.amberBorder
+        case .plain:     Theme.line
+        }
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 7)
+        configuration.label
+            .font(kind == .primary ? Theme.metric(12).weight(.semibold) : Theme.metric(12))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, kind == .primary ? 14 : 12)
+            .padding(.vertical, 5)
+            .background(fill, in: shape)
+            .overlay(shape.stroke(border))
+            .brightness(hovering && !configuration.isPressed ? 0.06 : 0)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .contentShape(shape)
+            .onHover { hovering = $0 }
     }
 }
 
