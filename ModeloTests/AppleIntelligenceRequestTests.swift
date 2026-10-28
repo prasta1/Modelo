@@ -86,4 +86,24 @@ final class AppleIntelligenceRequestTests: XCTestCase {
         XCTAssertEqual(AppleIntelligenceRequest.generation(SamplingParams(maxTokens: 200)).maxTokens, 200)
         XCTAssertNil(AppleIntelligenceRequest.generation(SamplingParams()).maxTokens)
     }
+
+    // MARK: AppleIntelligenceClient (availability depends on the machine, so these
+    // assert shape and consistency, not a count)
+
+    func test_models_shape() {
+        let models = AppleIntelligenceClient.models()
+        XCTAssertLessThanOrEqual(models.count, 1)
+        if let m = models.first {
+            XCTAssertEqual(m.id, "apple-on-device")
+            XCTAssertTrue(m.isLoaded)
+            XCTAssertEqual(m.isFree, true)
+            XCTAssertEqual(m.toolUseSupported, false)
+            XCTAssertEqual(m.maxContextLength, 4096)
+        }
+        XCTAssertEqual(models.isEmpty, !AppleIntelligenceClient.isAvailable())
+    }
+
+    func test_statusMessage_nilIffAvailable() {
+        XCTAssertEqual(AppleIntelligenceClient.statusMessage() == nil, AppleIntelligenceClient.isAvailable())
+    }
 }

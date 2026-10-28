@@ -127,7 +127,7 @@ final class BenchmarkRunner {
                 switch event {
                 case .delta: if firstToken == nil { firstToken = Date() }
                 case .usage(_, let c): completion = c
-                case .toolCalls: break
+                case .toolCalls, .notice: break
                 }
             }
         } catch {

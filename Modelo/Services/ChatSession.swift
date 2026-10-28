@@ -308,6 +308,9 @@ final class ChatSession {
                         lastPromptTokens = p; roundCompletion = c
                     case .toolCalls(let cs):
                         toolCalls = cs
+                    case .notice(let text):
+                        // Reuses the chat banner; it's cleared at the start of each turn.
+                        errorText = text
                     }
                 }
                 // Flush any tokens buffered since the last 50ms window.
