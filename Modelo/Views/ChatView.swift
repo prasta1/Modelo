@@ -79,6 +79,9 @@ struct ChatView: View {
     @Query(sort: \Preset.sortOrder) private var presets: [Preset]
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     @State private var showSampling = false
+    /// Turning YOLO on from the header chip asks first: it's one click from letting the
+    /// model run shell commands unprompted.
+    @State private var confirmYolo = false
     @State private var showBenchmark = false
     /// Reference to the AppKit view behind the chat column, resolved at click time
     /// by the screenshot button to capture exactly what's on screen.
@@ -303,6 +306,10 @@ struct ChatView: View {
                         .toggleStyle(ChipToggleStyle())
                         .help("Allow this model to call tools")
                 }
+                // Also shown whenever YOLO is on, so it can always be switched off.
+                if pickedModel?.model.supportsToolUse == true || effectiveYolo {
+                    yoloChip
+                }
                 workspaceButton
                 artifactsButton
                 settingsButton
@@ -400,19 +407,45 @@ struct ChatView: View {
         }
     }
 
+    /// Header chip for this chat's YOLO mode — red while tools run without asking.
+    /// Locked on when YOLO is enabled for every chat in Settings ▸ Tools.
+    private var yoloChip: some View {
+        Toggle("YOLO", isOn: Binding(
+            get: { effectiveYolo },
+            set: { on in
+                if on {
+                    confirmYolo = true
+                } else {
+                    conversation.yoloEnabled = false
+                    context.saveOrLog()
+                }
+            }))
+            .toggleStyle(ChipToggleStyle(tint: Theme.Palette.alert))
+            .disabled(globalYolo)
+            .help(globalYolo ? "YOLO is on for every chat (Settings ▸ Tools)"
+                  : effectiveYolo ? "Tools run without asking in this chat — click to turn off"
+                  : "Run writes, edits and shell commands without asking in this chat")
+            .confirmationDialog("Run tools without asking?", isPresented: $confirmYolo) {
+                Button("Turn On YOLO", role: .destructive) {
+                    conversation.yoloEnabled = true
+                    context.saveOrLog()
+                }
+            } message: {
+                Text("In this chat, writes, edits and shell commands will run without an approval card, and the tool-call limit is lifted.")
+            }
+    }
+
     /// True when this chat deviates from the global defaults in anything the
-    /// settings popover controls (sampling, agent limits, YOLO).
+    /// settings popover controls (sampling, agent limits). YOLO has its own chip.
     private var hasOverrides: Bool {
         conversation.samplingOverride != SamplingParams()
             || conversation.maxToolRoundsOverride != nil
-            || effectiveYolo
     }
 
-    /// One entry point for per-chat sampling, agent behavior and workspace. Shows a
-    /// dot when any override is active — red when YOLO is on, amber otherwise.
+    /// One entry point for per-chat sampling, agent behavior and workspace. Shows an
+    /// amber dot when any override is active.
     private var settingsButton: some View {
-        let tint: Color = effectiveYolo ? Theme.Palette.alert
-            : hasOverrides ? Theme.amber
+        let tint: Color = hasOverrides ? Theme.amber
             : Theme.Palette.inkDim
         return Button { showSampling.toggle() } label: {
             Image(systemName: "slider.horizontal.3")
@@ -530,38 +563,22 @@ struct ChatView: View {
         .onChange(of: conversation.autoCompact) { context.saveOrLog() }
     }
 
-    /// Per-chat agent behavior: the YOLO switch and the tool-call limit override.
+    /// Per-chat agent behavior: the tool-call limit override. (YOLO is the header chip.)
     private var agentSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Eyebrow("Agent · this chat")
                 Spacer()
                 Button("Reset") {
-                    conversation.yoloEnabled = false
                     conversation.maxToolRoundsOverride = nil
                     context.saveOrLog()
                 }
                 .font(Theme.metric(11))
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.textDim)
-                .help("Turn off YOLO and use the global tool-call limit")
-                .accessibilityLabel("Turn off YOLO mode")
+                .help("Use the global tool-call limit")
+                .accessibilityLabel("Reset the tool-call limit")
             }
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("YOLO mode").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                    Text("Run writes, edits and shell commands without asking; no tool-call limit.")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
-                }
-                Spacer()
-                PillToggle(isOn: globalYolo ? .constant(true) : $conversation.yoloEnabled)
-                    .disabled(globalYolo)
-            }
-            if globalYolo {
-                Text("Enabled globally in Settings ▸ Tools.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
-            }
-            Divider().overlay(Theme.line)
             Stepper(value: Binding(get: { conversation.maxToolRoundsOverride ?? maxToolRounds },
                                    set: { conversation.maxToolRoundsOverride = $0 == maxToolRounds ? nil : $0 }),
                     in: 1...20) {
