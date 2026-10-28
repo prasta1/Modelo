@@ -40,4 +40,49 @@ final class SlashParserTests: XCTestCase {
         XCTAssertEqual(SlashParser.suggestions(for: "/model").map(\.token), ["model"])
         XCTAssertTrue(SlashParser.suggestions(for: "/model qwen").isEmpty)   // typing an arg
     }
+
+    // MARK: Skills (§3.7)
+
+    private let skills = [
+        AgentSkill(name: "brainstorming", description: "Explore intent first. More detail.", instructions: "x"),
+        AgentSkill(name: "system", description: "Clashes with a built-in.", instructions: "x"),
+    ]
+
+    func test_parse_skillWithText() {
+        XCTAssertEqual(SlashParser.parse("/Brainstorming plan a deck", skillNames: ["brainstorming"]),
+                       .skill(name: "brainstorming", text: "plan a deck"))
+    }
+
+    func test_parse_bareSkill() {
+        XCTAssertEqual(SlashParser.parse("/tdd", skillNames: ["tdd"]), .skill(name: "tdd", text: ""))
+    }
+
+    func test_parse_builtInBeatsSameNamedSkill() {
+        XCTAssertEqual(SlashParser.parse("/help", skillNames: ["help"]), .help)
+    }
+
+    func test_parse_unknownStillNil() {
+        XCTAssertNil(SlashParser.parse("/nope hi", skillNames: ["tdd"]))
+    }
+
+    func test_suggestions_includesSkillsAfterBuiltIns() {
+        XCTAssertEqual(SlashParser.suggestions(for: "/s", skills: skills).map(\.token), ["system", "skills"])
+        let bra = SlashParser.suggestions(for: "/bra", skills: skills)
+        XCTAssertEqual(bra.map(\.token), ["brainstorming"])
+        XCTAssertEqual(bra.first?.isSkill, true)
+        XCTAssertEqual(bra.first?.summary, "Explore intent first.")
+        XCTAssertTrue(bra.first?.takesArg == true)   // picking leaves room for a request
+    }
+
+    func test_suggestions_skillsListMode_filtersByText() {
+        XCTAssertTrue(SlashParser.isSkillsListMode("/skills "))
+        XCTAssertFalse(SlashParser.isSkillsListMode("/skills"))
+        XCTAssertEqual(SlashParser.suggestions(for: "/skills ", skills: skills).map(\.token),
+                       ["brainstorming", "system"])
+        XCTAssertEqual(SlashParser.suggestions(for: "/Skills AIN", skills: skills).map(\.token), ["brainstorming"])
+    }
+
+    func test_skillsCatalogEntry_takesFilterSoPickingOpensList() {
+        XCTAssertEqual(SlashParser.catalog.first { $0.token == "skills" }?.takesArg, true)
+    }
 }

@@ -6,7 +6,8 @@ enum SlashCommand: Equatable {
     case clear
     case copy
     case export                // write the conversation to ~/Downloads as Markdown (§3.2)
-    case skills                // list available ~/.agents skills (§3.7)
+    case skills                // open the pickable skills list (§3.7)
+    case skill(name: String, text: String)   // run a skill with optional request text (§3.7)
     case compact               // summarize older turns now to free context (§1.5)
     case temperature(Double)
     case system(String)        // empty string clears the per-conversation prompt
@@ -16,7 +17,9 @@ enum SlashCommand: Equatable {
 /// Parses composer input into a `SlashCommand`. Returns nil for ordinary text (and
 /// for an unrecognized `/word`, so the user can still send literal slash text).
 enum SlashParser {
-    static func parse(_ input: String) -> SlashCommand? {
+    /// `skillNames` are the enabled skills; a `/word` matching one (case-insensitively)
+    /// becomes `.skill`. Built-in commands are checked first, so they win on a clash.
+    static func parse(_ input: String, skillNames: [String] = []) -> SlashCommand? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("/") else { return nil }
 
@@ -49,13 +52,14 @@ enum SlashParser {
             guard !arg.isEmpty else { return nil }
             return .model(arg)
         default:
-            return nil
+            guard let name = skillNames.first(where: { $0.lowercased() == cmd }) else { return nil }
+            return .skill(name: name, text: arg)
         }
     }
 
     /// One-line help shown by `/help`.
     static let helpText = """
-    Commands: /model <name> · /temp <0–2> · /system <prompt> · /skills · /compact · /export · /clear · /copy · /help
+    Commands: /model <name> · /temp <0–2> · /system <prompt> · /skills [filter] · /<skill> [request] · /compact · /export · /clear · /copy · /help
     """
 
     // MARK: - Autocomplete (§3.1)
@@ -65,6 +69,8 @@ enum SlashParser {
         let token: String        // canonical command, e.g. "model"
         let arg: String?         // argument hint, e.g. "<name>"; nil = no argument
         let summary: String
+        /// True for a skill row (shown under the built-in commands).
+        var isSkill: Bool = false
         var id: String { token }
         var takesArg: Bool { arg != nil }
     }
@@ -74,7 +80,7 @@ enum SlashParser {
         Spec(token: "model",  arg: "<name>",   summary: "Switch the model"),
         Spec(token: "temp",   arg: "<0–2>",    summary: "Set temperature for this chat"),
         Spec(token: "system", arg: "<prompt>", summary: "Set the system prompt (empty clears)"),
-        Spec(token: "skills", arg: nil,        summary: "List available ~/.agents skills"),
+        Spec(token: "skills", arg: "[filter]", summary: "Pick from your skills"),
         Spec(token: "compact", arg: nil,       summary: "Summarize earlier turns to free up context"),
         Spec(token: "export", arg: nil,        summary: "Save the chat to ~/Downloads as Markdown"),
         Spec(token: "copy",   arg: nil,        summary: "Copy the last response"),
@@ -82,13 +88,30 @@ enum SlashParser {
         Spec(token: "help",   arg: nil,        summary: "Show available commands"),
     ]
 
-    /// Commands to suggest for the current composer text. Empty unless the input is a
-    /// bare `/word` with no argument yet (a space means the user is typing an argument).
-    static func suggestions(for input: String) -> [Spec] {
+    /// Commands and skills to suggest for the current composer text. Empty unless the
+    /// input is a bare `/word` with no argument yet (a space means the user is typing an
+    /// argument) — except `/skills <filter>`, which lists only skills matching the filter.
+    static func suggestions(for input: String, skills: [AgentSkill] = []) -> [Spec] {
         guard input.hasPrefix("/") else { return [] }
+        if isSkillsListMode(input) {
+            let filter = input.dropFirst("/skills ".count).lowercased()
+            return skills.filter { filter.isEmpty || $0.name.lowercased().contains(filter) }.map(spec(for:))
+        }
         let body = input.dropFirst()
         guard !body.contains(" ") else { return [] }     // typing an argument → stop suggesting
         let typed = body.lowercased()
-        return catalog.filter { typed.isEmpty || $0.token.hasPrefix(typed) }
+        let builtIns = catalog.filter { typed.isEmpty || $0.token.hasPrefix(typed) }
+        let tokens = Set(catalog.map(\.token))
+        let matching = skills.filter { !tokens.contains($0.name) && (typed.isEmpty || $0.name.lowercased().hasPrefix(typed)) }
+        return builtIns + matching.map(spec(for:))
+    }
+
+    /// True once the draft is `/skills ` (with the space): the popup shows the skill list.
+    static func isSkillsListMode(_ input: String) -> Bool {
+        input.lowercased().hasPrefix("/skills ")
+    }
+
+    private static func spec(for skill: AgentSkill) -> Spec {
+        Spec(token: skill.name, arg: "[request]", summary: UseSkillTool.brief(skill.description), isSkill: true)
     }
 }

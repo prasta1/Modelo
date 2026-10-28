@@ -1625,6 +1625,8 @@ struct ChatView: View {
             flash(skills.isEmpty
                   ? "No skills found in ~/.agents/skills."
                   : "\(skills.count) skills available: \(skills.map(\.name).joined(separator: ", "))")
+        case .skill:
+            break   // sent as a message by send(), never handled locally
         case .compact:
             guard let session, let server = boundServer else { flash("Pick a model first."); return }
             guard !isStreaming else { flash("Wait for the current reply to finish."); return }
