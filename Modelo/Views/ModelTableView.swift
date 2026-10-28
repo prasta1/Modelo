@@ -52,7 +52,7 @@ struct ModelTableView: View {
             usedCount: vm.usageCount(for: item.id),
             onSelect: { vm.selectedID = item.id },
             onLaunch: { vm.onLaunch?(item) },
-            onEject: vm.onEject.map { eject in { await eject(item) } },
+            onEject: item.server.kind.canEject ? vm.onEject.map { eject in { await eject(item) } } : nil,
             onToggleFav: { favorites.toggle(item.model.id) }
         )
         .id(item.id)

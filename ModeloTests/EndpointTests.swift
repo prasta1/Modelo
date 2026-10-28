@@ -178,6 +178,15 @@ final class EndpointTests: XCTestCase {
         XCTAssertFalse(ServerKind.localCases.contains(.appleIntelligence))
     }
 
+    /// Apple's model reports "loaded" (green dot, never "NOT LOADED") but Modelo
+    /// can't unload it, so the eject affordance must not be offered.
+    func test_canEject_falseOnlyForAppleIntelligence() {
+        XCTAssertFalse(ServerKind.appleIntelligence.canEject)
+        for kind in ServerKind.allCases where kind != .appleIntelligence {
+            XCTAssertTrue(kind.canEject, "\(kind)")
+        }
+    }
+
     func test_appleIntelligence_baseURLIsSentinel() {
         let s = Server(label: "Apple Intelligence", host: "", port: 0, kind: .appleIntelligence)
         XCTAssertEqual(s.baseURL, "apple-intelligence://on-device")

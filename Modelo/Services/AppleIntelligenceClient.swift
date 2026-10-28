@@ -102,7 +102,7 @@ enum AppleIntelligenceClient {
     private static func stream(messages: [WireMessage], sampling: SamplingParams,
                                into continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation) async throws {
         let options = AppleIntelligenceRequest.generation(sampling)
-        let reserve = options.maxTokens ?? AppleIntelligenceRequest.defaultResponseReserve
+        let reserve = AppleIntelligenceRequest.responseReserve(for: sampling)
         guard let request = AppleIntelligenceRequest.make(from: messages, responseReserve: reserve) else {
             throw ClientError.serverError("Nothing to send.")
         }

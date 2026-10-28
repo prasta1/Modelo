@@ -68,10 +68,17 @@ struct AppleIntelligenceRequest: Equatable {
     }
 
     /// The sampling settings the system model accepts: temperature clamped to its
-    /// 0...1 range (Modelo's 0.7 default when unset) and the reply cap. Top-p,
-    /// penalties and stop sequences have no equivalent and are dropped.
+    /// 0...1 range (Modelo's 0.7 default when unset) and the reply cap, clamped to
+    /// half the context. A global Max tokens sized for big local models (4096+)
+    /// would otherwise reserve the whole window and trim away all history.
+    /// Top-p, penalties and stop sequences have no equivalent and are dropped.
     static func generation(_ s: SamplingParams) -> (temperature: Double, maxTokens: Int?) {
-        (min(max(s.temperature ?? 0.7, 0), 1), s.maxTokens)
+        (min(max(s.temperature ?? 0.7, 0), 1), s.maxTokens.map { min($0, contextTokens / 2) })
+    }
+
+    /// Tokens to keep free for the reply: the clamped Max tokens, else the default.
+    static func responseReserve(for s: SamplingParams) -> Int {
+        generation(s).maxTokens ?? defaultResponseReserve
     }
 
     private static func text(of message: WireMessage) -> String? {

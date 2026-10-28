@@ -87,6 +87,19 @@ final class AppleIntelligenceRequestTests: XCTestCase {
         XCTAssertNil(AppleIntelligenceRequest.generation(SamplingParams()).maxTokens)
     }
 
+    /// A global Max tokens of 4096+ (common for local models) must not reserve the
+    /// whole 4K window for the reply and wipe the history every turn.
+    func test_largeMaxTokens_isClampedAndKeepsHistory() {
+        let big = SamplingParams(maxTokens: 8192)
+        XCTAssertEqual(AppleIntelligenceRequest.generation(big).maxTokens, 2048)
+        XCTAssertEqual(AppleIntelligenceRequest.responseReserve(for: big), 2048)
+        XCTAssertEqual(AppleIntelligenceRequest.responseReserve(for: SamplingParams()), 1024)
+        let wire = [user("a"), assistant("b"), user("c")]
+        let req = AppleIntelligenceRequest.make(from: wire, responseReserve: AppleIntelligenceRequest.responseReserve(for: big))
+        XCTAssertEqual(req?.droppedTurns, 0)
+        XCTAssertEqual(req?.history, [.user("a"), .assistant("b")])
+    }
+
     // MARK: AppleIntelligenceClient (availability depends on the machine, so these
     // assert shape and consistency, not a count)
 

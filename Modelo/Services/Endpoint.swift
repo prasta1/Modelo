@@ -90,6 +90,11 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Whether a loaded model of this kind may be offered an eject/unload action.
+    /// Apple Intelligence reports its model as loaded (it always is) but Modelo
+    /// can't unload it, so the action would only ever fail.
+    var canEject: Bool { self != .appleIntelligence }
+
     /// The local runtimes, in declaration order — used to populate the runtime picker.
     /// Excludes `appleIntelligence`: it's auto-added rather than picked, and these
     /// cases also feed `NetworkScanner`'s port list, where its port 0 is meaningless.
