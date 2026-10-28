@@ -2087,10 +2087,14 @@ enum ScrollFollow {
 
     /// Any scroll up stops following; reaching the bottom resumes it. Content growing
     /// below the viewport (a streaming reply) leaves the offset alone, so it doesn't count.
+    /// A user's scroll up pauses even inside `bottomSlack`: small nudges there used to
+    /// keep following on, and auto-scroll pulled the reader back between gestures.
     static func isFollowing(was: Bool, oldOffsetY: CGFloat, newOffsetY: CGFloat,
-                            distanceFromBottom: CGFloat) -> Bool {
+                            distanceFromBottom: CGFloat, userScrolling: Bool = false) -> Bool {
+        let movedUp = newOffsetY < oldOffsetY - 0.5
+        if userScrolling && movedUp { return false }
         if distanceFromBottom <= bottomSlack { return true }
-        if newOffsetY < oldOffsetY - 0.5 { return false }
+        if movedUp { return false }
         return was
     }
 }
@@ -2135,7 +2139,8 @@ private struct FollowsScrollPosition: ViewModifier {
             } action: { old, new in
                 let following = ScrollFollow.isFollowing(was: isNearBottom, oldOffsetY: old.offsetY,
                                                          newOffsetY: new.offsetY,
-                                                         distanceFromBottom: new.distanceFromBottom)
+                                                         distanceFromBottom: new.distanceFromBottom,
+                                                         userScrolling: userScrolling)
                 // Write only on a real change: this runs inside layout, and a write on every
                 // geometry tick fed a layout loop until AppKit threw ("more Update Constraints
                 // passes than there are views", 2026-10-28).
