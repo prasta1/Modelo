@@ -293,14 +293,12 @@ struct ArtifactCard: View {
 /// resize drag so the two can't disagree.
 enum ArtifactPanelSizing {
     static let minWidth = 320.0
-    /// The chat column never shrinks below this.
+    /// The chat column never shrinks below this; it's the panel's only upper limit.
     static let minChatWidth = 360.0
-    /// The panel never takes more than this share of the detail column.
-    static let maxFraction = 0.40
 
     /// The width the panel is shown at for a stored (possibly out-of-range) width.
     static func clamp(_ width: Double, detailWidth: Double) -> Double {
-        let upper = min(detailWidth * maxFraction, max(360, detailWidth - minChatWidth))
+        let upper = max(360, detailWidth - minChatWidth)
         return min(max(width, minWidth), max(minWidth, upper))
     }
 
