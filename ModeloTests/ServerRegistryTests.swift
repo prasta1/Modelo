@@ -52,4 +52,48 @@ final class ServerRegistryTests: XCTestCase {
         XCTAssertEqual(registry.status(for: server), .online)
         XCTAssertTrue(registry.isOnline(server))
     }
+
+    // MARK: Apple Intelligence seeding
+
+    private func appleRows(_ ctx: ModelContext) throws -> [Server] {
+        try ctx.fetch(FetchDescriptor<Server>()).filter { $0.kind == .appleIntelligence }
+    }
+
+    private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: UUID().uuidString)! }
+
+    func test_seedAppleIntelligence_insertsOnceWhenEligible() throws {
+        let ctx = try makeContext(), defaults = freshDefaults()
+        let registry = ServerRegistry()
+        registry.seedAppleIntelligenceIfNeeded(in: ctx, isEligible: true, defaults: defaults)
+        registry.seedAppleIntelligenceIfNeeded(in: ctx, isEligible: true, defaults: defaults)
+        XCTAssertEqual(try appleRows(ctx).count, 1)
+        XCTAssertEqual(try appleRows(ctx).first?.label, "Apple Intelligence")
+        XCTAssertTrue(defaults.bool(forKey: "didSeedAppleIntelligence"))
+    }
+
+    func test_seedAppleIntelligence_skipsWhenIneligible() throws {
+        let ctx = try makeContext(), defaults = freshDefaults()
+        ServerRegistry().seedAppleIntelligenceIfNeeded(in: ctx, isEligible: false, defaults: defaults)
+        XCTAssertEqual(try appleRows(ctx).count, 0)
+        XCTAssertFalse(defaults.bool(forKey: "didSeedAppleIntelligence"))
+    }
+
+    func test_seedAppleIntelligence_deletedRowStaysDeleted() throws {
+        let ctx = try makeContext(), defaults = freshDefaults()
+        let registry = ServerRegistry()
+        registry.seedAppleIntelligenceIfNeeded(in: ctx, isEligible: true, defaults: defaults)
+        try appleRows(ctx).forEach(ctx.delete)
+        try ctx.save()
+        registry.seedAppleIntelligenceIfNeeded(in: ctx, isEligible: true, defaults: defaults)
+        XCTAssertEqual(try appleRows(ctx).count, 0)
+    }
+
+    func test_seedAppleIntelligence_sortsLast() throws {
+        let ctx = try makeContext(), defaults = freshDefaults()
+        ctx.insert(Server(label: "A", host: "a", sortOrder: 0))
+        ctx.insert(Server(label: "B", host: "b", sortOrder: 3))
+        try ctx.save()
+        ServerRegistry().seedAppleIntelligenceIfNeeded(in: ctx, isEligible: true, defaults: defaults)
+        XCTAssertGreaterThan(try appleRows(ctx).first?.sortOrder ?? -1, 3)
+    }
 }

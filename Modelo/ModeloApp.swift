@@ -78,6 +78,11 @@ struct ModeloApp: App {
         let ctx = ModelContext(container)
         let registry = ServerRegistry()
         registry.seedIfNeeded(in: ctx)
+        // Unit tests launch the app as their host against the real store and
+        // defaults; a test run must not add rows to the developer's own data.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            registry.seedAppleIntelligenceIfNeeded(in: ctx, isEligible: AppleIntelligenceClient.isEligible())
+        }
         Persona.seedDefaults(in: ctx)
         // Backfill the branching tree (§1.2) for pre-existing flat conversations.
         BranchingMigration.runIfNeeded(in: ctx)
