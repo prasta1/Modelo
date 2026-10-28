@@ -147,8 +147,10 @@ behind `#available`. Bump the runner first.
    fields and `modelo-tap` GPU-agent sites exclude it explicitly.
 3. **Context overflow:** trim the oldest turns and show a one-line notice.
 
-## Open (resolve in the plan)
-
-- **Session caching:** Tier 1 rebuilds the session each turn, so the model
-  re-reads the transcript with no KV cache. At ≤4K tokens on-device this should
-  be fast. Measure before adding a per-conversation session cache.
+4. **Session caching:** none. Each turn rebuilds the session from the
+   transcript, matching the stateless `ChatProvider` contract (edit, regenerate,
+   branch and trim all rewrite history, so a cache would need invalidation on
+   every one of those paths, and trimming defeats it in long chats anyway). Call
+   `prewarm()` when the model is selected. Gate: run `Benchmark` with a
+   ~3,500-token prompt; time to first token under ~1s means no cache. Over that,
+   revisit. This is Apple-only: HTTP servers do their own prompt caching.
