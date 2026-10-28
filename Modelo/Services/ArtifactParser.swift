@@ -196,3 +196,43 @@ enum ArtifactInstructions {
     Markdown. Briefly introduce each artifact in your reply.
     """
 }
+
+/// A piece of a reply that's still streaming: finished text and artifacts as usual, plus
+/// the artifact being written right now (opened but not yet closed).
+enum StreamingSegment: Equatable {
+    case text(String)
+    case artifact(Artifact)
+    /// `title` is nil while the opening tag itself is still arriving.
+    case draft(title: String?, kind: ArtifactKind, body: String)
+}
+
+extension ArtifactParser {
+    /// Splits a still-streaming reply so the chat can show an unfinished artifact as a
+    /// draft box instead of raw markup and code.
+    static func streamingSegments(from text: String) -> [StreamingSegment] {
+        // The last opening tag with no closing tag after it is the one being written.
+        guard let open = text.range(of: "<artifact", options: [.caseInsensitive, .backwards]),
+              text.range(of: "</artifact>", options: .caseInsensitive, range: open.upperBound..<text.endIndex) == nil
+        else { return segments(from: text).map(Self.streaming) }
+
+        let head = String(text[..<open.lowerBound])
+        var out = head.isEmpty ? [] : segments(from: head).map(Self.streaming)
+        let tail = text[open.upperBound...]
+        if let close = tail.firstIndex(of: ">") {
+            let attrs = parseAttributes(String(tail[..<close]))
+            let kind = ArtifactKind.from(attrs["type"] ?? (attrs["language"] != nil ? "code" : ""))
+            let body = tail[tail.index(after: close)...].trimmingCharacters(in: .newlines)
+            out.append(.draft(title: attrs["title"], kind: kind, body: body))
+        } else {
+            out.append(.draft(title: nil, kind: .code, body: ""))
+        }
+        return out
+    }
+
+    private static func streaming(_ segment: ArtifactSegment) -> StreamingSegment {
+        switch segment {
+        case .text(let t):     .text(t)
+        case .artifact(let a): .artifact(a)
+        }
+    }
+}
