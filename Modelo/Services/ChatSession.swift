@@ -9,6 +9,10 @@ import SwiftData
 final class ChatSession {
     private(set) var isStreaming = false
     var errorText: String?
+    /// True when the last turn failed (server offline, a stream error, the tool-call
+    /// limit) — unlike `errorText`, which also carries harmless notices such as dropped
+    /// history. Drives the sidebar's red "problem" light.
+    private(set) var lastTurnFailed = false
     /// Called on the main actor when a turn finishes replying normally (not after a
     /// user stop or a transport error). The owning view uses it to post a completion
     /// notification when the user isn't watching this chat.
@@ -146,8 +150,10 @@ final class ChatSession {
               skill: AgentSkill? = nil,
               replacing edited: Message? = nil) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't send right now."
+            lastTurnFailed = true
             return
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -188,8 +194,10 @@ final class ChatSession {
                     sampling: SamplingParams = SamplingParams(),
                     contextWindow: Int = 0) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't regenerate right now."
+            lastTurnFailed = true
             return
         }
         guard target.role == .assistant else { return }
@@ -214,8 +222,10 @@ final class ChatSession {
                sampling: SamplingParams = SamplingParams(),
                contextWindow: Int = 0) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't retry right now."
+            lastTurnFailed = true
             return
         }
         guard conversation.activePath().last?.role == .user else { return }
@@ -340,6 +350,7 @@ final class ChatSession {
                     \(error.localizedDescription, privacy: .public)
                     """)
                 errorText = (error as? ClientError)?.errorDescription ?? error.localizedDescription
+                lastTurnFailed = true
                 if assistant.content.isEmpty && assistant.toolCallsJSON == nil {
                     conversation.dropLeaf(assistant)
                     context.delete(assistant)
@@ -393,6 +404,7 @@ final class ChatSession {
             round += 1
             if !yoloMode && round >= maxToolRounds {
                 errorText = "Reached the tool-call limit (\(maxToolRounds)) for this turn."
+                lastTurnFailed = true
                 break
             }
         }

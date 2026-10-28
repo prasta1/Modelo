@@ -378,35 +378,27 @@ struct SidebarView: View {
         let onTap: () -> Void
 
         @State private var hasUnviewedCompletion = false
-        @State private var pulseOpacity: Double = 1.0
+        @State private var hasUnviewedFailure = false
 
-        private static let limeGreen = Color(red: 0.6, green: 1.0, blue: 0.0)
+        private var session: ChatSession? { sessionStore.session(for: convo.persistentModelID) }
+        private var isStreaming: Bool { session?.isStreaming ?? false }
+        private var needsApproval: Bool { session?.pendingApproval != nil }
+        private var lastTurnFailed: Bool { session?.lastTurnFailed ?? false }
 
-        /// True when this conversation's session is actively streaming.
-        private var isStreaming: Bool {
-            sessionStore.session(for: convo.persistentModelID)?.isStreaming ?? false
+        private var status: ConversationStatus {
+            .resolve(isActive: active, isStreaming: isStreaming, needsApproval: needsApproval,
+                     unseenFailure: hasUnviewedFailure, unseenCompletion: hasUnviewedCompletion)
         }
-
-        /// Show the dot only for background chats that are streaming or have an
-        /// unread completion. Active (selected) chats already show state in the
-        /// chat view itself.
-        private var showDot: Bool { !active && (isStreaming || hasUnviewedCompletion) }
 
         var body: some View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 // Fixed-width container keeps the title position stable in all states.
-                ZStack {
-                    if showDot {
-                        Circle()
-                            .fill(Self.limeGreen)
-                            .frame(width: 5, height: 5)
-                            .opacity(isStreaming ? pulseOpacity : 1.0)
-                    }
-                }
-                .frame(width: 9, height: 9)
+                ZStack { StatusLight(status: status) }
+                    .frame(width: 9, height: 9)
+                    .accessibilityHidden(status == .none)
 
                 Text(convo.displayTitle)
-                    .font(.system(size: 12.5 * textScale))
+                    .font(.system(size: 12.5 * textScale, weight: active ? .semibold : .regular))
                     .foregroundStyle(active ? Theme.textHi : Theme.textSoft)
                     .lineLimit(1)
                 if isRenaming {
@@ -421,34 +413,36 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(active ? Theme.fill : .clear,
+            // The chat you're in: a clearly lighter solid fill (the theme's title colour,
+            // so it reads in light and dark themes) with a bold title.
+            .background(active ? Theme.textHi.opacity(0.12) : .clear,
                         in: RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
-            .help("Open conversation")
-            // Start pulse immediately if the row appears while already streaming.
-            .onAppear {
-                guard isStreaming && !active else { return }
-                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
-                    pulseOpacity = 0.2
-                }
-            }
-            // React to streaming transitions:
-            // true→false in background → mark unviewed completion, stop pulse.
-            // false→true in background → start pulse.
+            .help(status.accessibilityLabel.map { "Open conversation — \($0)" } ?? "Open conversation")
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(status.accessibilityLabel ?? "")
+            .accessibilityAddTraits(active ? .isSelected : [])
+            // A run that ends in the background leaves a green (done) or red (failed) light.
             .onChange(of: isStreaming) { wasStreaming, nowStreaming in
-                if wasStreaming && !nowStreaming && !active {
-                    hasUnviewedCompletion = true
-                }
-                withAnimation(nowStreaming && !active
-                    ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
-                    : .default) {
-                    pulseOpacity = (nowStreaming && !active) ? 0.2 : 1.0
+                if nowStreaming {
+                    // A new run supersedes whatever the last one left behind.
+                    hasUnviewedCompletion = false
+                    hasUnviewedFailure = false
+                } else if wasStreaming && !active {
+                    if lastTurnFailed { hasUnviewedFailure = true } else { hasUnviewedCompletion = true }
                 }
             }
-            // Opening the chat clears the unviewed-completion badge.
+            // Failures that never streamed (server offline) still turn the light red.
+            .onChange(of: lastTurnFailed) { _, failed in
+                if failed && !active { hasUnviewedFailure = true }
+            }
+            // Opening the chat clears green and red.
             .onChange(of: active) { _, nowActive in
-                if nowActive { hasUnviewedCompletion = false }
+                if nowActive {
+                    hasUnviewedCompletion = false
+                    hasUnviewedFailure = false
+                }
             }
         }
 
@@ -668,4 +662,90 @@ struct SidebarView: View {
         context.saveOrLog()
     }
 
+}
+
+/// The light a sidebar row shows for its conversation, so parallel runs read at a glance.
+enum ConversationStatus: Equatable {
+    case none, running, needsApproval, failed, finished
+
+    /// Highest priority first. The chat you're in shows no light (its state is on screen);
+    /// otherwise: waiting on you, then a failed turn, then running, then finished-unseen.
+    static func resolve(isActive: Bool, isStreaming: Bool, needsApproval: Bool,
+                        unseenFailure: Bool, unseenCompletion: Bool) -> ConversationStatus {
+        if isActive { return .none }
+        if needsApproval { return .needsApproval }
+        if unseenFailure { return .failed }
+        if isStreaming { return .running }
+        if unseenCompletion { return .finished }
+        return .none
+    }
+
+    /// Spoken by VoiceOver and shown in the row's tooltip; nil when there's no light.
+    var accessibilityLabel: String? {
+        switch self {
+        case .none:          nil
+        case .running:       "Running"
+        case .needsApproval: "Needs approval"
+        case .failed:        "Problem"
+        case .finished:      "Finished"
+        }
+    }
+}
+
+/// Draws a `ConversationStatus`: a spinning blue ring while running, a pulsing amber dot
+/// when waiting on you, solid red for a failed turn, solid green for finished-unseen.
+/// Under Reduce Motion the ring and pulse hold still.
+private struct StatusLight: View {
+    let status: ConversationStatus
+
+    private static let limeGreen = Color(red: 0.6, green: 1.0, blue: 0.0)
+
+    var body: some View {
+        switch status {
+        case .running:       RunningRing()
+        case .needsApproval: PulsingDot(color: Theme.amber)
+        case .failed:        Circle().fill(Theme.Palette.alert).frame(width: 7, height: 7)
+        case .finished:      Circle().fill(Self.limeGreen).frame(width: 7, height: 7)
+        case .none:          EmptyView()
+        }
+    }
+}
+
+/// Its own view so each appearance starts the spin fresh (a shared flag that was already
+/// on wouldn't re-trigger when the light switched from another state).
+private struct RunningRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spinning = false
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.72)
+            .stroke(Theme.blue, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+            .frame(width: 9, height: 9)
+            .rotationEffect(.degrees(spinning ? 360 : 0))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) { spinning = true }
+            }
+    }
+}
+
+/// A dot with a breathing halo — the one light that keeps asking for attention.
+private struct PulsingDot: View {
+    let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathing = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 7, height: 7)
+            .background(Circle().fill(color.opacity(0.25))
+                .frame(width: 13, height: 13)
+                .scaleEffect(breathing ? 0.6 : 1))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { breathing = true }
+            }
+    }
 }
