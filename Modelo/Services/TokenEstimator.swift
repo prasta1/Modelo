@@ -16,6 +16,6 @@ enum TokenEstimator {
 
     /// Approximate token count across a sequence of messages (sum of bodies).
     static func estimate(_ messages: [Message]) -> Int {
-        messages.reduce(0) { $0 + estimate($1.content) }
+        messages.reduce(0) { $0 + estimate($1.wireContent) }
     }
 }

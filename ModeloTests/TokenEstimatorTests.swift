@@ -18,4 +18,12 @@ final class TokenEstimatorTests: XCTestCase {
         let b = Message(role: .assistant, content: "abcdefgh") // 2
         XCTAssertEqual(TokenEstimator.estimate([a, b]), 3)
     }
+
+    func test_estimate_messagesCountsSkillInstructions() {
+        let m = Message(role: .user, content: "hi")
+        m.skillName = "s"
+        m.skillInstructions = String(repeating: "x", count: 400)
+        XCTAssertEqual(TokenEstimator.estimate([m]), TokenEstimator.estimate(m.wireContent))
+        XCTAssertGreaterThan(TokenEstimator.estimate([m]), 100)
+    }
 }

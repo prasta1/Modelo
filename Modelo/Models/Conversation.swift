@@ -128,7 +128,19 @@ final class Conversation {
             return (base, path)
         }
         let recent = Array(path.suffix(from: path.index(after: idx)))
-        let note = "Summary of the earlier conversation:\n\(summary)"
+        var note = "Summary of the earlier conversation:\n\(summary)"
+        // Skills invoked in the summarized turns would otherwise drop out of context;
+        // re-attach each one (latest snapshot per name, §3.7).
+        var skills: [(name: String, instructions: String)] = []
+        for m in path[...idx] {
+            guard let name = m.skillName, let instructions = m.skillInstructions else { continue }
+            skills.removeAll { $0.name == name }
+            skills.append((name, instructions))
+        }
+        if !skills.isEmpty {
+            note += "\n\nSkills invoked earlier in this conversation (still in effect):"
+            for s in skills { note += "\n\n### \(s.name)\n\(s.instructions)" }
+        }
         return (base.isEmpty ? note : "\(base)\n\n\(note)", recent)
     }
 

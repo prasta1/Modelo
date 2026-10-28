@@ -136,6 +136,7 @@ final class ChatSession {
               serverOnline: Bool = true, modelSupportsTools: Bool = false,
               sampling: SamplingParams = SamplingParams(),
               contextWindow: Int = 0,
+              skill: AgentSkill? = nil,
               replacing edited: Message? = nil) async {
         errorText = nil
         guard serverOnline else {
@@ -143,10 +144,15 @@ final class ChatSession {
             return
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        // A bare `/skill` has no typed text but is still a real turn.
+        guard !trimmed.isEmpty || !attachments.isEmpty || skill != nil else { return }
 
         let userMsg = Message(role: .user, content: trimmed)
         if !attachments.isEmpty { userMsg.attachmentsJSON = attachments.json }
+        if let skill {
+            userMsg.skillName = skill.name
+            userMsg.skillInstructions = skill.instructions
+        }
         if let edited, edited.parent != nil {
             conversation.branch(userMsg, asSiblingOf: edited)
         } else {
@@ -648,6 +654,6 @@ final class ChatSession {
     private func wireKeep(_ m: Message) -> Bool {
         if m.role == .tool { return true }
         if m.role == .assistant && m.toolCallsJSON != nil { return true }
-        return !m.content.isEmpty
+        return !m.wireContent.isEmpty
     }
 }
