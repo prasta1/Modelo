@@ -161,7 +161,7 @@ struct MessageRow: View {
                 switch segment {
                 case .text(let text):
                     if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(text)
+                        Text(StreamingMarkdown.attributed(text))
                             .font(.system(size: messageFontSize))
                             .lineSpacing(messageFontSize * 0.3)
                             .foregroundStyle(Theme.textMid)
@@ -506,5 +506,15 @@ private struct ArtifactDraftBox: View {
             RoundedRectangle(cornerRadius: Theme.Radius.card)
                 .strokeBorder(Theme.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         )
+    }
+}
+
+/// Inline-only Markdown for text that's still streaming: bold, italics, `code` and links,
+/// cheap enough to redo on every flush (full Markdown waits for the finished reply).
+enum StreamingMarkdown {
+    static func attributed(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 }
