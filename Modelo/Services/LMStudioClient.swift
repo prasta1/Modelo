@@ -392,8 +392,9 @@ final class LMStudioClient: ChatProvider {
                 let imageAtts = allAtts.filter { $0.isImage }
                 let textAtts  = allAtts.filter { !$0.isImage }
 
+                let userText = m.wireContent
                 if allAtts.isEmpty {
-                    if !m.content.isEmpty { appendUser(WireMessage(role: "user", content: m.content)) }
+                    if !userText.isEmpty { appendUser(WireMessage(role: "user", content: userText)) }
                 } else {
                     var blocks: [WireContentBlock] = []
                     // Text file attachments come first, each as a labeled fenced block.
@@ -403,7 +404,7 @@ final class LMStudioClient: ChatProvider {
                         blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
                     }
                     // User's typed message (may be empty if they attached without typing).
-                    if !m.content.isEmpty { blocks.append(.text(m.content)) }
+                    if !userText.isEmpty { blocks.append(.text(userText)) }
                     // Image attachments last (vision models only).
                     for att in imageAtts { blocks.append(.imageURL(att.dataURL)) }
                     appendUser(WireMessage(role: "user", blocks: blocks))

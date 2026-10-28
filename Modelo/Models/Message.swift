@@ -68,6 +68,11 @@ final class Message {
     var toolName: String?
     /// On a `.user` message: JSON-encoded `[MessageAttachment]` for image and file attachments.
     var attachmentsJSON: String?
+    /// On a `.user` message sent as `/<skill>`: the skill's name (shown as a chip) and
+    /// its instructions, snapshotted at send time so the turn re-sends identically even
+    /// if the skill file later changes (§3.7). `content` holds only the user's text.
+    var skillName: String?
+    var skillInstructions: String?
 
     // MARK: Branching tree (§1.2)
     //
@@ -96,6 +101,14 @@ final class Message {
 }
 
 extension Message {
+    /// The text the model sees for this turn: `content`, or for a skill-tagged turn the
+    /// skill's instructions followed by the user's text (§3.7).
+    var wireContent: String {
+        guard let instructions = skillInstructions else { return content }
+        let head = "Use the \"\(skillName ?? "")\" skill. Its instructions:\n\n\(instructions)"
+        return content.isEmpty ? head : "\(head)\n\n---\n\n\(content)"
+    }
+
     /// Messages sharing this one's parent (including self), ordered by branch index.
     /// Root messages (no parent) report only themselves — v1 doesn't branch roots.
     var siblings: [Message] {

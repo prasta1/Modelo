@@ -516,7 +516,7 @@ struct ContentView: View {
 
         let opener = convo.messages
             .sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         guard !opener.isEmpty else { return }
 
         renamingIDs.insert(convo.persistentModelID)

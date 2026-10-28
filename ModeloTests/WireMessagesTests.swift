@@ -25,4 +25,35 @@ final class WireMessagesTests: XCTestCase {
 
         XCTAssertEqual(wire.map(\.role), ["user", "assistant", "user"])
     }
+
+    private func skillMessage(_ content: String) -> Message {
+        let m = Message(role: .user, content: content)
+        m.skillName = "brainstorming"
+        m.skillInstructions = "Ask one question."
+        return m
+    }
+
+    /// A skill-tagged turn sends the snapshotted instructions, then the user's text.
+    func test_skillTaggedUser_expandsInstructionsThenText() {
+        let wire = LMStudioClient.wireMessages([skillMessage("plan a deck")], systemPrompt: "")
+        XCTAssertEqual(wire.map(\.role), ["user"])
+        XCTAssertEqual(wire[0].content, .text("""
+        Use the "brainstorming" skill. Its instructions:
+
+        Ask one question.
+
+        ---
+
+        plan a deck
+        """))
+    }
+
+    /// A bare `/skill` (no typed text) still reaches the model as the instructions.
+    func test_bareSkill_sendsInstructionsOnly() {
+        let wire = LMStudioClient.wireMessages([skillMessage("")], systemPrompt: "")
+        XCTAssertEqual(wire.count, 1)
+        guard case .text(let text)? = wire.first?.content else { return XCTFail("expected text") }
+        XCTAssertTrue(text.hasSuffix("Ask one question."))
+        XCTAssertFalse(text.contains("---"))
+    }
 }

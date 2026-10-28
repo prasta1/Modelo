@@ -11,6 +11,7 @@ final class FakeProvider: ChatProvider {
     private(set) var callCount = 0
     private(set) var lastTools: [ToolSpec]?
     private(set) var systemPrompts: [String] = []
+    private(set) var lastMessages: [Message] = []
     init(scripts: [[StreamEvent]], deltaDelay: TimeInterval = 0) {
         self.scripts = scripts; self.deltaDelay = deltaDelay
     }
@@ -25,6 +26,7 @@ final class FakeProvider: ChatProvider {
         let events = scripts[min(callCount, scripts.count - 1)]
         callCount += 1
         lastTools = tools
+        lastMessages = messages
         systemPrompts.append(systemPrompt)
         let delay = deltaDelay
         return AsyncThrowingStream { continuation in
@@ -150,6 +152,24 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(ChatSession.provisionalTitle(from: "one two three four five six seven eight"),
                        "one two three four five six")
         XCTAssertEqual(ChatSession.provisionalTitle(from: "  \n "), "")
+    }
+
+    /// A chat opened with a bare `/skill` has an empty first user message; the
+    /// provisional title comes from the first one with text, so that's the opener.
+    func test_needsModelTitle_skipsEmptySkillOpener() throws {
+        let context = try makeContext()
+        let convo = Conversation(modelID: "m", serverID: UUID())
+        context.insert(convo)
+        let bare = Message(role: .user, content: "")
+        bare.skillName = "brainstorming"
+        bare.skillInstructions = "Ask one question."
+        bare.createdAt = Date(timeIntervalSince1970: 1)
+        let next = Message(role: .user, content: "A settings page for skills")
+        next.createdAt = Date(timeIntervalSince1970: 2)
+        convo.appendToPath(bare)
+        convo.appendToPath(next)
+        convo.title = ChatSession.provisionalTitle(from: "A settings page for skills")
+        XCTAssertTrue(ChatSession.needsModelTitle(convo))
     }
 
     func test_needsModelTitle_trueOnlyForMissingOrProvisional() throws {
@@ -480,5 +500,24 @@ final class ChatSessionTests: XCTestCase {
 
         XCTAssertEqual(convo.messages.first { $0.role == .tool }?.content,
                        "The user declined to run mutate.")
+    }
+
+    /// A bare `/skill` has no typed text but must still be saved and sent.
+    func test_send_bareSkill_isSentAndKept() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(events: [.delta("ok"), .usage(promptTokens: 1, completionTokens: 1)])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("", in: convo, server: server,
+                           skill: AgentSkill(name: "s", description: "", instructions: "Do X."))
+
+        let user = try XCTUnwrap(convo.messages.first { $0.role == .user })
+        XCTAssertEqual(user.skillName, "s")
+        XCTAssertEqual(user.skillInstructions, "Do X.")
+        let wire = LMStudioClient.wireMessages(provider.lastMessages, systemPrompt: "")
+        XCTAssertTrue(wire.contains { if case .text(let t)? = $0.content { t.contains("Do X.") } else { false } })
     }
 }

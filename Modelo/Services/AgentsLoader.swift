@@ -7,6 +7,8 @@ struct AgentSkill: Sendable, Equatable {
     let name: String
     let description: String
     let instructions: String
+    /// The skills folder this skill was loaded from (shown in Settings ▸ Skills).
+    var source: URL? = nil
 }
 
 /// Discovers agent skills from the shared `~/.agents` directory so Modelo can use the
@@ -19,25 +21,35 @@ enum AgentsLoader {
     /// Loads every `skills/<name>/SKILL.md` under `root`, parsing the YAML frontmatter
     /// for `name`/`description`. Missing/garbled skills are skipped. Sorted by name.
     static func loadSkills(root: URL = AgentsLoader.defaultRoot) -> [AgentSkill] {
-        let dir = root.appending(path: "skills")
+        loadSkills(folders: [root.appending(path: "skills")])
+    }
+
+    /// Loads every `<name>/SKILL.md` across `folders` (each one a skills directory).
+    /// When two folders hold the same skill name, the earlier folder wins. Sorted by name.
+    static func loadSkills(folders: [URL]) -> [AgentSkill] {
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey]) else {
-            return []
+        var byName: [String: AgentSkill] = [:]
+        for dir in folders {
+            guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey]) else {
+                continue
+            }
+            for entry in entries {
+                guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                let file = entry.appending(path: "SKILL.md")
+                guard let content = try? String(contentsOf: file, encoding: .utf8) else { continue }
+                let (frontmatter, body) = splitFrontmatter(content)
+                let parsed = parseFrontmatter(frontmatter)
+                let name = parsed.name ?? entry.lastPathComponent
+                guard byName[name] == nil else { continue }
+                byName[name] = AgentSkill(
+                    name: name,
+                    description: parsed.description ?? "",
+                    instructions: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                    source: dir
+                )
+            }
         }
-        var skills: [AgentSkill] = []
-        for entry in entries {
-            guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
-            let file = entry.appending(path: "SKILL.md")
-            guard let content = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            let (frontmatter, body) = splitFrontmatter(content)
-            let parsed = parseFrontmatter(frontmatter)
-            skills.append(AgentSkill(
-                name: parsed.name ?? entry.lastPathComponent,
-                description: parsed.description ?? "",
-                instructions: body.trimmingCharacters(in: .whitespacesAndNewlines)
-            ))
-        }
-        return skills.sorted { $0.name < $1.name }
+        return byName.values.sorted { $0.name < $1.name }
     }
 
     /// Splits a `---`-delimited YAML frontmatter block from the markdown body.

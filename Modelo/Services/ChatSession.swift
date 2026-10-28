@@ -136,6 +136,7 @@ final class ChatSession {
               serverOnline: Bool = true, modelSupportsTools: Bool = false,
               sampling: SamplingParams = SamplingParams(),
               contextWindow: Int = 0,
+              skill: AgentSkill? = nil,
               replacing edited: Message? = nil) async {
         errorText = nil
         guard serverOnline else {
@@ -143,10 +144,15 @@ final class ChatSession {
             return
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        // A bare `/skill` has no typed text but is still a real turn.
+        guard !trimmed.isEmpty || !attachments.isEmpty || skill != nil else { return }
 
         let userMsg = Message(role: .user, content: trimmed)
         if !attachments.isEmpty { userMsg.attachmentsJSON = attachments.json }
+        if let skill {
+            userMsg.skillName = skill.name
+            userMsg.skillInstructions = skill.instructions
+        }
         if let edited, edited.parent != nil {
             conversation.branch(userMsg, asSiblingOf: edited)
         } else {
@@ -564,9 +570,10 @@ final class ChatSession {
     /// then writes it to `conversation.title`. Silent on failure — the sidebar
     /// falls back to "New Chat" until (and unless) this succeeds.
     private func generateTitle(for conversation: Conversation, server: Server) async {
+        // First user turn with text: a bare `/skill` opener has none (§3.7).
         let opener = conversation.messages
             .sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         guard !opener.isEmpty else { return }
 
         // A transient (un-inserted) prompt — never persisted, just fed to the model.
@@ -623,7 +630,7 @@ final class ChatSession {
     static func needsModelTitle(_ conversation: Conversation) -> Bool {
         guard let title = conversation.title, !title.isEmpty else { return true }
         let opener = conversation.messages.sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         return title == provisionalTitle(from: opener)
     }
 
@@ -648,6 +655,6 @@ final class ChatSession {
     private func wireKeep(_ m: Message) -> Bool {
         if m.role == .tool { return true }
         if m.role == .assistant && m.toolCallsJSON != nil { return true }
-        return !m.content.isEmpty
+        return !m.wireContent.isEmpty
     }
 }
