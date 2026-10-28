@@ -697,14 +697,20 @@ struct ChatView: View {
                                 ).id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
-                                // Visibility of this sentinel = "user is at the bottom".
-                                // Scrolling back down re-arms auto-follow.
+                                // macOS 14 only: visibility of this sentinel = "user is at
+                                // the bottom". It's coarse (the lazy stack keeps it loaded
+                                // well past the viewport), so macOS 15+ measures the real
+                                // scroll position instead (`followsScrollPosition`).
                                 // Defer state mutation past the current layout pass —
                                 // onAppear/onDisappear inside LazyVStack can fire during
                                 // layout, and a synchronous write here can open a new CA
                                 // transaction mid-commit.
-                                .onAppear { Task { @MainActor in isNearBottom = true } }
-                                .onDisappear { Task { @MainActor in isNearBottom = false } }
+                                .onAppear {
+                                    if #unavailable(macOS 15) { Task { @MainActor in isNearBottom = true } }
+                                }
+                                .onDisappear {
+                                    if #unavailable(macOS 15) { Task { @MainActor in isNearBottom = false } }
+                                }
                         }
                         .padding(20)
                         // Bottom-align short conversations so the latest turn sits just
@@ -714,6 +720,29 @@ struct ChatView: View {
                 }
                 .scrollIndicators(.hidden)
                 .hideScrollIndicators()
+                .modifier(FollowsScrollPosition(isNearBottom: $isNearBottom))
+                // Shown while the user reads history; returns to the latest turn and
+                // resumes following.
+                .overlay(alignment: .bottomTrailing) {
+                    if !isNearBottom && !conversation.messages.isEmpty {
+                        Button {
+                            isNearBottom = true
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { scrollToBottom(proxy) }
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.amber)
+                                .frame(width: 30, height: 30)
+                                .background(Theme.popoverBG, in: Circle())
+                                .overlay(Circle().stroke(Theme.line))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(16)
+                        .help("Jump to latest")
+                        .accessibilityLabel("Jump to latest message")
+                        .transition(.opacity)
+                    }
+                }
                 // Scroll to bottom when a new message is appended, but only if
                 // the user hasn't scrolled away to read history.
                 .onChange(of: conversation.messages.count) { if isNearBottom { scrollToBottom(proxy) } }
@@ -2042,5 +2071,48 @@ private struct ToolApprovalCard: View {
         .padding(11)
         .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.amberBorder))
+    }
+}
+
+/// Whether the chat keeps following new output, decided from the real scroll position.
+enum ScrollFollow {
+    /// Within this distance of the end counts as "at the bottom".
+    static let bottomSlack: CGFloat = 40
+
+    /// Any scroll up stops following; reaching the bottom resumes it. Content growing
+    /// below the viewport (a streaming reply) leaves the offset alone, so it doesn't count.
+    static func isFollowing(was: Bool, oldOffsetY: CGFloat, newOffsetY: CGFloat,
+                            distanceFromBottom: CGFloat) -> Bool {
+        if distanceFromBottom <= bottomSlack { return true }
+        if newOffsetY < oldOffsetY - 0.5 { return false }
+        return was
+    }
+}
+
+/// Feeds the transcript's scroll position into `ScrollFollow` (macOS 15+; macOS 14
+/// keeps the bottom-sentinel fallback in `messageStream`).
+private struct FollowsScrollPosition: ViewModifier {
+    @Binding var isNearBottom: Bool
+
+    private struct Sample: Equatable {
+        var offsetY: CGFloat
+        var distanceFromBottom: CGFloat
+        var contentHeight: CGFloat
+    }
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.onScrollGeometryChange(for: Sample.self) { g in
+                Sample(offsetY: g.contentOffset.y,
+                       distanceFromBottom: g.contentSize.height - g.visibleRect.maxY,
+                       contentHeight: g.contentSize.height)
+            } action: { old, new in
+                isNearBottom = ScrollFollow.isFollowing(was: isNearBottom, oldOffsetY: old.offsetY,
+                                                        newOffsetY: new.offsetY,
+                                                        distanceFromBottom: new.distanceFromBottom)
+            }
+        } else {
+            content
+        }
     }
 }
