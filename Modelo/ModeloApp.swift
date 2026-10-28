@@ -370,7 +370,16 @@ private struct ConsoleMenuButton: View {
     @AppStorage("consoleInspectorOpen") private var open = false
 
     var body: some View {
-        Button(open ? "Hide Console" : "Show Console") { open.toggle() }
+        Button(open ? "Hide Console" : "Show Console") { toggleConsoleInstantly($open) }
             .keyboardShortcut("i", modifiers: .command)
     }
+}
+
+/// Shows/hides the console inspector without its slide animation. Each frame of the
+/// slide narrowed the chat column, re-wrapping every message in the transcript; while
+/// a reply streamed (~20 redraws/s) that made the panel visibly jitter as it opened.
+@MainActor func toggleConsoleInstantly(_ open: Binding<Bool>) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) { open.wrappedValue.toggle() }
 }

@@ -69,17 +69,31 @@ final class MCPToolTests: XCTestCase {
         XCTAssertEqual(preview?.title, "Call Filesystem server")
         // Arguments are shown readably, slashes unescaped, so the user sees the real path.
         XCTAssertTrue(preview?.detail.contains(#""path" : "/Users/x/a.txt""#) == true)
-        // One "approve for session" must not cover every later write/fetch an MCP server can do.
-        XCTAssertEqual(preview?.allowsSessionGrant, false)
+        // A session grant covers this one server's tool, never a same-named built-in.
+        XCTAssertEqual(preview?.allowsSessionGrant, true)
+        XCTAssertEqual(preview?.grantKey, "mcp:Filesystem/write_file")
     }
 
-    func test_allowsSessionGrant_onlyForWorkspaceScopedWritesAndEdits() {
+    /// Shell stays excluded: one grant would authorize every later command (that's YOLO).
+    /// MCP tools can be granted per tool (long research shouldn't need a click per fetch).
+    func test_allowsSessionGrant_everythingButShell() {
         func grant(_ kind: ToolApprovalPreview.Kind) -> Bool {
             ToolApprovalPreview(kind: kind, title: "", detail: "").allowsSessionGrant
         }
         XCTAssertTrue(grant(.write))
         XCTAssertTrue(grant(.edit))
+        XCTAssertTrue(grant(.external))
         XCTAssertFalse(grant(.shell))
-        XCTAssertFalse(grant(.external))
+    }
+
+    /// The built-in workspace `write_file` and the Filesystem MCP server's `write_file`
+    /// (rooted at ~) share a name; a grant for one must not cover the other.
+    func test_grantKey_separatesSameNamedBuiltInAndMCPTools() {
+        let builtIn = ToolApprovalPreview(kind: .write, title: "", detail: "")
+        let mcp = ToolApprovalPreview(kind: .external, title: "", detail: "",
+                                      grantKey: "mcp:Filesystem/write_file")
+        XCTAssertNotEqual(ChatSession.grantKey(toolName: "write_file", preview: builtIn),
+                          ChatSession.grantKey(toolName: "write_file", preview: mcp))
+        XCTAssertEqual(ChatSession.grantKey(toolName: "write_file", preview: builtIn), "write_file")
     }
 }

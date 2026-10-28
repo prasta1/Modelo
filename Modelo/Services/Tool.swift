@@ -33,11 +33,17 @@ struct ToolApprovalPreview: Sendable, Equatable, Identifiable {
     enum Kind: Sendable, Equatable { case write, edit, shell, external }
     let id = UUID()
     let kind: Kind
-    /// Only workspace-scoped file writes/edits may be approved for a whole session;
-    /// a shell or MCP grant would authorize arbitrary later calls.
-    var allowsSessionGrant: Bool { kind == .write || kind == .edit }
+    /// Everything but shell may be approved for a whole session: a shell grant would
+    /// authorize every later command (that's what YOLO is for). Writes/edits are
+    /// workspace-scoped; an MCP grant covers that one server's tool (`grantKey`), so long
+    /// research doesn't need a click per fetch.
+    var allowsSessionGrant: Bool { kind != .shell }
     let title: String    // e.g. "Write src/notes.md" or "Run command"
     let detail: String   // file content, a diff, or the shell command — shown monospaced
+    /// What a session grant is remembered under, when the tool name alone is ambiguous:
+    /// MCP tools use "mcp:<server>/<tool>", since the Filesystem server's `write_file`
+    /// (rooted at ~) shares its name with the workspace-scoped built-in. nil = tool name.
+    var grantKey: String? = nil
 }
 
 /// Minimal JSON-Schema object description — enough for the built-in tools.

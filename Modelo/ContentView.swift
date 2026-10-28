@@ -205,7 +205,7 @@ struct ContentView: View {
             if routeSupportsConsole {
                 ToolbarItem {
                     Button {
-                        inspectorOpen.toggle()
+                        toggleConsoleInstantly($inspectorOpen)
                     } label: {
                         Label("Console", systemImage: "chart.bar.xaxis")
                     }

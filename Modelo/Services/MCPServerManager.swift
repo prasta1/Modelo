@@ -28,7 +28,8 @@ struct MCPTool: Tool {
     func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview? {
         guard needsApproval else { return nil }
         return ToolApprovalPreview(kind: .external, title: "Call \(serverName) server",
-                                   detail: Self.prettyArguments(argumentsJSON))
+                                   detail: Self.prettyArguments(argumentsJSON),
+                                   grantKey: "mcp:\(serverName)/\(name)")
     }
 
     /// Pretty-prints the model's JSON arguments for the card; raw text if unparseable.
