@@ -429,16 +429,24 @@ private struct ToolCard: View {
         return (trimmed.hasPrefix("{") || trimmed.hasPrefix("[")) ? "json" : nil
     }
 
+    private var lineCount: Int { detail.isEmpty ? 0 : detail.split(separator: "\n", omittingEmptySubsequences: false).count }
+
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ModeloSyntaxHighlighter.shared
-                .highlightCode(detail, language: effectiveLanguage)
-                .font(Theme.code(11))
-                .foregroundStyle(Theme.textDim)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Capped at ~12 lines with its own scroll: uncapped, a long result (a big
+            // directory listing) filled the whole chat when cards open expanded.
+            ScrollView {
+                ModeloSyntaxHighlighter.shared
+                    .highlightCode(detail, language: effectiveLanguage)
+                    .font(Theme.code(11))
+                    .foregroundStyle(Theme.textDim)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 200)
+            .fixedSize(horizontal: false, vertical: true)
         } label: {
-            Text(title)
+            Text(lineCount > 1 ? "\(title) · \(lineCount) lines" : title)
                 .font(Theme.code(10))
                 .foregroundStyle(Theme.textDim)
         }
