@@ -203,7 +203,9 @@ struct ModeloApp: App {
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)
                 .frame(minWidth: 320, minHeight: 300)
-                .modeloWindowChrome()
+                // Float above other apps' windows, like the dropdown it came from.
+                // Set via AppKit: SwiftUI's `.windowLevel` scene modifier is macOS 15+.
+                .modeloWindowChrome { $0.level = .floating }
         }
         .defaultSize(width: 380, height: 480)
         .windowResizability(.contentMinSize)
