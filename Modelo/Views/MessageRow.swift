@@ -65,11 +65,22 @@ struct MessageRow: View {
         let imageAtts = message.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
         return VStack(alignment: .leading, spacing: 8) {
             if !imageAtts.isEmpty { attachmentThumbs(imageAtts) }
-            Text(message.content)
-                .font(.system(size: messageFontSize))
-                .lineSpacing(messageFontSize * 0.22)
-                .foregroundStyle(Theme.textHi)
-                .textSelection(.enabled)
+            // Skill turns show which skill ran; its instructions stay out of the bubble (§3.7).
+            if let skill = message.skillName {
+                Label(skill, systemImage: "sparkles")
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.amber)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Theme.amber.opacity(0.12), in: Capsule())
+            }
+            if !message.content.isEmpty || message.skillName == nil {
+                Text(message.content)
+                    .font(.system(size: messageFontSize))
+                    .lineSpacing(messageFontSize * 0.22)
+                    .foregroundStyle(Theme.textHi)
+                    .textSelection(.enabled)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

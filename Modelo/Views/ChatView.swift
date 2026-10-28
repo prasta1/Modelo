@@ -21,6 +21,7 @@ struct ChatView: View {
     @Environment(ChatSessionStore.self) private var sessionStore
     @Environment(ChatNotifier.self) private var notifier
     @Environment(\.modelContext) private var context
+    @Environment(SettingsNavigator.self) private var settingsNavigator
 
     @State private var draft = ""
     @State private var pendingAttachments: [MessageAttachment] = []
@@ -37,6 +38,9 @@ struct ChatView: View {
     @State private var pendingQueue: [String] = []
     /// Keyboard-highlighted row in the slash-command popup (§3.1).
     @State private var slashSelection = 0
+    /// Skills switched on in Settings ▸ Skills; refreshed when the user starts a `/`
+    /// command so newly installed or toggled skills show up (§3.7).
+    @State private var enabledSkills: [AgentSkill] = []
     /// The artifact currently open in the side panel (§2.4), by id.
     @State private var openArtifactID: String?
     /// Last-open artifact, so the header toggle can reopen what you were viewing.
@@ -965,12 +969,46 @@ struct ChatView: View {
     /// takes no argument).
     @ViewBuilder private var slashSuggestions: some View {
         let specs = slashSpecs
-        if !specs.isEmpty {
+        let listMode = SlashParser.isSkillsListMode(draft)
+        if !specs.isEmpty || listMode {
             VStack(spacing: 0) {
-                ForEach(Array(specs.enumerated()), id: \.element.id) { index, spec in
-                    SlashSuggestionRow(spec: spec,
-                                       isHighlighted: index == clampedSlashSelection) {
-                        applySuggestion(spec)
+                if listMode { skillsListHeader }
+                if listMode && specs.isEmpty {
+                    Text(enabledSkills.isEmpty ? "No skills are on." : "No skills match.")
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.textDim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                }
+                // Up to ~8 rows tall; with dozens of skills the list scrolls and the
+                // keyboard highlight is kept in view.
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(Array(specs.enumerated()), id: \.element.id) { index, spec in
+                                if spec.isSkill, !listMode, index == 0 || !specs[index - 1].isSkill {
+                                    Text("Skills")
+                                        .font(Theme.metric(10))
+                                        .foregroundStyle(Theme.textFaint)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.top, 6)
+                                }
+                                SlashSuggestionRow(spec: spec,
+                                                   isHighlighted: index == clampedSlashSelection) {
+                                    applySuggestion(spec)
+                                }
+                                .id(spec.id)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 260)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onChange(of: clampedSlashSelection) {
+                        if specs.indices.contains(clampedSlashSelection) {
+                            proxy.scrollTo(specs[clampedSlashSelection].id)
+                        }
                     }
                 }
             }
@@ -982,8 +1020,24 @@ struct ChatView: View {
         }
     }
 
+    /// Header of the `/skills` list: how many skills are on, and a shortcut to manage them.
+    private var skillsListHeader: some View {
+        HStack {
+            Text("Skills · \(enabledSkills.count) on")
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textDim)
+            Spacer(minLength: 8)
+            Button("Settings ▸ Skills…") { settingsNavigator.open(tab: "Skills") }
+                .buttonStyle(.plain)
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.amber)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
     /// Slash suggestions for the current draft, and the clamped keyboard highlight.
-    private var slashSpecs: [SlashParser.Spec] { SlashParser.suggestions(for: draft) }
+    private var slashSpecs: [SlashParser.Spec] { SlashParser.suggestions(for: draft, skills: enabledSkills) }
     private var clampedSlashSelection: Int {
         guard !slashSpecs.isEmpty else { return 0 }
         return min(max(0, slashSelection), slashSpecs.count - 1)
@@ -997,6 +1051,14 @@ struct ChatView: View {
         } else if canSend {
             send()
         }
+    }
+
+    /// Tab accepts the highlighted suggestion while the popup is open (`/skills` + Tab
+    /// opens the skill list); otherwise Tab behaves normally.
+    private func acceptSlashSuggestion() -> Bool {
+        guard !slashSpecs.isEmpty else { return false }
+        applySuggestion(slashSpecs[clampedSlashSelection])
+        return true
     }
 
     /// Up/Down within the slash popup. Returns true (consumes the key) only while the
@@ -1178,9 +1240,17 @@ struct ChatView: View {
                               onSubmit: submitComposer,
                               onMoveUp: { moveSlashSelection(-1) },
                               onMoveDown: { moveSlashSelection(1) },
+                              onTab: acceptSlashSuggestion,
                               onPasteImage: pasteImage)
                     .frame(height: composerHeight)
-                    .onChange(of: draft) { slashSelection = 0 }
+                    .onChange(of: draft) { old, new in
+                        slashSelection = 0
+                        // Rescan skills as a `/` command starts, so Settings changes and
+                        // newly installed skills apply without reopening the chat.
+                        if new.hasPrefix("/") && !old.hasPrefix("/") {
+                            enabledSkills = SkillSettings.enabledSkills()
+                        }
+                    }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
                     .panel(Theme.fill,
@@ -1503,8 +1573,8 @@ struct ChatView: View {
         } else {
             tools += FSToolSettings.tools(enabled: fsToolsEnabled, shell: shellToolEnabled, root: fsToolsRoot)
         }
-        // Expose ~/.agents skills via a use_skill tool (§3.7).
-        let skills = AgentsLoader.loadSkills()
+        // Expose the skills switched on in Settings ▸ Skills via a use_skill tool (§3.7).
+        let skills = SkillSettings.enabledSkills()
         if !skills.isEmpty { tools.append(UseSkillTool(skills: skills)) }
         // Persistent memory (opt-in, Settings ▸ Memory). Project chats get both scopes.
         var memoryScopes: [MemoryScope] = [.global]
@@ -1582,7 +1652,12 @@ struct ChatView: View {
     /// and resent. Resending forks a new sibling branch from this message (§1.2).
     private func reuseDraft(_ message: Message) {
         editingSource = message
-        draft = message.content
+        // Re-prefix a skill turn so resending re-invokes the skill (and keeps its chip).
+        if let name = message.skillName {
+            draft = message.content.isEmpty ? "/\(name) " : "/\(name) \(message.content)"
+        } else {
+            draft = message.content
+        }
         composerFocused = true
     }
 
@@ -1620,13 +1695,8 @@ struct ChatView: View {
             } else {
                 flash("Couldn't export — check Downloads permissions.")
             }
-        case .skills:
-            let skills = AgentsLoader.loadSkills()
-            flash(skills.isEmpty
-                  ? "No skills found in ~/.agents/skills."
-                  : "\(skills.count) skills available: \(skills.map(\.name).joined(separator: ", "))")
-        case .skill:
-            break   // sent as a message by send(), never handled locally
+        case .skills, .skill:
+            break   // `/skills` opens the list via send(); `/<skill>` is sent as a message
         case .compact:
             guard let session, let server = boundServer else { flash("Pick a model first."); return }
             guard !isStreaming else { flash("Wait for the current reply to finish."); return }
@@ -1771,11 +1841,16 @@ struct ChatView: View {
         // the send.
         ensureSession()
         guard let session else { return }
-        // Slash commands (§3.1) are handled locally, never sent to the model.
-        if let command = SlashParser.parse(draft) {
-            handleSlash(command)
-            draft = ""
-            return
+        // Slash commands (§3.1) are handled locally, never sent to the model — except
+        // `/<skill>`, which is sent as a skill-tagged message below (§3.7).
+        let parsed = SlashParser.parse(draft, skillNames: enabledSkills.map(\.name))
+        if let command = parsed {
+            if case .skill = command {} else {
+                handleSlash(command)
+                // `/skills` reopens the pickable list rather than clearing the composer.
+                draft = command == .skills ? "/skills " : ""
+                return
+            }
         }
         // While a reply streams, queue the message instead of sending now (§3.3).
         if isStreaming {
@@ -1806,7 +1881,20 @@ struct ChatView: View {
         // Don't consume the draft for a send that can't happen: the session would
         // refuse an offline server only after `draft` was already cleared.
         if unavailableReason(for: server) != nil { return }
-        let text = draft
+        var text = draft
+        var skill: AgentSkill?
+        if case .skill(let name, let request)? = parsed,
+           let found = enabledSkills.first(where: { $0.name == name }) {
+            // A skill too big for the model's window would fail on every later turn
+            // too, so refuse up front and keep the draft (§3.7).
+            let needed = TokenEstimator.estimate(found.instructions) + TokenEstimator.estimate(request)
+            if contextWindow > 0, needed > contextWindow {
+                flash("\"\(name)\" is ~\(needed.formatted()) tokens — too big for this model's \(contextWindow.formatted())-token context.")
+                return
+            }
+            skill = found
+            text = request
+        }
         let attachments = pendingAttachments
         let edited = editingSource
         draft = ""
@@ -1822,7 +1910,7 @@ struct ChatView: View {
                                serverOnline: registry.isOnline(server),
                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
                                sampling: effectiveSampling, contextWindow: window,
-                               replacing: edited)
+                               skill: skill, replacing: edited)
             sessionStore.setTask(nil, for: id)
             drainQueue()
         }, for: id)
