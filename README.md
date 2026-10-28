@@ -6,8 +6,6 @@ A native macOS client for running inference against local and cloud LLMs.
 
 Connects to **LM Studio**, **Ollama**, **llama.cpp**, **llama-swap**, **oMLX**, and **exo** over your local network or **Tailscale**, and to the cloud via **Nous Research**, **OpenRouter**, **OpenAI**, **Groq**, **Together.ai**, **DeepSeek**, **Mistral**, or any OpenAI-compatible base URL — all in one picker. See [Endpoints](#endpoints). Built with SwiftUI and SwiftData.
 
-> The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
-
 ## Features
 
 - **Chat** — streaming responses, Markdown rendering with syntax-highlighted and copyable code blocks, per-message token metrics, slash commands (`/model`, `/temp`, `/system`, `/export`, `/skills`, …) with an autocomplete popup, queue messages while a reply streams, branch & regenerate any turn, adjustable text size
