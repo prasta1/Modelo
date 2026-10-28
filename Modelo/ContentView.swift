@@ -391,6 +391,8 @@ struct ContentView: View {
                 // If loading fails, still proceed - the error will surface in chat
                 Log.network.error("Model load before launch failed for \(model.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
+        } else if model.server.kind == .appleIntelligence {
+            AppleIntelligenceClient.prewarm()
         } else if model.server.kind == .exo, !model.model.isLoaded {
             guard await confirmExoLoad(model) else { return }
             let endpoint = Endpoint(server: model.server, keychain: keychain)
