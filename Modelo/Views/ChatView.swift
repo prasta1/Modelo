@@ -2239,15 +2239,13 @@ private struct FollowsScrollPosition: ViewModifier {
     private struct Sample: Equatable {
         var offsetY: CGFloat
         var distanceFromBottom: CGFloat
-        var contentHeight: CGFloat
     }
 
     func body(content: Content) -> some View {
         if #available(macOS 15, *) {
             content.onScrollGeometryChange(for: Sample.self) { g in
                 Sample(offsetY: g.contentOffset.y,
-                       distanceFromBottom: g.contentSize.height - g.visibleRect.maxY,
-                       contentHeight: g.contentSize.height)
+                       distanceFromBottom: g.contentSize.height - g.visibleRect.maxY)
             } action: { old, new in
                 let following = ScrollFollow.isFollowing(was: isNearBottom, oldOffsetY: old.offsetY,
                                                          newOffsetY: new.offsetY,
@@ -2256,16 +2254,7 @@ private struct FollowsScrollPosition: ViewModifier {
                 // Write only on a real change: this runs inside layout, and a write on every
                 // geometry tick fed a layout loop until AppKit threw ("more Update Constraints
                 // passes than there are views", 2026-10-28).
-                if following != isNearBottom {
-                    isNearBottom = following
-                    // SCROLLDIAG (temporary): which rule flipped following, and where.
-                    Log.chat.notice("SCROLLDIAG follow -> \(following) offset \(Int(old.offsetY))->\(Int(new.offsetY)) fromBottom \(Int(new.distanceFromBottom)) userScrolling \(userScrolling)")
-                }
-                // SCROLLDIAG — temporary evidence for the jumping-thumb / blank-overscroll
-                // bug. Remove once that's fixed.
-                if old.contentHeight != new.contentHeight {
-                    Log.chat.notice("SCROLLDIAG height \(Int(old.contentHeight)) -> \(Int(new.contentHeight)) offset \(Int(new.offsetY)) fromBottom \(Int(new.distanceFromBottom))")
-                }
+                if following != isNearBottom { isNearBottom = following }
             }
             // The user's own gesture (and its momentum), as opposed to programmatic
             // scrolls, which report `.idle` or `.animating`.
@@ -2275,10 +2264,7 @@ private struct FollowsScrollPosition: ViewModifier {
                 case .tracking, .interacting, .decelerating: byUser = true
                 default: byUser = false
                 }
-                if byUser != userScrolling {
-                    userScrolling = byUser
-                    Log.chat.notice("SCROLLDIAG phase \(String(describing: phase)) userScrolling \(byUser)")
-                }
+                if byUser != userScrolling { userScrolling = byUser }
             }
         } else {
             content
