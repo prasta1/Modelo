@@ -679,7 +679,7 @@ struct ChatView: View {
                             .frame(maxWidth: .infinity, minHeight: geo.size.height)
                     } else {
                         let path = pathMessages
-                        LazyVStack(alignment: .leading, spacing: 10) {
+                        TranscriptStack {
                             ForEach(path) { msg in
                                 MessageRow(
                                     message: msg,
@@ -2086,6 +2086,25 @@ enum ScrollFollow {
         if distanceFromBottom <= bottomSlack { return true }
         if newOffsetY < oldOffsetY - 0.5 { return false }
         return was
+    }
+}
+
+/// The transcript's row stack. macOS 15+ lays every message out exactly: a lazy stack
+/// estimates unloaded rows, and a long reply estimated ~1,300pt off flipped the content
+/// height back and forth several times a second while streaming (logged 2026-10-28),
+/// making scrolling jumpy, the scroll thumb jump, and the end overscroll into blank space.
+/// macOS 14 keeps the lazy stack, whose bottom-sentinel visibility it needs for following.
+/// ponytail: eager layout of every turn; add a "show earlier messages" cutoff if very
+/// long chats get slow to open.
+private struct TranscriptStack<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(macOS 15, *) {
+            VStack(alignment: .leading, spacing: 10) { content }
+        } else {
+            LazyVStack(alignment: .leading, spacing: 10) { content }
+        }
     }
 }
 
