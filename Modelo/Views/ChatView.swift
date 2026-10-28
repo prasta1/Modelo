@@ -16,6 +16,9 @@ struct ChatView: View {
     let onModelEject: ((DiscoveredModel) async -> Void)?
     /// Callback fired when the user double-clicks a model row to start a new chat.
     let onNewChat: (() -> Void)?
+    /// Age of the picker's prices and how to refetch them (see `ModelPricing`).
+    var pricesRefreshedAt: Date? = nil
+    var onRefreshModels: (() async -> Void)? = nil
     @Environment(ServerRegistry.self) private var registry
     @Environment(MCPServerManager.self) private var mcpManager
     @Environment(ChatSessionStore.self) private var sessionStore
@@ -299,7 +302,8 @@ struct ChatView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject, onNewChat: onNewChat)
+                ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject, onNewChat: onNewChat,
+                                pricesRefreshedAt: pricesRefreshedAt, onRefresh: onRefreshModels)
                 if pickedModel?.model.supportsToolUse == true {
                     Toggle("Tools", isOn: $conversation.toolsEnabled)
                         .toggleStyle(ChipToggleStyle())

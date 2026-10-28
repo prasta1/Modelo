@@ -103,6 +103,9 @@ struct ContentView: View {
     @State private var pickedModel: DiscoveredModel?
     @State private var pendingExoLoad: ExoLoadPrompt?
     @State private var discovered: [DiscoveredModel] = []
+    /// When `refreshModels` last finished — the age of the picker's prices, which
+    /// arrive in the same model-list download.
+    @State private var modelsRefreshedAt: Date?
     @State private var endpointFilter: UUID?
     @State private var renamingIDs: Set<PersistentIdentifier> = []
     /// This view's own window, resolved from the view hierarchy so screen-clamping
@@ -290,7 +293,8 @@ struct ContentView: View {
             }
         case .conversation:
             if let convo = selectedConversation {
-                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChatFromPicker)
+                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChatFromPicker,
+                         pricesRefreshedAt: modelsRefreshedAt, onRefreshModels: { await refreshModels() })
                     .id(convo.persistentModelID)
             } else {
                 launcher
@@ -639,6 +643,7 @@ struct ContentView: View {
         discovered = targets.enumerated().flatMap { index, target in
             (modelsByIndex[index] ?? []).map { DiscoveredModel(server: target.server, model: $0) }
         }
+        modelsRefreshedAt = Date()
     }
 
     /// Unloads a model (LM Studio, exo or llama-swap) and clears the selection if it was

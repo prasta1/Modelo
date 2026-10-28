@@ -112,6 +112,8 @@ struct MenuBarChatView: View {
     @Query(sort: \Server.sortOrder) private var servers: [Server]
 
     @State private var discovered: [DiscoveredModel] = []
+    /// When `fetchModels` last finished — the age of the picker's prices.
+    @State private var modelsFetchedAt: Date?
 
     // View ▸ text-size commands (⌘+/⌘−) drive this value; 15 pt is "Actual Size".
     @AppStorage("messageFontSize") private var messageFontSize: Double = 15
@@ -131,7 +133,9 @@ struct MenuBarChatView: View {
                 pickedModel: $session.pickedModel,
                 onNewChat: session.newChat,
                 onOpenModelo: openInModelo,
-                onPopOut: isDetached ? nil : popOut
+                onPopOut: isDetached ? nil : popOut,
+                modelsFetchedAt: modelsFetchedAt,
+                onRefreshModels: { await fetchModels() }
             )
             Divider().overlay(Theme.Palette.strokeStrong)
             QuickChatMessageList(
@@ -196,6 +200,7 @@ struct MenuBarChatView: View {
         }
 
         discovered = result
+        modelsFetchedAt = Date()
         // Auto-select the first loaded model, or the first model available.
         if session.pickedModel == nil || !result.contains(where: { $0.model.id == session.pickedModel?.model.id }) {
             session.pickedModel = result.first(where: { $0.model.isLoaded }) ?? result.first
@@ -212,6 +217,9 @@ private struct QuickChatToolbar: View {
     let onOpenModelo: () -> Void
     /// Pops the chat out into its own window; nil hides the button (already popped out).
     let onPopOut: (() -> Void)?
+    /// Age of the picker's prices and how to refetch them.
+    let modelsFetchedAt: Date?
+    let onRefreshModels: () async -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -224,7 +232,8 @@ private struct QuickChatToolbar: View {
                 // large cloud catalog stays behind search instead of one flat menu.
                 // No load/eject/new-chat hooks: quick chat only picks.
                 ModelPickerView(discovered: discovered, selection: $pickedModel,
-                                onModelSelect: nil, onModelEject: nil, onNewChat: nil)
+                                onModelSelect: nil, onModelEject: nil, onNewChat: nil,
+                                pricesRefreshedAt: modelsFetchedAt, onRefresh: onRefreshModels)
             }
             Spacer()
             Button { onNewChat() } label: {
