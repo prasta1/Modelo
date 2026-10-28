@@ -58,4 +58,41 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(ModelPricing.ageText(refreshedAt: oct31.addingTimeInterval(-5 * 60), now: oct31), "Prices updated 5m ago")
         XCTAssertEqual(ModelPricing.ageText(refreshedAt: oct31.addingTimeInterval(-3 * hour), now: oct31), "Prices updated 3h ago")
     }
+
+    // MARK: Models page (table cell + details Cost row)
+
+    func test_tableText() {
+        XCTAssertEqual(ModelPricing.tableText(.price(input: 0.25, output: 1)), "$0.25 · $1.00")
+        XCTAssertEqual(ModelPricing.tableText(.free(until: oct31, normalInput: 0.4, normalOutput: 1.6)), "FREE · Oct 31")
+        XCTAssertEqual(ModelPricing.tableText(.free(until: nil, normalInput: nil, normalOutput: nil)), "FREE")
+        XCTAssertEqual(ModelPricing.tableText(.local), "local")
+        XCTAssertEqual(ModelPricing.tableText(nil), "—")
+    }
+
+    func test_costText_showsPublishedPricesOnly() {
+        let paid = model(input: 0.25, output: 1)
+        XCTAssertEqual(ModelPricing.costText(for: paid, kind: .openRouter, serverLabel: "OpenRouter",
+                                             showPrices: true, now: oct31),
+                       "$0.25 in · $1.00 out")
+        // Day-old prices hide; the row falls back to the old wording, never a number.
+        XCTAssertEqual(ModelPricing.costText(for: paid, kind: .openRouter, serverLabel: "OpenRouter",
+                                             showPrices: false, now: oct31),
+                       "paid · OpenRouter")
+        // A direct provider publishes no price: no number either.
+        XCTAssertEqual(ModelPricing.costText(for: model(), kind: .cloudAPI, serverLabel: "OpenAI",
+                                             showPrices: true, now: oct31),
+                       "paid · OpenAI")
+        XCTAssertEqual(ModelPricing.costText(for: model(), kind: .lmStudio, serverLabel: "Studio",
+                                             showPrices: true, now: oct31),
+                       "free — runs locally")
+    }
+
+    func test_costText_freePromo() {
+        var promo = model(input: 0, output: 0, free: true, until: oct31)
+        promo.normalInputPricePerM = 0.4
+        promo.normalOutputPricePerM = 1.6
+        XCTAssertEqual(ModelPricing.costText(for: promo, kind: .nous, serverLabel: "Nous",
+                                             showPrices: true, now: oct31),
+                       "free · ends Oct 31 · normally $0.40 in · $1.60 out")
+    }
 }

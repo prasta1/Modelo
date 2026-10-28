@@ -307,7 +307,8 @@ struct ContentView: View {
             discovered: discoveredWithLiveState,
             onLaunch: { model in Task { await launch(model: model) } },
             onRefresh: { await refreshModels() },
-            onEject: handleModelEject
+            onEject: handleModelEject,
+            pricesRefreshedAt: modelsRefreshedAt
         )
     }
 

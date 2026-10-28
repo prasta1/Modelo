@@ -48,6 +48,39 @@ enum ModelPricing {
         "ends " + endsFormatter.string(from: until)
     }
 
+    /// The Models table's narrow Price cell: "$0.25 · $1.00", "FREE · Oct 31",
+    /// "local", or "—" when there's nothing accurate to show.
+    static func tableText(_ label: Label?) -> String {
+        switch label {
+        case .price(let input, let output)?: return "\(dollars(input)) · \(dollars(output))"
+        case .free(let until, _, _)?:        return until.map { "FREE · " + endsFormatter.string(from: $0) } ?? "FREE"
+        case .local?:                        return "local"
+        case nil:                            return "—"
+        }
+    }
+
+    /// The Models page's Cost row. Shows published prices while fresh; otherwise
+    /// (stale, or a provider with no published price) the plain wording, never a number.
+    static func costText(for model: LMStudioModel, kind: ServerKind, serverLabel: String,
+                         showPrices: Bool, now: Date) -> String {
+        if kind.isLocal { return "free — runs locally" }
+        let plain = model.isFree ? "free" : "paid · \(serverLabel)"
+        guard showPrices, let label = label(for: model, kind: kind, now: now) else { return plain }
+        switch label {
+        case .price(let input, let output):
+            return priceText(input: input, output: output)
+        case .free(let until, let normalInput, let normalOutput):
+            var parts = ["free"]
+            if let until { parts.append(endsText(until)) }
+            if let normalInput, let normalOutput {
+                parts.append("normally " + priceText(input: normalInput, output: normalOutput))
+            }
+            return parts.joined(separator: " · ")
+        case .local:
+            return "free — runs locally"
+        }
+    }
+
     private static let endsFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")

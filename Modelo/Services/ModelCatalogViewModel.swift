@@ -94,6 +94,12 @@ final class ModelCatalogViewModel {
     var onLaunch: ((DiscoveredModel) -> Void)?
     /// Unloads a loaded model; nil on views that can't (the row then shows no eject).
     var onEject: ((DiscoveredModel) async -> Void)?
+    /// When the model lists (and the prices in them) were last fetched (`ModelPricing`).
+    var pricesRefreshedAt: Date?
+    /// Prices are shown only while under a day old.
+    var pricesFresh: Bool { !ModelPricing.isStale(refreshedAt: pricesRefreshedAt, now: Date()) }
+    /// True when some model has a published price, so the freshness line is worth showing.
+    var anyPriced: Bool { allModels.contains { $0.model.inputPricePerM != nil } }
 
     // MARK: - Computed helpers
 
