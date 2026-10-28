@@ -298,26 +298,16 @@ struct ChatView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject, onNewChat: onNewChat,
-                                pricesRefreshedAt: pricesRefreshedAt, onRefresh: onRefreshModels)
-                if pickedModel?.model.supportsToolUse == true {
-                    Toggle("Tools", isOn: $conversation.toolsEnabled)
-                        .toggleStyle(ChipToggleStyle())
-                        .help("Allow this model to call tools")
-                }
-                // Also shown whenever YOLO is on, so it can always be switched off.
-                if pickedModel?.model.supportsToolUse == true || effectiveYolo {
-                    yoloChip
-                }
-                workspaceButton
-                artifactsButton
-                settingsButton
-                moreMenu
-                Spacer(minLength: 8)
-                if let server = pickedModel?.server {
-                    statusPill(for: server)
-                }
+            // Every action gets its own button when the row has room; on a narrow chat
+            // column (artifact panel open, workspace chip showing) Benchmark and Screenshot
+            // fold back into the ⋯ menu instead of squeezing the row.
+            ViewThatFits(in: .horizontal) {
+                headerRow(compact: false)
+                headerRow(compact: true)
+            }
+            // On the stable container, not a row ViewThatFits may swap out.
+            .sheet(isPresented: $showBenchmark) {
+                BenchmarkView(discovered: discovered, initial: pickedModel)
             }
             if let model = pickedModel?.model {
                 HStack {
@@ -496,8 +486,57 @@ struct ChatView: View {
         }
     }
 
-    /// Rarely-used actions, kept off the primary row: the load-test sheet (§2.5) and
-    /// a share-ready PNG card of what's on screen (saved to ~/Downloads and copied).
+    /// The header's control row. `compact` folds Benchmark and Screenshot into ⋯.
+    @ViewBuilder private func headerRow(compact: Bool) -> some View {
+        HStack(spacing: 12) {
+            ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject, onNewChat: onNewChat,
+                            pricesRefreshedAt: pricesRefreshedAt, onRefresh: onRefreshModels)
+            if pickedModel?.model.supportsToolUse == true {
+                Toggle("Tools", isOn: $conversation.toolsEnabled)
+                    .toggleStyle(ChipToggleStyle())
+                    .help("Allow this model to call tools")
+            }
+            // Also shown whenever YOLO is on, so it can always be switched off.
+            if pickedModel?.model.supportsToolUse == true || effectiveYolo {
+                yoloChip
+            }
+            workspaceButton
+            artifactsButton
+            settingsButton
+            if compact {
+                moreMenu
+            } else {
+                headerIconButton("Benchmark a model", systemImage: "gauge.with.dots.needle.67percent") {
+                    showBenchmark = true
+                }
+                .disabled(discovered.isEmpty)
+                headerIconButton("Screenshot this chat", systemImage: "camera.viewfinder", action: takeScreenshot)
+            }
+            Spacer(minLength: 8)
+            if let server = pickedModel?.server {
+                statusPill(for: server)
+            }
+        }
+    }
+
+    /// A square header button in the same chrome as the artifacts/settings buttons; the
+    /// title is hidden visually but kept for VoiceOver and the tooltip.
+    private func headerIconButton(_ title: String, systemImage: String,
+                                  action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 30, height: 26)
+                .panel(Theme.Palette.panel, radius: 7)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
+    /// Narrow-header fallback: the load-test sheet (§2.5) and a share-ready PNG card of
+    /// what's on screen (saved to ~/Downloads and copied) when they don't fit as buttons.
     private var moreMenu: some View {
         Menu {
             Button("Benchmark a model…") { showBenchmark = true }
@@ -516,9 +555,6 @@ struct ChatView: View {
         .fixedSize()
         .help("More actions")
         .accessibilityLabel("More actions")
-        .sheet(isPresented: $showBenchmark) {
-            BenchmarkView(discovered: discovered, initial: pickedModel)
-        }
     }
     /// Sampling controls for the settings popover (§1.4b).
     private var samplingSection: some View {
