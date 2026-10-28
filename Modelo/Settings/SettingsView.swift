@@ -288,6 +288,7 @@ struct SettingsView: View {
         case .oMLX:                        return "cpu"
         case .ollama:                      return "cylinder"
         case .exo:                         return "point.3.connected.trianglepath.dotted"
+        case .appleIntelligence:           return "apple.intelligence"
         case .cloudAPI, .openRouter, .nous: return "server.rack"
         }
     }
@@ -1370,7 +1371,7 @@ private struct LocalSetupHint: View {
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
         case .exo:
             return "Run exo (exolabs.net) on this or another Mac. Add its host and port (default 52415). Models must be launched in exo's dashboard before you can chat with them."
-        case .cloudAPI, .openRouter, .nous:
+        case .cloudAPI, .openRouter, .nous, .appleIntelligence:
             return ""
         }
     }

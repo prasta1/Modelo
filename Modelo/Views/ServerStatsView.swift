@@ -214,6 +214,7 @@ private struct ServerStatsDashboardPanel: View {
     private var hostSubtitle: String {
         switch server.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: return "\(server.host):\(server.port)"
+        case .appleIntelligence: return "On-device"
         case .cloudAPI:   return URL(string: server.host)?.host ?? server.host
         case .openRouter: return "openrouter.ai"
         case .nous:       return "inference-api.nousresearch.com"
