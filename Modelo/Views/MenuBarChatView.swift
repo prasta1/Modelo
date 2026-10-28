@@ -2,86 +2,37 @@ import SwiftUI
 import SwiftData
 
 /// A lightweight chat message for the menu bar popover (not persisted to SwiftData).
-private struct QuickMessage: Identifiable {
+struct QuickMessage: Identifiable {
     let id = UUID()
     let role: MessageRole
     let content: String
 }
 
-/// Compact chat popover attached to the menu bar extra icon. Intended for quick
-/// one-off exchanges without switching focus to the main window.
-struct MenuBarChatView: View {
-    @Environment(\.modelContext) private var context
-    @Environment(ServerRegistry.self) private var registry
-    @Query(sort: \Server.sortOrder) private var servers: [Server]
+/// Quick-chat conversation state, owned by the app and shared by the menu-bar
+/// dropdown and its popped-out window, so undocking carries the conversation
+/// (and any reply still streaming) across instead of starting empty.
+@MainActor
+@Observable
+final class QuickChatSession {
+    var pickedModel: DiscoveredModel?
+    var draft = ""
+    private(set) var messages: [QuickMessage] = []
+    private(set) var streamingText = ""
+    private(set) var isStreaming = false
+    var errorText: String?
+    @ObservationIgnored private var streamTask: Task<Void, Never>?
 
-    @State private var discovered: [DiscoveredModel] = []
-    @State private var pickedModel: DiscoveredModel?
-    @State private var draft = ""
-    @State private var messages: [QuickMessage] = []
-    @State private var streamingText = ""
-    @State private var isStreaming = false
-    @State private var streamTask: Task<Void, Never>?
-    @State private var errorText: String?
+    @ObservationIgnored private let keychain = KeychainStore()
+    @ObservationIgnored private let client = LMStudioClient.shared
 
-    // View ▸ text-size commands (⌘+/⌘−) drive this value; 15 pt is "Actual Size".
-    @AppStorage("messageFontSize") private var messageFontSize: Double = 15
-
-    /// Zoom factor relative to the default text size, so the quick-chat composer
-    /// tracks the View ▸ text-size commands while keeping its compact 13 pt base.
-    private var textScale: CGFloat { messageFontSize / 15 }
-
-    private let keychain = KeychainStore()
-    private let client = LMStudioClient.shared
-
-    private var canSend: Bool {
+    var canSend: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && pickedModel != nil
             && !isStreaming
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            QuickChatToolbar(
-                discovered: discovered,
-                pickedModel: $pickedModel,
-                onNewChat: newChat,
-                onOpenModelo: openInModelo
-            )
-            Divider().overlay(Theme.Palette.strokeStrong)
-            QuickChatMessageList(
-                messages: messages,
-                streamingText: streamingText,
-                isStreaming: isStreaming,
-                hasModel: pickedModel != nil
-            )
-            if let err = errorText {
-                Text(err)
-                    .font(Theme.metric(11))
-                    .foregroundStyle(Theme.Palette.alert)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.Palette.panel)
-            }
-            Divider().overlay(Theme.Palette.strokeStrong)
-            QuickChatComposer(
-                draft: $draft,
-                isStreaming: isStreaming,
-                canSend: canSend,
-                textScale: textScale,
-                onSend: send,
-                onStop: { streamTask?.cancel() }
-            )
-        }
-        .frame(width: 380, height: 480)
-        .background(Theme.Palette.bg)
-        .task { await fetchModels() }
-    }
-
-    // MARK: Actions
-
-    private func newChat() {
+    /// Clears the conversation, cancelling any reply in flight.
+    func newChat() {
         streamTask?.cancel()
         messages = []
         streamingText = ""
@@ -89,11 +40,11 @@ struct MenuBarChatView: View {
         errorText = nil
     }
 
-    private func openInModelo() {
-        NSApp.activate(ignoringOtherApps: true)
-    }
+    /// Cancels the reply in flight; any partial text is kept as a message.
+    func stop() { streamTask?.cancel() }
 
-    private func send() {
+    /// Sends the draft to the picked model and streams the reply into `streamingText`.
+    func send() {
         guard let model = pickedModel else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
@@ -138,6 +89,89 @@ struct MenuBarChatView: View {
             streamTask = nil
         }
     }
+}
+
+/// Compact chat attached to the menu bar extra icon. Intended for quick one-off
+/// exchanges without switching focus to the main window. Also hosted in the
+/// resizable "Quick Chat" window when popped out of the menu bar.
+struct MenuBarChatView: View {
+    /// True when hosted in the popped-out window rather than the menu-bar
+    /// dropdown: the view then fills the resizable window instead of using the
+    /// dropdown's fixed size, and hides the pop-out button.
+    var isDetached = false
+
+    @Environment(\.modelContext) private var context
+    @Environment(ServerRegistry.self) private var registry
+    @Environment(QuickChatSession.self) private var session
+    @Environment(\.openWindow) private var openWindow
+    @Query(sort: \Server.sortOrder) private var servers: [Server]
+
+    @State private var discovered: [DiscoveredModel] = []
+
+    // View ▸ text-size commands (⌘+/⌘−) drive this value; 15 pt is "Actual Size".
+    @AppStorage("messageFontSize") private var messageFontSize: Double = 15
+
+    /// Zoom factor relative to the default text size, so the quick-chat composer
+    /// tracks the View ▸ text-size commands while keeping its compact 13 pt base.
+    private var textScale: CGFloat { messageFontSize / 15 }
+
+    private let keychain = KeychainStore()
+
+    var body: some View {
+        // `@Bindable` turns the environment's observable session into `$` bindings.
+        @Bindable var session = session
+        VStack(spacing: 0) {
+            QuickChatToolbar(
+                discovered: discovered,
+                pickedModel: $session.pickedModel,
+                onNewChat: session.newChat,
+                onOpenModelo: openInModelo,
+                onPopOut: isDetached ? nil : popOut
+            )
+            Divider().overlay(Theme.Palette.strokeStrong)
+            QuickChatMessageList(
+                messages: session.messages,
+                streamingText: session.streamingText,
+                isStreaming: session.isStreaming,
+                hasModel: session.pickedModel != nil
+            )
+            if let err = session.errorText {
+                Text(err)
+                    .font(Theme.metric(11))
+                    .foregroundStyle(Theme.Palette.alert)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.Palette.panel)
+            }
+            Divider().overlay(Theme.Palette.strokeStrong)
+            QuickChatComposer(
+                draft: $session.draft,
+                isStreaming: session.isStreaming,
+                canSend: session.canSend,
+                textScale: textScale,
+                onSend: session.send,
+                onStop: session.stop
+            )
+        }
+        // nil leaves the popped-out window free to resize.
+        .frame(width: isDetached ? nil : 380, height: isDetached ? nil : 480)
+        .background(Theme.Palette.bg)
+        .task { await fetchModels() }
+    }
+
+    // MARK: Actions
+
+    private func openInModelo() {
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Undocks the quick chat into its own resizable window. Activating the app
+    /// makes that window key, which dismisses the menu-bar dropdown.
+    private func popOut() {
+        openWindow(id: ModeloApp.quickChatWindowID)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     private func fetchModels() async {
         let targets = servers.filter { registry.isOnline($0) && !$0.isPaused }
@@ -158,8 +192,8 @@ struct MenuBarChatView: View {
 
         discovered = result
         // Auto-select the first loaded model, or the first model available.
-        if pickedModel == nil || !result.contains(where: { $0.model.id == pickedModel?.model.id }) {
-            pickedModel = result.first(where: { $0.model.isLoaded }) ?? result.first
+        if session.pickedModel == nil || !result.contains(where: { $0.model.id == session.pickedModel?.model.id }) {
+            session.pickedModel = result.first(where: { $0.model.isLoaded }) ?? result.first
         }
     }
 }
@@ -171,6 +205,8 @@ private struct QuickChatToolbar: View {
     @Binding var pickedModel: DiscoveredModel?
     let onNewChat: () -> Void
     let onOpenModelo: () -> Void
+    /// Pops the chat out into its own window; nil hides the button (already popped out).
+    let onPopOut: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -193,6 +229,15 @@ private struct QuickChatToolbar: View {
             }
             .buttonStyle(.plain)
             .help("New chat")
+            if let onPopOut {
+                Button { onPopOut() } label: {
+                    Image(systemName: "macwindow.on.rectangle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.inkFaint)
+                }
+                .buttonStyle(.plain)
+                .help("Pop out into a resizable window")
+            }
             Button { onOpenModelo() } label: {
                 Image(systemName: "arrow.up.forward.app")
                     .font(.system(size: 11))
