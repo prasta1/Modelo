@@ -56,9 +56,8 @@ struct ChatView: View {
     @AppStorage("consoleInspectorOpen") private var consoleOpen = false
     @State private var consoleWasOpen = false
     /// Live width of the chat detail area, so the artifact panel can't shrink the chat
-    /// below `minChatWidth`. Seeded wide to avoid a first-layout squeeze.
+    /// below `ArtifactPanelSizing.minChatWidth`. Seeded wide to avoid a first-layout squeeze.
     @State private var detailWidth: CGFloat = 1200
-    private let minChatWidth: Double = 360
     // Whether to teach the model the artifact syntax (opt-out in Settings ▸ Tools).
     @AppStorage("artifactsEnabled") private var artifactsEnabled = true
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
@@ -200,14 +199,9 @@ struct ChatView: View {
         openArtifactID.flatMap { id in artifactGroups.first { $0.id == id } }
     }
 
-    /// Artifact panel width clamped so the chat never shrinks below `minChatWidth`
-    /// and the panel never exceeds 40% of the available detail column width.
+    /// Artifact panel width as shown (see `ArtifactPanelSizing`).
     private var clampedArtifactWidth: Double {
-        let upper = min(
-            Double(detailWidth) * 0.40,
-            max(360, Double(detailWidth) - minChatWidth)
-        )
-        return min(max(artifactPanelWidth, 320), max(320, upper))
+        ArtifactPanelSizing.clamp(artifactPanelWidth, detailWidth: Double(detailWidth))
     }
 
     var body: some View {
@@ -371,9 +365,9 @@ struct ChatView: View {
                 .onChanged { value in
                     let base = dragStartWidth ?? artifactPanelWidth
                     dragStartWidth = base
-                    // Cap so the chat keeps at least minChatWidth in view.
-                    let maxW = max(360, Double(detailWidth) - minChatWidth)
-                    artifactPanelWidth = min(max(base - value.translation.width, 320), maxW)
+                    artifactPanelWidth = ArtifactPanelSizing.dragged(
+                        storedWidth: base, translation: value.translation.width,
+                        detailWidth: Double(detailWidth))
                 }
                 .onEnded { _ in dragStartWidth = nil }
         )
