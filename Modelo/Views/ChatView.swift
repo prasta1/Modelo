@@ -694,7 +694,10 @@ struct ChatView: View {
                                         && msg.id == path.last?.id,
                                     onOpenArtifact: { openArtifactID = $0 },
                                     openArtifactID: openArtifactID
-                                ).id(msg.id)
+                                )
+                                // Skip unchanged rows on the ~20fps streaming re-render.
+                                .equatable()
+                                .id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
                                 // macOS 14 only: visibility of this sentinel = "user is at

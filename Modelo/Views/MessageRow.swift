@@ -518,3 +518,17 @@ enum StreamingMarkdown {
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 }
+
+/// Lets the transcript skip rows that haven't changed. While a reply streams, the chat
+/// re-renders ~20×/s and rebuilds every row with fresh action closures, which made every
+/// finished message (long code blocks included) redraw too. Closures are ignored here;
+/// the message is compared by identity — edits to its own content still redraw the row
+/// through the model's observation tracking.
+extension MessageRow: @MainActor Equatable {
+    static func == (a: MessageRow, b: MessageRow) -> Bool {
+        a.message === b.message
+            && a.modelName == b.modelName
+            && a.isLiveStreaming == b.isLiveStreaming
+            && a.openArtifactID == b.openArtifactID
+    }
+}
