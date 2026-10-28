@@ -21,7 +21,7 @@ struct SettingsView: View {
     @State private var scanner = NetworkScanner()
 
     private static let tabTitles = ["Endpoints",
-                                    "Presets", "Appearance", "Tools", "Memory", "MCP Servers"]
+                                    "Presets", "Appearance", "Tools", "Memory", "Skills", "MCP Servers"]
 
     private struct CloudPreset: Identifiable {
         var id: String { name }
@@ -52,6 +52,7 @@ struct SettingsView: View {
                 case "Appearance":  AppearanceSettingsTab()
                 case "Tools":       toolsTab
                 case "Memory":      memoryTab
+                case "Skills":      SkillsSettingsTab()
                 case "MCP Servers": mcpServersTab
                 default:            endpointsTab
                 }
@@ -940,8 +941,8 @@ private struct ThemeRow: View {
 // MARK: - Section
 
 /// An eyebrow caption above a block of related controls — the recurring
-/// settings-group unit.
-private struct SettingsSection<Content: View>: View {
+/// settings-group unit. Internal (not private) so tabs in their own files can use it.
+struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
 
