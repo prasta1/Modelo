@@ -154,3 +154,13 @@ behind `#available`. Bump the runner first.
    `prewarm()` when the model is selected. Gate: run `Benchmark` with a
    ~3,500-token prompt; time to first token under ~1s means no cache. Over that,
    revisit. This is Apple-only: HTTP servers do their own prompt caching.
+
+   **Gate result (2026-10-28, this Mac, macOS 27):** ~3,250 estimated tokens,
+   `maxTokens` 300, 3 runs → TTFT 2.27 / 2.37 / 2.60s (p50 **2.37s**). **Over the
+   gate.** A 2-turn chat measured 0.65s. Runs 2–3 were no faster than run 1, so
+   the cost is prefill (~1,400 tok/s), not model load, and `prewarm()` won't move
+   it. A cache would save only the re-read history, i.e. everything but the new
+   message, and only until trimming starts (trimming changes the prefix every
+   turn). **Revisit before Tier 2:** a per-conversation session reused while the
+   transcript is an exact prefix of the new one, rebuilt otherwise. Ship Tier 1
+   without it.
