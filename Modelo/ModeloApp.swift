@@ -32,6 +32,8 @@ struct ModeloApp: App {
     // Routes ⌘, / sidebar / "Manage models" to the in-app settings pane. Owned
     // here so the ⌘, command works even when no window is focused.
     @State private var settingsNavigator = SettingsNavigator()
+    // Menu-bar quick chat, shared by the dropdown and its popped-out window.
+    @State private var quickChatSession = QuickChatSession()
 
     /// `WindowGroup` id for the main window, so ⌘, can reopen it by id in
     /// menu-bar-only mode (and find it via its NSWindow identifier prefix).
@@ -39,6 +41,9 @@ struct ModeloApp: App {
 
     /// Scene id for the expanded-table window.
     static let tableWindowID = "table"
+
+    /// Scene id for the menu-bar quick chat popped out into its own window.
+    static let quickChatWindowID = "quickChat"
 
     /// Applies the stored theme to `Theme.active` and returns it. Called in each scene
     /// body (before its `.id(themeID)` subtree builds) so colors repaint on change.
@@ -182,6 +187,27 @@ struct ModeloApp: App {
         .defaultSize(width: 1000, height: 640)
         .defaultPosition(.center)
 
+        // The menu-bar quick chat, popped out into a resizable window. A single
+        // `Window` (not a WindowGroup), so popping out again focuses it.
+        Window("Quick Chat", id: Self.quickChatWindowID) {
+            MenuBarChatView(isDetached: true)
+                .environment(registry)
+                .environment(serverMonitor)
+                .environment(mcpManager)
+                .environment(favoritesStore)
+                .environment(settingsNavigator)
+                .environment(rotationStore)
+                .environment(catalogCollapseStore)
+                .environment(quickChatSession)
+                .modelContainer(container)
+                .preferredColorScheme(palette.scheme)
+                .id(themeID)
+                .frame(minWidth: 320, minHeight: 300)
+                .modeloWindowChrome()
+        }
+        .defaultSize(width: 380, height: 480)
+        .windowResizability(.contentMinSize)
+
         MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarChatView()
                 .environment(registry)
@@ -191,6 +217,7 @@ struct ModeloApp: App {
                 .environment(settingsNavigator)
                 .environment(rotationStore)
                 .environment(catalogCollapseStore)
+                .environment(quickChatSession)
                 .modelContainer(container)
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)
