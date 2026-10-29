@@ -31,6 +31,9 @@ struct SkillsSettingsTab: View {
                 }
             }
             .settingsColumn()
+            // `.scrollIndicators(.hidden)` alone loses to "Show scroll bars: Always" or an
+            // attached mouse; this AppKit probe hides them like every other tab.
+            .hideScrollIndicators()
         }
         .scrollIndicators(.hidden)
         .onAppear(perform: rescan)
