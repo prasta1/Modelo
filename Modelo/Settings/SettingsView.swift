@@ -253,10 +253,12 @@ struct SettingsView: View {
     }
 
     private func addMCPServer() {
+        // Starts blank and off: the old template was the filesystem server rooted at
+        // "/", one toggle away from handing a model the whole disk.
         mcpManager.addConfig(MCPServerConfig(
             name: "New MCP Server",
             command: "npx",
-            arguments: ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+            arguments: [],
             isEnabled: false
         ))
     }
@@ -1781,7 +1783,7 @@ private struct MCPServerSettingsRow: View {
 
     @State private var name: String
     @State private var command: String
-    @State private var argsString: String  // space-joined arguments
+    @State private var argsString: String  // shell-quoted arguments (`MCPArguments`)
     @State private var envValues: [String: String]
     @State private var isEnabled: Bool
     @FocusState private var focus: Field?
@@ -1798,7 +1800,7 @@ private struct MCPServerSettingsRow: View {
         self.onDelete = onDelete
         _name       = State(initialValue: config.name)
         _command    = State(initialValue: config.command)
-        _argsString = State(initialValue: config.arguments.joined(separator: " "))
+        _argsString = State(initialValue: MCPArguments.join(config.arguments))
         _envValues  = State(initialValue: config.env)
         _isEnabled  = State(initialValue: config.isEnabled)
     }
@@ -1904,9 +1906,8 @@ private struct MCPServerSettingsRow: View {
         var updated = config
         updated.name      = name.trimmingCharacters(in: .whitespaces).isEmpty ? config.name : name
         updated.command   = command.trimmingCharacters(in: .whitespaces).isEmpty ? config.command : command
-        updated.arguments = argsString
-            .split(separator: " ", omittingEmptySubsequences: true)
-            .map(String.init)
+        // Shell-style quoting, so a path with a space stays one argument.
+        updated.arguments = MCPArguments.split(argsString)
         updated.env       = envValues
         updated.isEnabled = enabled ?? isEnabled
         onUpdate(updated)
