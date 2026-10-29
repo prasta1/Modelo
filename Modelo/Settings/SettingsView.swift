@@ -617,18 +617,23 @@ private struct PresetEditPane: View {
 /// updates open chats live (`ChatView` observes the same key).
 private struct ToolRoundsCard: View {
     @AppStorage("globalMaxToolRounds") private var maxRounds = ChatSession.defaultMaxToolRounds
+    @AppStorage("yoloModeEnabled") private var yolo = false
 
     var body: some View {
         SettingsSection("Tool-call limit") {
             VStack(alignment: .leading, spacing: 8) {
                 SettingRow(title: "Max tool calls per turn",
-                           caption: "How many tool rounds a model may run before the turn stops with a notice.") {
+                           caption: yolo ? "Lifted while YOLO mode is on for every chat."
+                                         : "How many tool rounds a model may run before the turn stops with a notice.") {
                     HStack(spacing: 6) {
                         Text("\(maxRounds)").font(.mono(13)).foregroundStyle(Theme.amber).monospacedDigit()
                         Stepper("Max tool calls per turn", value: $maxRounds, in: 1...20)
                             .labelsHidden()
                     }
                 }
+                // YOLO ignores the cap; a live-looking stepper would suggest otherwise.
+                .disabled(yolo)
+                .opacity(yolo ? 0.5 : 1)
                 Text("Higher allows more complex multi-step tool use but can run longer. Applies to new chats immediately; open chats update live. Ignored while YOLO mode is on.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -668,17 +673,29 @@ private struct LMStudioLoadContextCard: View {
 /// per-conversation switch to drive `ChatSession.yoloMode`.
 private struct YoloCard: View {
     @AppStorage("yoloModeEnabled") private var enabled = false
+    /// Turning YOLO on for every chat asks first; turning it off doesn't.
+    @State private var confirming = false
 
     var body: some View {
         SettingsSection("YOLO mode") {
             VStack(alignment: .leading, spacing: 8) {
                 SettingToggle(title: "Auto-approve all tool calls",
-                              caption: "Writes, edits and shell commands run without asking, and the tool-call limit is removed.",
-                              isOn: $enabled)
-                Text("The model can modify files and run commands unattended until it finishes or you press Stop. Only use in workspaces you trust. Can also be enabled per chat.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.Palette.alert)
-                    .fixedSize(horizontal: false, vertical: true)
+                              caption: "Writes, edits and shell commands run without asking, and the tool-call limit is removed. Can also be enabled per chat.",
+                              isOn: Binding(get: { enabled },
+                                            set: { on in if on { confirming = true } else { enabled = false } }))
+                // Only while it's on: an always-visible warning became wallpaper.
+                if enabled {
+                    Label("On for every chat. The model can modify files and run commands unattended until it finishes or you press Stop.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(Theme.metric(10)).foregroundStyle(Theme.Palette.alert)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+        }
+        .confirmationDialog("Run tools without asking in every chat?", isPresented: $confirming) {
+            Button("Turn On YOLO for All Chats", role: .destructive) { enabled = true }
+        } message: {
+            Text("Writes, edits and shell commands will run without an approval card in every chat, and the tool-call limit is lifted. Only use in workspaces you trust.")
         }
     }
 }
@@ -765,12 +782,14 @@ private struct FilesystemToolsCard: View {
                 .opacity(enabled ? 1 : 0.5)
 
                 SettingToggle(title: "Allow the bash tool",
-                              caption: "Runs shell commands in the workspace. Highest risk — every command asks for approval.",
+                              caption: "Runs shell commands in the workspace. Highest risk — every command asks for approval unless YOLO mode is on.",
                               isOn: $shell)
                 .disabled(!enabled)
                 .opacity(enabled ? 1 : 0.5)
 
-                Text("Off by default. Writes, edits, and shell commands always ask for approval in the chat. The model must support tools and the chat's Tools toggle must be on. Re-open a chat after changing these.")
+                // Was "always ask for approval" — untrue once YOLO mode and per-chat session
+                // approvals existed. Safety copy has to match what actually happens.
+                Text("Off by default. Writes and edits ask for approval in the chat (you can approve one for the rest of that chat); every shell command asks. YOLO mode — here or per chat — skips all of these prompts. The model must support tools and the chat's Tools toggle must be on. Re-open a chat after changing these.")
                     .font(Theme.metric(10))
                     .foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
