@@ -74,7 +74,7 @@ private struct DetailPanel: View {
                     HStack(spacing: 5) {
                         Circle().fill(placementColor)
                             .frame(width: 5, height: 5)
-                            .shadow(color: m.isLoaded ? placementColor.opacity(0.9) : .clear, radius: 4)
+                            .shadow(color: m.isLoaded && Theme.glows ? placementColor.opacity(0.9) : .clear, radius: 4)
                         Text(placementLine)
                             .font(Theme.label(8))
                             .tracking(0.8)

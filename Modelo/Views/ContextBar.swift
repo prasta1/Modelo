@@ -42,7 +42,7 @@ struct ContextBar: View {
                     Capsule()
                         .fill(barColor)
                         .frame(width: max(4, geo.size.width * fraction))
-                        .shadow(color: barColor.opacity(0.6), radius: 4)
+                        .shadow(color: Theme.glows ? barColor.opacity(0.6) : .clear, radius: 4)
                 }
             }
             .frame(height: 5)

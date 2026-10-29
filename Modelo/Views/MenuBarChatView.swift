@@ -378,7 +378,7 @@ private struct QuickChatComposer: View {
                     canSend || isStreaming ? Theme.Palette.signal : Theme.Palette.panelHigh,
                     in: Circle()
                 )
-                .shadow(color: canSend || isStreaming ? Theme.Palette.signal.opacity(0.45) : .clear, radius: 5)
+                .shadow(color: (canSend || isStreaming) && Theme.glows ? Theme.Palette.signal.opacity(0.45) : .clear, radius: 5)
             }
             .buttonStyle(.plain)
             .disabled(!canSend && !isStreaming)
