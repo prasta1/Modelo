@@ -1385,7 +1385,7 @@ struct ChatView: View {
                     }
                     .frame(width: 36, height: 36)
                     .background(sendButtonBackground, in: Circle())
-                    .shadow(color: canSend || isStreaming ? Theme.amber.opacity(0.5) : .clear, radius: 6)
+                    .shadow(color: (canSend || isStreaming) && Theme.glows ? Theme.amber.opacity(0.5) : .clear, radius: 6)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend && !isStreaming)

@@ -132,6 +132,9 @@ struct ModeloApp: App {
                 .task { await startMonitoring() }
                 .task { mcpManager.startAll() }
                 .preferredColorScheme(palette.scheme)
+                // Inside the rebuild so a live theme switch repaints the window background;
+                // centering stays outside, or every switch would re-center the window.
+                .modeloWindowChrome()
                 .id(themeID)   // rebuild the tree so static Theme.* reads repaint (§3.5)
                 .modeloWindowChrome(center: true)
                 .alert("Chat database was reset", isPresented: $showStoreRecoveryAlert) {

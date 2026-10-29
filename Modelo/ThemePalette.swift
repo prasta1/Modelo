@@ -25,6 +25,10 @@ struct ThemePalette {
     let amberFill, amberFillLo, amberBorder, greenGlow: Color
     // Send-button gradient endpoints + backdrop glow
     let gradStart, gradEnd, glow: Color
+
+    /// White on dark palettes, black on light — the base for ad-hoc alpha hairlines and
+    /// fills. Hard-coded white vanished on light palettes.
+    var fgTint: Color { scheme == .dark ? .white : .black }
 }
 
 extension ThemePalette {
@@ -99,7 +103,7 @@ extension ThemePalette {
     static let light = build(
         scheme: .light,
         crust: 0xECECEF, mantle: 0xF2F2F5, base: 0xFFFFFF, surface0: 0xE6E6EB,
-        text: 0x1A1A1F, subtext1: 0x3A3A44, subtext0: 0x5C5C68, overlay1: 0x86868F, overlay0: 0xA2A2AC,
+        text: 0x1A1A1F, subtext1: 0x3A3A44, subtext0: 0x5C5C68, overlay1: 0x676770, overlay0: 0x83838C,
         accent: 0xC8801E, accentName: 0xA8650F, accentDeep: 0x9A6212,
         green: 0x2E9E63, idle: 0xC99A2E, offline: 0xA8A8B2, alert: 0xD1503A,
         blue: 0x3E5FA8, purple: 0x7A5AB8, vision: 0x1E8FB8, think: 0x8050C0
@@ -109,7 +113,10 @@ extension ThemePalette {
     static let latte = build(
         scheme: .light,
         crust: 0xDCE0E8, mantle: 0xE6E9EF, base: 0xEFF1F5, surface0: 0xCCD0DA,
-        text: 0x4C4F69, subtext1: 0x5C5F77, subtext0: 0x6C6F85, overlay1: 0x8C8FA1, overlay0: 0x9CA0B0,
+        // Dim/faint text slots take Latte's overlay2/overlay1 — one step darker than the
+        // overlay1/overlay0 the other flavors use — since Latte's own overlays read ~2:1 on
+        // its light surfaces. Still only official Catppuccin values.
+        text: 0x4C4F69, subtext1: 0x5C5F77, subtext0: 0x6C6F85, overlay1: 0x7C7F93, overlay0: 0x8C8FA1,
         accent: 0xFE640B, accentName: 0xDF8E1D, accentDeep: 0xC24F08,
         green: 0x40A02B, idle: 0xDF8E1D, offline: 0x9CA0B0, alert: 0xD20F39,
         blue: 0x1E66F5, purple: 0x8839EF, vision: 0x209FB5, think: 0x7287FD
@@ -154,13 +161,14 @@ extension ThemePalette {
     )
 
     /// Light mode with a naval blue surface ramp, gold interactive accents, and
-    /// lime-green status indicators on a paper-white content canvas.
+    /// deep lime-green status indicators (dark enough to read on the blue sidebar) on a
+    /// paper-white content canvas.
     static let lager = build(
         scheme: .light,
         crust: 0xCAD6EC, mantle: 0xBECEE8, base: 0xF4F8FF, surface0: 0xDEE9F6,
-        text: 0x0A1B38, subtext1: 0x1C3254, subtext0: 0x354E72, overlay1: 0x5B7490, overlay0: 0x7C94B0,
+        text: 0x0A1B38, subtext1: 0x1C3254, subtext0: 0x354E72, overlay1: 0x46596E, overlay0: 0x61748B,
         accent: 0xBF7E0A, accentName: 0xA56808, accentDeep: 0x885206,
-        green: 0x5AA80E, idle: 0xC08A10, offline: 0x788EA8, alert: 0xCC3020,
+        green: 0x45810A, idle: 0xC08A10, offline: 0x788EA8, alert: 0xCC3020,
         blue: 0x1858B5, purple: 0x6845A5, vision: 0x0C7CB2, think: 0x6C3CA2
     )
 

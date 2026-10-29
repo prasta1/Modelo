@@ -38,11 +38,11 @@ struct ContextBar: View {
             // rather than a stock progress bar we can't fully theme.
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.08))
+                    Capsule().fill(Theme.fgTint.opacity(0.08))
                     Capsule()
                         .fill(barColor)
                         .frame(width: max(4, geo.size.width * fraction))
-                        .shadow(color: barColor.opacity(0.6), radius: 4)
+                        .shadow(color: Theme.glows ? barColor.opacity(0.6) : .clear, radius: 4)
                 }
             }
             .frame(height: 5)

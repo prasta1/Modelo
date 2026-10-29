@@ -1,8 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// Root view for the Models page (.launcher route). Replaces LauncherView for
-/// the `.launcher` sidebar route. LauncherView.swift is preserved unchanged.
+/// Root view for the Models page (the `.launcher` sidebar route).
 struct ModelCatalogView: View {
     let discovered: [DiscoveredModel]
     let onLaunch: (DiscoveredModel) -> Void
