@@ -158,7 +158,7 @@ private struct MemoryEditPane: View {
                     .background(Theme.windowBG, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                            .strokeBorder(Theme.fgTint.opacity(0.10), lineWidth: 1)
                     )
             }
 

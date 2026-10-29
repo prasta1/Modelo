@@ -70,7 +70,7 @@ struct SidebarView: View {
         .scrollIndicators(.hidden)
         .background(Theme.sidebarBG)
         .overlay(alignment: .trailing) {
-            Rectangle().fill(Color.white.opacity(0.05)).frame(width: 1)
+            Rectangle().fill(Theme.fgTint.opacity(0.05)).frame(width: 1)
         }
         .task(id: searchText) {
             // Debounce: searchText stays bound to the field so typing is live,
@@ -491,7 +491,7 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control)
-            .stroke(Color.white.opacity(0.05)))
+            .stroke(Theme.fgTint.opacity(0.05)))
     }
 
     private func emptyLabel(_ text: String) -> some View {

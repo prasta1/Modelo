@@ -1795,7 +1795,7 @@ private struct FieldChrome: ViewModifier {
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(focused ? Theme.amber.opacity(0.85)
-                                          : Color.white.opacity(0.10),
+                                          : Theme.fgTint.opacity(0.10),
                                   lineWidth: 1)
             )
             .animation(.snappy(duration: 0.2), value: focused)

@@ -202,7 +202,7 @@ struct ModelPickerView: View {
         .background(hovering ? Theme.fillHi : Theme.fill,
                     in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control)
-            .stroke(Color.white.opacity(0.09)))
+            .stroke(Theme.fgTint.opacity(0.09)))
     }
 }
 
@@ -304,7 +304,7 @@ private struct ModelPickerList: View {
         }
         .scrollIndicators(.hidden)
         .frame(width: 150)
-        .background(Color.white.opacity(0.012))
+        .background(Theme.fgTint.opacity(0.012))
     }
 
     /// True when the dragged endpoint comes from above row `index`, so it lands
@@ -436,7 +436,7 @@ private struct ModelPickerList: View {
                 // 13pt model names it sits over.
                 .font(Theme.label(11)).tracking(1)
                 .foregroundStyle(Theme.textDim)
-            Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+            Rectangle().fill(Theme.fgTint.opacity(0.05)).frame(height: 1)
             Text("\(count)")
                 .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
@@ -451,7 +451,7 @@ private struct ModelPickerList: View {
             Text("FAVORITES")
                 .font(Theme.label(11)).tracking(1)
                 .foregroundStyle(Theme.textDim)
-            Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+            Rectangle().fill(Theme.fgTint.opacity(0.05)).frame(height: 1)
             Text("\(favoriteItems.count)")
                 .font(.mono(10)).foregroundStyle(Theme.textDim)
         }
@@ -582,7 +582,7 @@ private struct ModelPickerList: View {
             ModelSortMenu(sort: $sortKey)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(Color.white.opacity(0.012))
+        .background(Theme.fgTint.opacity(0.012))
     }
 
     /// Local servers list in full; cloud catalogs stay behind search
@@ -906,7 +906,7 @@ private struct ModelRow: View {
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.textMute)
         } else {
-            Circle().stroke(Color.white.opacity(0.22), lineWidth: 1.5)
+            Circle().stroke(Theme.fgTint.opacity(0.22), lineWidth: 1.5)
                 .frame(width: 7, height: 7)
         }
     }

@@ -25,6 +25,10 @@ struct ThemePalette {
     let amberFill, amberFillLo, amberBorder, greenGlow: Color
     // Send-button gradient endpoints + backdrop glow
     let gradStart, gradEnd, glow: Color
+
+    /// White on dark palettes, black on light — the base for ad-hoc alpha hairlines and
+    /// fills. Hard-coded white vanished on light palettes.
+    var fgTint: Color { scheme == .dark ? .white : .black }
 }
 
 extension ThemePalette {

@@ -325,7 +325,7 @@ private struct SpecRow: View {
                     ZStack(alignment: .leading) {
                         Capsule().fill(Theme.fill).frame(height: 3)
                         Capsule()
-                            .fill(barAccent ? Theme.amber : Color.white.opacity(0.20))
+                            .fill(barAccent ? Theme.amber : Theme.fgTint.opacity(0.20))
                             .frame(width: geo.size.width * barFrac, height: 3)
                     }
                 }

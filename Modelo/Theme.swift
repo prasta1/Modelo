@@ -348,6 +348,7 @@ extension Theme {
     static var line: Color   { active.line }
     static var fill: Color   { active.fill }
     static var fillHi: Color { active.fillHi }
+    static var fgTint: Color { active.fgTint }
 
     // Accent tints reused for chips / active rows
     static var amberFill: Color   { active.amberFill }

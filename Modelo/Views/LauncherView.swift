@@ -196,7 +196,7 @@ struct LauncherView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel(Color.white.opacity(0.02), radius: 10)
+        .panel(Theme.fgTint.opacity(0.02), radius: 10)
     }
 
     // MARK: - Capability filter row
@@ -254,7 +254,7 @@ struct LauncherView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel(Color.white.opacity(0.02), radius: 10)
+        .panel(Theme.fgTint.opacity(0.02), radius: 10)
     }
 
     private var noModelsHint: some View {
@@ -268,7 +268,7 @@ struct LauncherView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel(Color.white.opacity(0.02), radius: 10)
+        .panel(Theme.fgTint.opacity(0.02), radius: 10)
     }
 }
 
@@ -536,7 +536,7 @@ private struct ModelTile: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(hovering ? Theme.fillHi : Color.white.opacity(0.02),
+            .background(hovering ? Theme.fillHi : Theme.fgTint.opacity(0.02),
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
