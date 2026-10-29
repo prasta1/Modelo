@@ -1464,7 +1464,8 @@ private struct ServerProbeRow: View {
             Label("Connected · \(n) model\(n == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
                 .font(Theme.metric(11)).foregroundStyle(Theme.green)
         case .needsKey:
-            Label("Connected — needs an API key", systemImage: "key.fill")
+            Label(keyHint.isEmpty ? "Connected — needs an API key" : "Key rejected — check it and test again",
+                  systemImage: "key.fill")
                 .font(Theme.metric(11)).foregroundStyle(Theme.amber)
         case .failed(let why):
             Label(why, systemImage: "exclamationmark.triangle.fill")
@@ -1477,7 +1478,7 @@ private struct ServerProbeRow: View {
         // Debounce typing so we don't probe on every keystroke; manual Test skips it.
         if debounce { try? await Task.sleep(for: .milliseconds(500)) }
         if Task.isCancelled { return }
-        guard !server.host.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard server.kind.hasFixedURL || !server.host.trimmingCharacters(in: .whitespaces).isEmpty else {
             state = .idle
             onNeedsAuth(false)   // clear a stale "needs key" reveal when the host is emptied
             return
@@ -1669,6 +1670,9 @@ private struct CloudServerSettingsRow: View {
                         .font(Theme.metric(10))
                         .foregroundStyle(Theme.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    // A pasted key used to sit unverified until the picker came up empty.
+                    ServerProbeRow(server: server, keyHint: apiKey)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
