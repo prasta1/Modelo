@@ -161,13 +161,14 @@ extension ThemePalette {
     )
 
     /// Light mode with a naval blue surface ramp, gold interactive accents, and
-    /// lime-green status indicators on a paper-white content canvas.
+    /// deep lime-green status indicators (dark enough to read on the blue sidebar) on a
+    /// paper-white content canvas.
     static let lager = build(
         scheme: .light,
         crust: 0xCAD6EC, mantle: 0xBECEE8, base: 0xF4F8FF, surface0: 0xDEE9F6,
         text: 0x0A1B38, subtext1: 0x1C3254, subtext0: 0x354E72, overlay1: 0x46596E, overlay0: 0x61748B,
         accent: 0xBF7E0A, accentName: 0xA56808, accentDeep: 0x885206,
-        green: 0x5AA80E, idle: 0xC08A10, offline: 0x788EA8, alert: 0xCC3020,
+        green: 0x45810A, idle: 0xC08A10, offline: 0x788EA8, alert: 0xCC3020,
         blue: 0x1858B5, purple: 0x6845A5, vision: 0x0C7CB2, think: 0x6C3CA2
     )
 
