@@ -113,7 +113,10 @@ extension ThemePalette {
     static let latte = build(
         scheme: .light,
         crust: 0xDCE0E8, mantle: 0xE6E9EF, base: 0xEFF1F5, surface0: 0xCCD0DA,
-        text: 0x4C4F69, subtext1: 0x5C5F77, subtext0: 0x6C6F85, overlay1: 0x8C8FA1, overlay0: 0x9CA0B0,
+        // Dim/faint text slots take Latte's overlay2/overlay1 — one step darker than the
+        // overlay1/overlay0 the other flavors use — since Latte's own overlays read ~2:1 on
+        // its light surfaces. Still only official Catppuccin values.
+        text: 0x4C4F69, subtext1: 0x5C5F77, subtext0: 0x6C6F85, overlay1: 0x7C7F93, overlay0: 0x8C8FA1,
         accent: 0xFE640B, accentName: 0xDF8E1D, accentDeep: 0xC24F08,
         green: 0x40A02B, idle: 0xDF8E1D, offline: 0x9CA0B0, alert: 0xD20F39,
         blue: 0x1E66F5, purple: 0x8839EF, vision: 0x209FB5, think: 0x7287FD
