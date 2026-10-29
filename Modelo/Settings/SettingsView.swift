@@ -915,9 +915,11 @@ struct SettingLabel: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(Theme.metric(12)).foregroundStyle(Theme.textHi)
             if let caption {
+                // No vertical fixedSize: pinned to its full height, the caption wrapped a
+                // word per line at the window's minimum width and pushed the main window's
+                // minimum height to ~1,600pt on the (unscrolled) Memory tab.
                 Text(caption)
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
