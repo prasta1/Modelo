@@ -249,3 +249,49 @@ struct MCPRegistrySearch: Sendable {
         let isRequired: Bool?
     }
 }
+
+/// The MCP arguments field is a single line of text; these convert it to and from the
+/// argument list with shell-style quoting, so a path containing a space survives.
+enum MCPArguments {
+    /// Splits on unquoted whitespace. Single quotes are literal, double quotes allow
+    /// `\"` and `\\` escapes, and a backslash outside quotes escapes the next character.
+    static func split(_ line: String) -> [String] {
+        var args: [String] = []
+        var current = ""
+        var inArg = false
+        var quote: Character?
+        var escaping = false
+        for ch in line {
+            if escaping {
+                current.append(ch); escaping = false; inArg = true
+            } else if let q = quote {
+                if ch == q { quote = nil }
+                else if ch == "\\" && q == "\"" { escaping = true }
+                else { current.append(ch) }
+            } else if ch == "'" || ch == "\"" {
+                quote = ch; inArg = true
+            } else if ch == "\\" {
+                escaping = true
+            } else if ch.isWhitespace {
+                if inArg { args.append(current); current = ""; inArg = false }
+            } else {
+                current.append(ch); inArg = true
+            }
+        }
+        if inArg { args.append(current) }
+        return args
+    }
+
+    /// Joins for display, double-quoting any argument that `split` wouldn't read back
+    /// as one word.
+    static func join(_ args: [String]) -> String {
+        args.map { arg in
+            let needsQuotes = arg.isEmpty || arg.contains { $0.isWhitespace || "'\"\\".contains($0) }
+            guard needsQuotes else { return arg }
+            let escaped = arg.replacingOccurrences(of: "\\", with: "\\\\")
+                             .replacingOccurrences(of: "\"", with: "\\\"")
+            return "\"\(escaped)\""
+        }
+        .joined(separator: " ")
+    }
+}

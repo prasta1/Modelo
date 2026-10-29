@@ -113,6 +113,7 @@ private struct MemoryEditPane: View {
     @State private var details: String
     @State private var contentText: String
     @State private var saveError: String?
+    @State private var confirmingDelete = false
     @FocusState private var focus: Field?
     private enum Field { case name, details }
 
@@ -174,8 +175,13 @@ private struct MemoryEditPane: View {
                         .foregroundStyle(Theme.textFaint)
                 }
                 Spacer()
-                Button("Delete", role: .destructive, action: deleteMemory)
+                Button("Delete", role: .destructive) { confirmingDelete = true }
                     .font(Theme.metric(11))
+                    .confirmationDialog("Delete memory?", isPresented: $confirmingDelete) {
+                        Button("Delete", role: .destructive, action: deleteMemory)
+                    } message: {
+                        Text("“\(memory.name)” will be deleted from disk. This can't be undone.")
+                    }
                 Button("Save", action: saveMemory)
                     .font(Theme.metric(11))
                     .buttonStyle(.borderedProminent)
