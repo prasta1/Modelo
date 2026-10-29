@@ -75,6 +75,10 @@ final class MCPServerManager {
     private(set) var availableTools: [any Tool] = []
     /// Per-server error strings for display in the settings UI.
     private(set) var connectionErrors: [UUID: String] = [:]
+    /// Servers whose process is launching / handshaking right now.
+    private(set) var connecting: Set<UUID> = []
+    /// Tool count per connected server — the settings row shows it as proof of life.
+    private(set) var toolCounts: [UUID: Int] = [:]
 
     private var clients: [UUID: MCPClient] = [:]
 
@@ -129,6 +133,9 @@ final class MCPServerManager {
     // MARK: Private
 
     private func launch(_ config: MCPServerConfig) async {
+        connecting.insert(config.id)
+        // Cleared after rebuildTools so the row goes straight to "N tools", not via "not connected".
+        defer { connecting.remove(config.id) }
         let client = MCPClient(config: config)
         do {
             try await client.connect()
@@ -143,9 +150,11 @@ final class MCPServerManager {
 
     private func rebuildTools() async {
         var tools: [any Tool] = []
+        var counts: [UUID: Int] = [:]
         for (id, client) in clients {
             guard let config = configs.first(where: { $0.id == id }), config.isEnabled else { continue }
             let defs = await client.toolDefs
+            counts[id] = defs.count
             for def in defs {
                 tools.append(MCPTool(name: def.name, description: def.description,
                                      parameters: def.parameters, serverName: config.name,
@@ -153,6 +162,7 @@ final class MCPServerManager {
             }
         }
         availableTools = tools
+        toolCounts = counts
     }
 
     private func persist() { MCPServerConfig.saveAll(configs) }

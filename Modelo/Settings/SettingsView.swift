@@ -208,6 +208,8 @@ struct SettingsView: View {
                     MCPServerSettingsRow(
                         config: config,
                         error: mcpManager.connectionErrors[config.id],
+                        isConnecting: mcpManager.connecting.contains(config.id),
+                        toolCount: mcpManager.toolCounts[config.id],
                         onUpdate: { mcpManager.updateConfig($0) },
                         onDelete: { mcpManager.removeConfig(id: config.id) }
                     )
@@ -400,6 +402,7 @@ private struct PresetListRow: View {
     let isSelected: Bool
     let onTap: () -> Void
     let onDelete: () -> Void
+    @State private var confirmingDelete = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -417,7 +420,7 @@ private struct PresetListRow: View {
                 }
             }
             Spacer(minLength: 4)
-            Button(action: onDelete) {
+            Button { confirmingDelete = true } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.Palette.alert.opacity(0.65))
@@ -425,6 +428,11 @@ private struct PresetListRow: View {
             .buttonStyle(.plain)
             .help("Delete preset")
             .opacity(isSelected ? 1 : 0)
+            .confirmationDialog("Delete preset?", isPresented: $confirmingDelete) {
+                Button("Delete", role: .destructive, action: onDelete)
+            } message: {
+                Text("“\(preset.name.isEmpty ? "Unnamed" : preset.name)” will be deleted. This can't be undone.")
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -1801,6 +1809,9 @@ private struct FieldChrome: ViewModifier {
 private struct MCPServerSettingsRow: View {
     var config: MCPServerConfig
     let error: String?
+    let isConnecting: Bool
+    /// Set only once the server is connected.
+    let toolCount: Int?
     let onUpdate: (MCPServerConfig) -> Void
     let onDelete: () -> Void
 
@@ -1809,16 +1820,19 @@ private struct MCPServerSettingsRow: View {
     @State private var argsString: String  // shell-quoted arguments (`MCPArguments`)
     @State private var envValues: [String: String]
     @State private var isEnabled: Bool
+    @State private var confirmingDelete = false
     @FocusState private var focus: Field?
     @FocusState private var envFocused: String?
 
     private enum Field { case name, command, args }
 
-    init(config: MCPServerConfig, error: String?,
+    init(config: MCPServerConfig, error: String?, isConnecting: Bool, toolCount: Int?,
          onUpdate: @escaping (MCPServerConfig) -> Void,
          onDelete: @escaping () -> Void) {
         self.config   = config
         self.error    = error
+        self.isConnecting = isConnecting
+        self.toolCount    = toolCount
         self.onUpdate = onUpdate
         self.onDelete = onDelete
         _name       = State(initialValue: config.name)
@@ -1842,18 +1856,24 @@ private struct MCPServerSettingsRow: View {
                     .focused($focus, equals: .name)
                     .onSubmit { commit() }
                 Spacer(minLength: 8)
-                // Connection status dot
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 6, height: 6)
-                    .help(statusHelp)
-                Button(action: onDelete) {
+                // Real connection state — it used to show "Connected" whenever there was no error.
+                StatusLED(status: ledStatus)
+                    .help(error.map { "Error: \($0)" } ?? statusText)
+                Text(statusText)
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.textFaint)
+                Button { confirmingDelete = true } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.Palette.alert.opacity(0.7))
                 }
                 .buttonStyle(.plain)
                 .help("Remove MCP server")
+                .confirmationDialog("Remove MCP server?", isPresented: $confirmingDelete) {
+                    Button("Remove", role: .destructive, action: onDelete)
+                } message: {
+                    Text("This stops \(name.isEmpty ? "this server" : name) and removes its command and settings from Modelo.")
+                }
             }
 
             HStack(alignment: .bottom, spacing: 12) {
@@ -1914,15 +1934,18 @@ private struct MCPServerSettingsRow: View {
         }
     }
 
-    private var statusColor: Color {
-        guard isEnabled else { return Theme.textFaint }
-        return error == nil ? Theme.green : Theme.Palette.alert
+    private var ledStatus: ServerStatus {
+        guard isEnabled, error == nil else { return .offline }
+        if isConnecting { return .unknown }
+        return toolCount == nil ? .offline : .online
     }
 
-    private var statusHelp: String {
+    private var statusText: String {
         guard isEnabled else { return "Disabled" }
-        if let error { return "Error: \(error)" }
-        return "Connected"
+        if error != nil { return "Failed" }
+        if isConnecting { return "Connecting…" }
+        guard let toolCount else { return "Not connected" }
+        return "\(toolCount) tool\(toolCount == 1 ? "" : "s")"
     }
 
     private func commit(enabled: Bool? = nil) {
