@@ -103,7 +103,7 @@ extension ThemePalette {
     static let light = build(
         scheme: .light,
         crust: 0xECECEF, mantle: 0xF2F2F5, base: 0xFFFFFF, surface0: 0xE6E6EB,
-        text: 0x1A1A1F, subtext1: 0x3A3A44, subtext0: 0x5C5C68, overlay1: 0x86868F, overlay0: 0xA2A2AC,
+        text: 0x1A1A1F, subtext1: 0x3A3A44, subtext0: 0x5C5C68, overlay1: 0x676770, overlay0: 0x83838C,
         accent: 0xC8801E, accentName: 0xA8650F, accentDeep: 0x9A6212,
         green: 0x2E9E63, idle: 0xC99A2E, offline: 0xA8A8B2, alert: 0xD1503A,
         blue: 0x3E5FA8, purple: 0x7A5AB8, vision: 0x1E8FB8, think: 0x8050C0
