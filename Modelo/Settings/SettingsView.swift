@@ -152,7 +152,7 @@ struct SettingsView: View {
                             .padding(.top, 12)
                     }
                 }
-                .padding(24)
+                .settingsColumn()
                 .hideScrollIndicators()
             }
             .scrollIndicators(.hidden)
@@ -179,7 +179,7 @@ struct SettingsView: View {
                         account: FirecrawlClient.keychainAccount,
                         keychain: keychain)
             }
-            .padding(24)
+            .settingsColumn()
             .hideScrollIndicators()
         }
         .scrollIndicators(.hidden)
@@ -194,8 +194,7 @@ struct SettingsView: View {
     private var memoryTab: some View {
         VStack(spacing: 0) {
             MemoryEnableCard()
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
+                .settingsColumn()
             Divider().overlay(Theme.line)
             MemoryManagerView(scope: .global)
         }
@@ -227,7 +226,7 @@ struct SettingsView: View {
                     mcpManager.addConfig(entry.makeConfig())
                 }
             }
-            .padding(24)
+            .settingsColumn()
             .hideScrollIndicators()
         }
         .scrollIndicators(.hidden)
@@ -475,7 +474,7 @@ private struct PresetsSettingsTab: View {
                                 .fixedSize(horizontal: false, vertical: true)
                             SamplingControls(params: $params)
                         }
-                        .padding(20)
+                        .settingsColumn()
                     }
                     .scrollIndicators(.hidden)
                 }
@@ -604,7 +603,7 @@ private struct PresetEditPane: View {
                 Eyebrow("Sampling", size: 9)
                 SamplingControls(params: $preset.sampling)
             }
-            .padding(20)
+            .settingsColumn()
         }
         .scrollIndicators(.hidden)
     }
@@ -620,15 +619,12 @@ private struct ToolRoundsCard: View {
     var body: some View {
         SettingsSection("Tool-call limit") {
             VStack(alignment: .leading, spacing: 8) {
-                Stepper(value: $maxRounds, in: 1...20) {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                            Text("How many tool rounds a model may run before the turn stops with a notice.")
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                        }
-                        Spacer(minLength: 8)
+                SettingRow(title: "Max tool calls per turn",
+                           caption: "How many tool rounds a model may run before the turn stops with a notice.") {
+                    HStack(spacing: 6) {
                         Text("\(maxRounds)").font(.mono(13)).foregroundStyle(Theme.amber).monospacedDigit()
+                        Stepper("Max tool calls per turn", value: $maxRounds, in: 1...20)
+                            .labelsHidden()
                     }
                 }
                 Text("Higher allows more complex multi-step tool use but can run longer. Applies to new chats immediately; open chats update live. Ignored while YOLO mode is on.")
@@ -647,13 +643,8 @@ private struct LMStudioLoadContextCard: View {
     var body: some View {
         SettingsSection("LM Studio load context") {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Context when Modelo loads a model").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Never more than the model itself supports.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                    Spacer(minLength: 8)
+                SettingRow(title: "Context when Modelo loads a model",
+                           caption: "Never more than the model itself supports.") {
                     Picker("Load context", selection: $cap) {
                         ForEach(LMStudioLoadContext.options, id: \.self) { n in
                             Text(n == 0 ? "LM Studio default" : "\(n / 1024)K").tag(n)
@@ -679,14 +670,9 @@ private struct YoloCard: View {
     var body: some View {
         SettingsSection("YOLO mode") {
             VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto-approve all tool calls").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Writes, edits and shell commands run without asking, and the tool-call limit is removed.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Auto-approve all tool calls",
+                              caption: "Writes, edits and shell commands run without asking, and the tool-call limit is removed.",
+                              isOn: $enabled)
                 Text("The model can modify files and run commands unattended until it finishes or you press Stop. Only use in workspaces you trust. Can also be enabled per chat.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.Palette.alert)
                     .fixedSize(horizontal: false, vertical: true)
@@ -702,14 +688,9 @@ private struct GlobalToolsCard: View {
 
     var body: some View {
         SettingsSection("Tools") {
-            Toggle(isOn: $enabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Enable tools").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                    Text("Allow models to call tools (file access, web search, MCP). Can also be toggled per conversation.")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                }
-            }
-            .toggleStyle(.switch)
+            SettingToggle(title: "Enable tools",
+                          caption: "Allow models to call tools (file access, web search, MCP). Can also be toggled per conversation.",
+                          isOn: $enabled)
         }
     }
 }
@@ -722,14 +703,9 @@ private struct MemoryEnableCard: View {
     var body: some View {
         SettingsSection("Memory") {
             VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Remember facts across conversations").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Models can save durable facts with save_memory and see a compact index of them in every chat. Project chats also get project-scoped memories.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Remember facts across conversations",
+                              caption: "Models can save durable facts with save_memory and see a compact index of them in every chat. Project chats also get project-scoped memories.",
+                              isOn: $enabled)
                 Text("Off by default — one-off conversations stay one-off. Costs a line of context per memory. Open chats pick the change up from their next message.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
             }
@@ -743,14 +719,9 @@ private struct ArtifactsCard: View {
     var body: some View {
         SettingsSection("Artifacts") {
             VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Render artifacts in a side panel").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Substantial HTML / SVG / Mermaid / code / documents open in a viewer beside the chat, with live preview and versions.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Render artifacts in a side panel",
+                              caption: "Substantial HTML / SVG / Mermaid / code / documents open in a viewer beside the chat, with live preview and versions.",
+                              isOn: $enabled)
                 Text("Adds a short instruction to the system prompt teaching the model the artifact syntax. Turn off to save context on small models. Re-open a chat after changing.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -769,14 +740,9 @@ private struct FilesystemToolsCard: View {
     var body: some View {
         SettingsSection("Filesystem & shell tools") {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Let models read & edit files").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("read_file · write_file · edit_file · grep · glob — confined to the workspace folder below.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Let models read & edit files",
+                              caption: "read_file · write_file · edit_file · grep · glob — confined to the workspace folder below.",
+                              isOn: $enabled)
 
                 HStack(spacing: 10) {
                     Image(systemName: "folder")
@@ -796,14 +762,9 @@ private struct FilesystemToolsCard: View {
                 }
                 .opacity(enabled ? 1 : 0.5)
 
-                Toggle(isOn: $shell) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Allow the bash tool").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Runs shell commands in the workspace. Highest risk — every command asks for approval.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Allow the bash tool",
+                              caption: "Runs shell commands in the workspace. Highest risk — every command asks for approval.",
+                              isOn: $shell)
                 .disabled(!enabled)
                 .opacity(enabled ? 1 : 0.5)
 
@@ -840,43 +801,19 @@ private struct AppearanceSettingsTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 SettingsSection("General") {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Show menu bar icon").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                                Text("Adds a menu bar item with a quick ephemeral chat popover.")
-                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Show Personas in sidebar").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                                Text("Displays the Personas nav item in the sidebar.")
-                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Show persona picker in chat").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                                Text("Displays the persona selector above the message box.")
-                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Expand tool call details by default").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                                Text("Show tool call arguments and results expanded in new messages.")
-                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                            }
-                        }
-                        VStack(spacing: 10) {
-                            Toggle("", isOn: $showMenuBarIcon)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                            Toggle("", isOn: $showPersonasInSidebar)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                            Toggle("", isOn: $showPersonaBar)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                            Toggle("", isOn: $toolCallsExpandedByDefault)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                        }
+                    VStack(alignment: .leading, spacing: 10) {
+                        SettingToggle(title: "Show menu bar icon",
+                                      caption: "Adds a menu bar item with a quick ephemeral chat popover.",
+                                      isOn: $showMenuBarIcon)
+                        SettingToggle(title: "Show Personas in sidebar",
+                                      caption: "Displays the Personas nav item in the sidebar.",
+                                      isOn: $showPersonasInSidebar)
+                        SettingToggle(title: "Show persona picker in chat",
+                                      caption: "Displays the persona selector above the message box.",
+                                      isOn: $showPersonaBar)
+                        SettingToggle(title: "Expand tool call details by default",
+                                      caption: "Show tool call arguments and results expanded in new messages.",
+                                      isOn: $toolCallsExpandedByDefault)
                     }
                 }
                 SettingsSection("Theme") {
@@ -893,7 +830,7 @@ private struct AppearanceSettingsTab: View {
                     .foregroundStyle(Theme.textFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
+            .settingsColumn()
             .hideScrollIndicators()
         }
         .scrollIndicators(.hidden)
@@ -960,6 +897,68 @@ struct SettingsSection<Content: View>: View {
         // toggle) doesn't size-to-fit and float toward the center while wider sections
         // (those with a Spacer) sit flush left.
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Setting rows
+//
+// Every setting is a label on the leading side and its control in one trailing column,
+// so a tab's controls line up and "what's on?" reads straight down the edge. (Switches
+// used to sit wherever their own text ended — a different x on every row.)
+
+/// The text side of a setting: a title and an optional one-line-or-so caption.
+struct SettingLabel: View {
+    let title: String
+    var caption: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+            if let caption {
+                Text(caption)
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// An on/off setting: a real labelled switch (so VoiceOver names it) whose label fills
+/// the row, pinning the switch to the trailing column.
+struct SettingToggle: View {
+    let title: String
+    var caption: String? = nil
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) { SettingLabel(title: title, caption: caption) }
+            .toggleStyle(.switch)
+    }
+}
+
+/// A setting whose control isn't a switch (a stepper, a picker, buttons) — same layout.
+struct SettingRow<Control: View>: View {
+    let title: String
+    var caption: String? = nil
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            SettingLabel(title: title, caption: caption)
+            control
+        }
+    }
+}
+
+extension View {
+    /// A Settings tab's content column: capped so rows don't stretch label-to-control
+    /// across a wide window (a 1,000pt gap on a full-screen window), centred in the pane,
+    /// inset by the shared gutter.
+    func settingsColumn() -> some View {
+        frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(Theme.gutter)
     }
 }
 

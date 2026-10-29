@@ -25,17 +25,12 @@ struct SkillsSettingsTab: View {
                 foldersSection
                 skillsSection
                 SettingsSection("New skills") {
-                    Toggle(isOn: $settings.autoEnable) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Turn on new skills automatically").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                            Text("When off, skills that appear in a folder later start switched off.")
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                        }
-                    }
-                    .toggleStyle(.switch)
+                    SettingToggle(title: "Turn on new skills automatically",
+                                  caption: "When off, skills that appear in a folder later start switched off.",
+                                  isOn: $settings.autoEnable)
                 }
             }
-            .padding(24)
+            .settingsColumn()
         }
         .scrollIndicators(.hidden)
         .onAppear(perform: rescan)
@@ -67,7 +62,7 @@ struct SkillsSettingsTab: View {
                             .font(Theme.metric(11))
                             .foregroundStyle(Theme.textDim)
                         }
-                        Toggle("", isOn: $folder.enabled)
+                        Toggle("Use \(folder.path)", isOn: $folder.enabled)
                             .labelsHidden()
                             .toggleStyle(.switch)
                             .onChange(of: folder.enabled) { rescan() }
@@ -127,7 +122,7 @@ struct SkillsSettingsTab: View {
                             }
                         }
                     }
-                    .toggleStyle(.switch)
+                    .toggleStyle(.checkbox)   // long lists take checkboxes, not switches (HIG)
                 }
             }
         }
