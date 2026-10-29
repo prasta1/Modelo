@@ -3,8 +3,8 @@ import SwiftData
 
 /// Left column: brand wordmark, primary nav (Models / Status / Reports), server
 /// reachability, and the conversation list. Conversations are organized as a
-/// Pinned section, then user folders, then automatic date buckets (Today /
-/// Yesterday / …) for everything unfiled.
+/// Pinned section, then automatic date buckets (Today / Yesterday / …) for
+/// everything unfiled, then user folders docked at the bottom.
 ///
 /// Native Refined layout (handoff §3): a `ScrollView` over `Theme.sidebarBG`
 /// rather than a `List`, since the system sidebar style can't reach this look.
@@ -296,7 +296,15 @@ struct SidebarView: View {
             }
         }
 
-        // User folders
+        // Automatic date buckets (Today / Yesterday / …)
+        ForEach(unfiledDateBuckets) { bucket in
+            sectionHeader(id: bucket.id, title: bucket.title, count: bucket.conversations.count)
+            if sectionExpanded(bucket.id) {
+                conversationList(bucket.conversations)
+            }
+        }
+
+        // User folders, docked below the dated history so the newest chat stays on top
         ForEach(visibleFolders, id: \.persistentModelID) { folder in
             let convos = conversations(in: folder)
             let sectionID = "folder:" + folder.id.uuidString
@@ -308,14 +316,6 @@ struct SidebarView: View {
                 } else {
                     conversationList(convos)
                 }
-            }
-        }
-
-        // Automatic date buckets (Today / Yesterday / …)
-        ForEach(unfiledDateBuckets) { bucket in
-            sectionHeader(id: bucket.id, title: bucket.title, count: bucket.conversations.count)
-            if sectionExpanded(bucket.id) {
-                conversationList(bucket.conversations)
             }
         }
     }
