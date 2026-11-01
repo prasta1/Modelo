@@ -131,6 +131,13 @@ final class LMStudioClientTests: XCTestCase {
         XCTAssertEqual(err, .serverError("Quota exceeded"))
     }
 
+    /// Nous doesn't wrap its error in an "error" object like OpenRouter/Gemini —
+    /// it's a flat {"status": 400, "message": "..."} body.
+    func test_streamChat_surfacesFlatErrorMessage() async {
+        let err = await streamError(.stub(400), #"{"status":400,"message":"Model parameter is required"}"#)
+        XCTAssertEqual(err, .serverError("Model parameter is required"))
+    }
+
     func test_streamChat_bare429_saysRateLimitedWithRetryAfter() async {
         let response = HTTPURLResponse(url: URL(string: "http://stub")!, statusCode: 429,
                                        httpVersion: nil, headerFields: ["Retry-After": "30"])!

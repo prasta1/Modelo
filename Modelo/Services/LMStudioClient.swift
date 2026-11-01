@@ -483,6 +483,12 @@ final class LMStudioClient: ChatProvider {
                 if let msg = decoded?.error?.message, !msg.isEmpty {
                     throw ClientError.serverError(msg)
                 }
+                // Nous doesn't wrap its error in an "error" object — it's a flat
+                // {"status": 400, "message": "..."} body, so the decode above never
+                // matches and the real reason was getting dropped on the floor.
+                if let msg = (try? JSONDecoder().decode(FlatErrorBody.self, from: errorData))?.message, !msg.isEmpty {
+                    throw ClientError.serverError(msg)
+                }
                 if http.statusCode == 429 {
                     let wait = http.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init)
                         .map { "try again in \($0)s" } ?? "try again shortly"
@@ -574,6 +580,7 @@ final class LMStudioClient: ChatProvider {
         let error: ErrorMsg?
         struct ErrorMsg: Decodable { let message: String? }
     }
+    private struct FlatErrorBody: Decodable { let message: String? }
 }
 
 /// How much context Modelo asks LM Studio for when it loads a model (Settings ▸ Endpoints).
