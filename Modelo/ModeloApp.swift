@@ -1,8 +1,12 @@
 import SwiftUI
 import SwiftData
+import Sparkle
 
 @main
 struct ModeloApp: App {
+    private let updaterController: SPUStandardUpdaterController
+    // Sparkle holds its delegate weakly, so keep it for the app's lifetime.
+    private let updaterFeedOverride: UpdaterFeedOverride
     let container: ModelContainer
     // Set when the store couldn't be opened and was moved aside (see makeContainer);
     // drives a one-time launch alert telling the user where their data went.
@@ -50,6 +54,14 @@ struct ModeloApp: App {
     private var palette: ThemePalette { Theme.applyStored(themeID) }
 
     init() {
+        let feedOverride = UpdaterFeedOverride()
+        updaterFeedOverride = feedOverride
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: AppUpdater.shouldStart(environment: ProcessInfo.processInfo.environment),
+            updaterDelegate: feedOverride,
+            userDriverDelegate: nil
+        )
+
         let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self, Preset.self])
         // Pin to a dedicated subfolder so SwiftData doesn't land in the shared
         // ~/Library/Application Support/default.store.
@@ -147,6 +159,9 @@ struct ModeloApp: App {
         .defaultPosition(.center)
         .modelContainer(container)
         .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesCommand(updater: updaterController.updater)
+            }
             // App menu ▸ Settings… (⌘,) — routes in-app; there is no Settings scene.
             CommandGroup(replacing: .appSettings) {
                 SettingsCommand(navigator: settingsNavigator)

@@ -23,6 +23,7 @@ Connects to **LM Studio**, **Ollama**, **llama.cpp**, **llama-swap**, **oMLX**, 
 - **Personas** — system prompt presets with icons and taglines, managed from their own sidebar section and applied per-chat from the composer
 - **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
 - **Menu bar mini chat** — quick-access popover from the menu bar
+- **In-app updates** — Sparkle checks for new releases with your consent; each install needs confirmation
 
 ## Tools & agents
 
@@ -93,6 +94,20 @@ Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**
 
 Download `Modelo-vX.Y.Z.zip` from the **[latest release](https://github.com/prasta1/Modelo/releases/latest)**, unzip it, and drag `Modelo.app` to `/Applications`. Builds are signed with Developer ID and notarized by Apple, so they open without Gatekeeper warnings. Universal binary (Apple Silicon + Intel). To build from source instead, see [Building](#building).
 
+### Updates
+
+Choose **Modelo → Check for Updates…** to check manually. On the second launch,
+Modelo asks whether it can check in the background. Each install needs your
+confirmation; updates are signature-checked before extraction.
+
+The published v0.4.0 release and earlier versions have no in-app updater. Download
+the first release that includes Sparkle once, then use the app menu for later
+updates. Use the official signed release for ongoing updates. Moving from a
+personally signed build can require you to enter API keys again.
+
+For signing-key setup, release checks, and troubleshooting, see
+[Sparkle updates](docs/sparkle-updates.md).
+
 ## Requirements
 
 - macOS 14.0+
@@ -107,6 +122,12 @@ open Modelo.xcodeproj
 ```
 
 Build the **Modelo** scheme. Swift Package Manager resolves dependencies automatically on first build.
+
+For a locally signed install, copy `Developer.xcconfig.example` to
+`Developer.xcconfig`, set your Apple team and bundle ID, then run
+`./scripts/install.sh`. Keep the same identity across local builds to retain
+keychain access. Free-team profiles expire after seven days; Sparkle does not
+renew them. See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands.
 
 ## Layout
 
@@ -130,7 +151,7 @@ Modelo/
 │   ├── ArtifactParser, SlashParser, TokenEstimator
 │   ├── ConversationExporter, ConversationGrouping, BranchingMigration
 │   ├── UsageRecorder, UsageMath, UsageRetention, ReportCalculator, MetricsRollup
-│   ├── Benchmark, CrashReporter, Log
+│   ├── AppUpdater, Benchmark, CrashReporter, Log
 │   ├── GPUMonitor, PrometheusMonitor, PrometheusScrape
 │   ├── OpenRouterCatalog, KeychainStore, Macmon
 ├── Resources/                   # bundled assets (e.g. mermaid.min.js for diagram previews)
@@ -151,7 +172,7 @@ modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the N
 
 ## Target
 
-macOS 14+, SwiftUI + Swift Charts + Observation framework. Dependencies (SPM): [swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui), [Highlightr](https://github.com/raspu/Highlightr).
+macOS 14+, SwiftUI + Swift Charts + Observation framework. Dependencies (SPM): [swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui), [Highlightr](https://github.com/raspu/Highlightr), [Sparkle](https://sparkle-project.org/).
 
 ## License
 
