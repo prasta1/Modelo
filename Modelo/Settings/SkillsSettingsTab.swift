@@ -79,6 +79,10 @@ struct SkillsSettingsTab: View {
                             .accessibilityAddTraits(.isButton)
                             .onChange(of: folder.enabled) { rescan() }
                     }
+                    // A contained row ties the far-right switch to its path.
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .panel(Theme.fill, radius: Theme.Radius.control, stroke: Theme.line)
                 }
                 Button("Add folder…", action: addFolder)
                     .buttonStyle(.plain)
