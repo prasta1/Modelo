@@ -12,6 +12,13 @@ struct SkillsSettingsTab: View {
     @State private var counts: [String: Int] = [:]
     @State private var filter = ""
     @FocusState private var filterFocused: Bool
+    /// The last bulk change, kept so "Undo" can restore the `disabled` set it replaced.
+    @State private var undo: BulkChange?
+
+    private struct BulkChange: Equatable {
+        let message: String
+        let previous: Set<String>
+    }
 
     private var filtered: [AgentSkill] {
         let f = filter.trimmingCharacters(in: .whitespaces).lowercased()
@@ -108,12 +115,33 @@ struct SkillsSettingsTab: View {
                         .focused($filterFocused)
                         .fieldChrome(focused: filterFocused)
                         .frame(maxWidth: 260)
-                    Button("All on") { filtered.forEach { settings.disabled.remove($0.name) } }
-                    Button("All off") { filtered.forEach { settings.disabled.insert($0.name) } }
+                    Button(filter.isEmpty ? "All on" : "Turn on \(filtered.count) shown") {
+                        bulk("Turned on \(filtered.count) skills") { filtered.forEach { settings.disabled.remove($0.name) } }
+                    }
+                    Button(filter.isEmpty ? "All off" : "Turn off \(filtered.count) shown") {
+                        bulk("Turned off \(filtered.count) skills") { filtered.forEach { settings.disabled.insert($0.name) } }
+                    }
                 }
                 .buttonStyle(.plain)
                 .font(Theme.metric(11))
                 .foregroundStyle(Theme.amber)
+                if let undo {
+                    HStack(spacing: 8) {
+                        Text(undo.message).foregroundStyle(Theme.textLo)
+                        Button("Undo") {
+                            settings.disabled = undo.previous
+                            self.undo = nil
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.amber)
+                    }
+                    .font(Theme.metric(11))
+                    // Gone after 8 s; `task(id:)` restarts (and cancels the old sleep) per change.
+                    .task(id: undo) {
+                        try? await Task.sleep(for: .seconds(8))
+                        if !Task.isCancelled { self.undo = nil }
+                    }
+                }
                 if skills.isEmpty {
                     Text("No skills found in the enabled folders.")
                         .font(Theme.metric(11))
@@ -138,10 +166,18 @@ struct SkillsSettingsTab: View {
         }
     }
 
+    /// Runs a bulk toggle and remembers the prior state for the Undo row.
+    private func bulk(_ message: String, _ change: () -> Void) {
+        let previous = settings.disabled
+        change()
+        undo = BulkChange(message: message, previous: previous)
+    }
+
     private func enabledBinding(_ name: String) -> Binding<Bool> {
         Binding(
             get: { settings.isEnabled(name) },
             set: { on in
+                undo = nil   // a single toggle after a bulk change would make "Undo" overwrite it
                 if on { settings.disabled.remove(name) } else { settings.disabled.insert(name) }
             }
         )
