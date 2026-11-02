@@ -1,5 +1,6 @@
 # Brainstorm visual-companion scratch files
 .superpowers/
+.firecrawl/
 
 # macOS
 .DS_Store
