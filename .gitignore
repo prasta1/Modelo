@@ -44,3 +44,8 @@ Modelo/DESIGN.md
 
 # Per-developer signing overrides (each dev keeps their own, uncommitted)
 Developer.xcconfig
+
+# Locally installed agent skills
+.claude/
+.hermes/
+skills-lock.json
