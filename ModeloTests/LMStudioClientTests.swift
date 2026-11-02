@@ -164,5 +164,20 @@ final class LMStudioClientTests: XCTestCase {
         XCTAssertNil(json["frequency_penalty"])   // unset → omitted
         XCTAssertNil(json["presence_penalty"])
         XCTAssertNil(json["stop"])
+        XCTAssertNil(json["user"])   // local server → no attribution tag needed
+    }
+
+    /// Nous (and some other cloud providers) reject API-key-authed requests on
+    /// certain models with a 400 "missing tags" unless `user` is set.
+    func test_streamChat_setsUserTagForCloudProvidersOnly() async throws {
+        StubURLProtocol.handler = { _ in (.stub(200), Data("data: [DONE]\n\n".utf8)) }
+        let stream = makeClient().streamChat(
+            endpoint: cloudAPI(), modelID: "m", messages: [],
+            systemPrompt: "", sampling: SamplingParams(), tools: nil)
+        for try await _ in stream {}
+
+        let body = try XCTUnwrap(StubURLProtocol.lastBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNotNil(json["user"] as? String)
     }
 }

@@ -339,7 +339,8 @@ final class LMStudioClient: ChatProvider {
                         presence_penalty: sampling.presencePenalty,
                         stop: sampling.stop,
                         stream: true,
-                        stream_options: includeUsage ? StreamOptions(include_usage: true) : nil
+                        stream_options: includeUsage ? StreamOptions(include_usage: true) : nil,
+                        user: Self.userTag(for: endpoint.kind)
                     )
                     let shouldRetry = await self.streamOnce(
                         body: body, endpoint: endpoint,
@@ -553,6 +554,20 @@ final class LMStudioClient: ChatProvider {
         message.lowercased().contains("failed to resolve model metadata")
     }
 
+    /// Some cloud providers (e.g. Nous, on certain models) reject API-key-authed
+    /// requests with a 400 "missing tags" unless the standard OpenAI `user` field
+    /// is set — with OAuth their server infers identity from the token, but a raw
+    /// key gives it nothing to attribute the request to. Any non-empty value works,
+    /// so the bundle id is enough; local servers have no use for it.
+    private static func userTag(for kind: ServerKind) -> String? {
+        switch kind {
+        case .cloudAPI, .openRouter, .nous:
+            return Bundle.main.bundleIdentifier ?? "modelo-app"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo, .appleIntelligence:
+            return nil
+        }
+    }
+
     // MARK: Wire types
     private struct LoadModelBody: Encodable { let keep_in_ram: Bool }
     /// nil `context_length` is omitted from the JSON, leaving it to LM Studio.
@@ -573,6 +588,7 @@ final class LMStudioClient: ChatProvider {
         let stop: [String]?
         let stream: Bool
         let stream_options: StreamOptions?   // nil → omitted from JSON
+        let user: String?                    // nil → omitted from JSON
     }
     private struct StreamOptions: Encodable { let include_usage: Bool }
 
