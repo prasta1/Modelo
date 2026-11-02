@@ -11,6 +11,7 @@ struct SkillsSettingsTab: View {
     /// Skill count per folder path, for the folder rows.
     @State private var counts: [String: Int] = [:]
     @State private var filter = ""
+    @FocusState private var filterFocused: Bool
 
     private var filtered: [AgentSkill] {
         let f = filter.trimmingCharacters(in: .whitespaces).lowercased()
@@ -65,9 +66,10 @@ struct SkillsSettingsTab: View {
                             .font(Theme.metric(11))
                             .foregroundStyle(Theme.textDim)
                         }
-                        Toggle("Use \(folder.path)", isOn: $folder.enabled)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
+                        PillToggle(isOn: $folder.enabled)
+                            .accessibilityLabel("Use \(folder.path)")
+                            .accessibilityValue(folder.enabled ? "On" : "Off")
+                            .accessibilityAddTraits(.isButton)
                             .onChange(of: folder.enabled) { rescan() }
                     }
                 }
@@ -100,13 +102,18 @@ struct SkillsSettingsTab: View {
         return SettingsSection("Skills · \(enabledCount) of \(skills.count) on") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
+                    // `.plain` + `fieldChrome` is the Settings field look (hairline, amber on focus).
                     TextField("Filter skills…", text: $filter)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .focused($filterFocused)
+                        .fieldChrome(focused: filterFocused)
                         .frame(maxWidth: 260)
                     Button("All on") { filtered.forEach { settings.disabled.remove($0.name) } }
                     Button("All off") { filtered.forEach { settings.disabled.insert($0.name) } }
                 }
+                .buttonStyle(.plain)
                 .font(Theme.metric(11))
+                .foregroundStyle(Theme.amber)
                 if skills.isEmpty {
                     Text("No skills found in the enabled folders.")
                         .font(Theme.metric(11))
@@ -125,7 +132,7 @@ struct SkillsSettingsTab: View {
                             }
                         }
                     }
-                    .toggleStyle(.checkbox)   // long lists take checkboxes, not switches (HIG)
+                    .toggleStyle(SkillCheckboxStyle())   // long lists take checkboxes, not switches (HIG)
                 }
             }
         }
@@ -147,5 +154,39 @@ struct SkillsSettingsTab: View {
         counts = Dictionary(uniqueKeysWithValues: settings.folders.map {
             ($0.path, AgentsLoader.loadSkills(folders: [URL(fileURLWithPath: $0.path)]).count)
         })
+    }
+}
+
+/// A checkbox that reads its colors from the active palette (the native `.checkbox`
+/// style uses the system accent, so it ignored `Theme.amber` and the nine themes).
+/// A `ToggleStyle` replaces only how a `Toggle` is drawn; it is still a real toggle,
+/// so VoiceOver and Space-to-toggle keep working.
+private struct SkillCheckboxStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            HStack(alignment: .top, spacing: 9) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(configuration.isOn ? Theme.amber : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(configuration.isOn ? Theme.amber : Theme.textFaint, lineWidth: 1)
+                    )
+                    .overlay {
+                        if configuration.isOn {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(Theme.windowBG)
+                        }
+                    }
+                    .frame(width: 15, height: 15)
+                    .padding(.top, 1)
+                configuration.label
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }
