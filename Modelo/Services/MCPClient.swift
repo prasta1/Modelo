@@ -70,9 +70,10 @@ actor MCPClient {
         p.executableURL = try Self.resolve(command: config.command)
         p.arguments = config.arguments
 
-        // Augment PATH so npx/node resolves at runtime in a GUI process context.
+        // Augment PATH so npx/node/bunx resolves at runtime in a GUI process context.
         var env = ProcessInfo.processInfo.environment
-        let extra = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin"
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let extra = "\(home)/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin"
         env["PATH"] = "\(extra):\(env["PATH"] ?? "/usr/bin:/bin")"
         // Inject server-specific env vars (API keys, etc.) — skip empty values so a
         // key field that hasn't been filled in yet doesn't shadow the real env.
@@ -256,7 +257,8 @@ actor MCPClient {
         if command.hasPrefix("/") { return URL(fileURLWithPath: command) }
         // GUI apps inherit a stripped PATH — supplement with common install paths.
         let envPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        let extras  = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin"
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let extras  = "\(home)/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin"
         let dirs = (envPath + ":" + extras).split(separator: ":").map(String.init)
         for dir in dirs {
             let url = URL(fileURLWithPath: dir).appendingPathComponent(command)
