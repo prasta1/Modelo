@@ -61,8 +61,8 @@ struct SkillsSettingsTab: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Text("\(counts[folder.path] ?? 0) skills")
-                            .font(Theme.metric(10))
-                            .foregroundStyle(Theme.textFaint)
+                            .font(Theme.metric(11))
+                            .foregroundStyle(Theme.textLo)
                         Spacer(minLength: 8)
                         if folder.path != SkillSettings.defaultFolderPath {
                             Button("Remove") {
@@ -156,11 +156,12 @@ struct SkillsSettingsTab: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(skill.name).font(Theme.mono(12)).foregroundStyle(Theme.textHi)
                             Text(UseSkillTool.brief(skill.description))
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+                                .font(Theme.metric(11)).foregroundStyle(Theme.textLo)
                                 .lineLimit(2)
+                                .help(skill.description)   // tooltip carries the full, untrimmed text
                             if showSource, let source = skill.source {
                                 Text((source.path as NSString).abbreviatingWithTildeInPath)
-                                    .font(Theme.metric(9)).foregroundStyle(Theme.textFaint)
+                                    .font(Theme.metric(10)).foregroundStyle(Theme.textLo)
                             }
                         }
                     }
