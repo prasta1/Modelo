@@ -11,6 +11,7 @@ final class FakeProvider: ChatProvider {
     private(set) var callCount = 0
     private(set) var lastTools: [ToolSpec]?
     private(set) var systemPrompts: [String] = []
+    private(set) var lastMessages: [Message] = []
     init(scripts: [[StreamEvent]], deltaDelay: TimeInterval = 0) {
         self.scripts = scripts; self.deltaDelay = deltaDelay
     }
@@ -25,6 +26,7 @@ final class FakeProvider: ChatProvider {
         let events = scripts[min(callCount, scripts.count - 1)]
         callCount += 1
         lastTools = tools
+        lastMessages = messages
         systemPrompts.append(systemPrompt)
         let delay = deltaDelay
         return AsyncThrowingStream { continuation in
@@ -54,6 +56,14 @@ private struct EchoTool: Tool {
     func execute(argumentsJSON: String) async throws -> String { reply }
 }
 
+/// A do-nothing tool for padding a registry past the progressive-disclosure threshold.
+private struct FillerTool: Tool {
+    let name: String
+    let description = "Does nothing"
+    let parameters = JSONSchema(properties: [:], required: [])
+    func execute(argumentsJSON: String) async throws -> String { "" }
+}
+
 /// A mutating tool that pauses for approval like write/edit/bash do.
 private struct MutatingEchoTool: Tool {
     let name = "mutate"
@@ -64,6 +74,29 @@ private struct MutatingEchoTool: Tool {
         ToolApprovalPreview(kind: .write, title: "Write test", detail: "content")
     }
     func execute(argumentsJSON: String) async throws -> String { "MUTATED" }
+}
+
+/// A provider whose stream fails immediately, like a server erroring mid-turn.
+private final class ThrowingProvider: ChatProvider {
+    struct Boom: Error {}
+    func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] { [] }
+    func streamChat(endpoint: Endpoint, modelID: String, messages: [Message],
+                    systemPrompt: String, sampling: SamplingParams,
+                    tools: [ToolSpec]?) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { $0.finish(throwing: Boom()) }
+    }
+}
+
+/// Stands in for the Fetch MCP server's tool: approval-gated, granted per server+tool.
+private struct FetchLikeTool: Tool {
+    let name = "fetch"
+    let description = "Fetches a URL"
+    let parameters = JSONSchema(properties: [:], required: [])
+    func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview? {
+        ToolApprovalPreview(kind: .external, title: "Call Fetch server", detail: argumentsJSON,
+                            grantKey: "mcp:Fetch/fetch")
+    }
+    func execute(argumentsJSON: String) async throws -> String { "PAGE" }
 }
 
 @MainActor
@@ -152,6 +185,24 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(ChatSession.provisionalTitle(from: "  \n "), "")
     }
 
+    /// A chat opened with a bare `/skill` has an empty first user message; the
+    /// provisional title comes from the first one with text, so that's the opener.
+    func test_needsModelTitle_skipsEmptySkillOpener() throws {
+        let context = try makeContext()
+        let convo = Conversation(modelID: "m", serverID: UUID())
+        context.insert(convo)
+        let bare = Message(role: .user, content: "")
+        bare.skillName = "brainstorming"
+        bare.skillInstructions = "Ask one question."
+        bare.createdAt = Date(timeIntervalSince1970: 1)
+        let next = Message(role: .user, content: "A settings page for skills")
+        next.createdAt = Date(timeIntervalSince1970: 2)
+        convo.appendToPath(bare)
+        convo.appendToPath(next)
+        convo.title = ChatSession.provisionalTitle(from: "A settings page for skills")
+        XCTAssertTrue(ChatSession.needsModelTitle(convo))
+    }
+
     func test_needsModelTitle_trueOnlyForMissingOrProvisional() throws {
         let context = try makeContext()
         let convo = Conversation(modelID: "qwen3", serverID: UUID())
@@ -199,6 +250,44 @@ final class ChatSessionTests: XCTestCase {
         }
 
         XCTAssertEqual(convo.title, "Swift Concurrency Basics")
+    }
+
+    // MARK: lastTurnFailed (sidebar's red "problem" light)
+
+    func test_lastTurnFailed_whenServerOffline() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: FakeProvider(events: []), context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server, serverOnline: false)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    func test_lastTurnFailed_whenTheStreamThrows() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: ThrowingProvider(), context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    /// A notice reuses the error banner ("earlier messages dropped") but isn't a failure.
+    func test_lastTurnFailed_notForANotice_andClearsOnTheNextTurn() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: FakeProvider(events: [.notice("Earlier messages were dropped."),
+                                                                .delta("ok"),
+                                                                .usage(promptTokens: 1, completionTokens: 1)]),
+                                  context: context, recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server, serverOnline: false)
+        XCTAssertTrue(session.lastTurnFailed)
+        await session.send("Hi again", in: convo, server: server)
+        XCTAssertNotNil(session.errorText)          // the notice still shows in the banner…
+        XCTAssertFalse(session.lastTurnFailed)      // …but the turn didn't fail
     }
 
     func test_send_setsErrorMessage_whenServerOffline() async throws {
@@ -256,7 +345,7 @@ final class ChatSessionTests: XCTestCase {
         let session = ChatSession(client: provider, context: context,
                                   recorder: UsageRecorder(context: context),
                                   registry: ToolRegistry([SaveMemoryTool(scopes: [.global], root: root)]),
-                                  systemSuffix: { MemoryStore.indexInjection(scopes: [.global], toolsAvailable: $0, root: root) })
+                                  systemSuffix: { toolsActive, _ in MemoryStore.indexInjection(scopes: [.global], toolsAvailable: toolsActive, root: root) })
         let server = Server(label: "Studio", host: "studio"); context.insert(server)
         let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
 
@@ -269,6 +358,100 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(provider.systemPrompts.count, 2)
         XCTAssertFalse(provider.systemPrompts[0].contains("## Memory"))
         XCTAssertTrue(provider.systemPrompts[1].contains("- [global] prefers-tabs — Tabs over spaces"))
+    }
+
+    /// Memory sharing off: a cloud turn gets no memory index and no memory tools, and
+    /// a read_memory call made anyway is refused as unknown.
+    func test_send_cloudTurn_withholdsMemory() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "memory-cloud-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try MemoryStore.save(name: "pet-name", description: "Dog is Rex", body: "Rex.", scope: .global, root: root)
+
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: "read_memory", arguments: #"{"name":"pet-name"}"#)])],
+            [.delta("Ok"), .usage(promptTokens: 20, completionTokens: 1)]
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([SaveMemoryTool(scopes: [.global], root: root),
+                                                          ReadMemoryTool(scopes: [.global], root: root)]),
+                                  systemSuffix: { toolsActive, cloud in
+                                      cloud ? nil : MemoryStore.indexInjection(scopes: [.global], toolsAvailable: toolsActive, root: root)
+                                  },
+                                  cloudPolicy: ["read_memory": .withhold, "save_memory": .withhold])
+        let server = Server(label: "OpenRouter", host: "https://openrouter.ai/api/v1")
+        server.kind = .openRouter; context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("What's my dog called?", in: convo, server: server, modelSupportsTools: true)
+
+        XCTAssertNil(provider.lastTools)
+        XCTAssertFalse(provider.systemPrompts.contains { $0.contains("pet-name") })
+        XCTAssertEqual(convo.messages.first { $0.role == .tool }?.content, #"Error: unknown tool "read_memory"."#)
+    }
+
+    /// Memory sharing off: find_tools on a cloud turn doesn't advertise the withheld
+    /// memory tools, which would only answer "unknown tool" when called.
+    func test_send_cloudTurn_findToolsSkipsWithheldTools() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "memory-cloud-\(UUID().uuidString)")
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: FindToolsTool.toolName, arguments: #"{"query":"memory"}"#)])],
+            [.delta("Ok"), .usage(promptTokens: 20, completionTokens: 1)]
+        ])
+        // Enough tools to switch on progressive disclosure, which is what offers find_tools.
+        let fillers: [any Tool] = (0...ChatSession.progressiveThreshold).map { FillerTool(name: "filler_\($0)") }
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry(fillers + [SaveMemoryTool(scopes: [.global], root: root),
+                                                                    ReadMemoryTool(scopes: [.global], root: root)]),
+                                  cloudPolicy: ["read_memory": .withhold, "save_memory": .withhold])
+        let server = Server(label: "OpenRouter", host: "https://openrouter.ai/api/v1")
+        server.kind = .openRouter; context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("Remember this", in: convo, server: server, modelSupportsTools: true)
+
+        let result = try XCTUnwrap(convo.messages.first { $0.role == .tool }?.content)
+        XCTAssertFalse(result.contains("read_memory"))
+        XCTAssertFalse(result.contains("save_memory"))
+    }
+
+    /// Memory sharing on: read_memory pauses for approval on a cloud turn only.
+    func test_send_cloudTurn_readMemoryNeedsApproval() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "memory-cloud-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try MemoryStore.save(name: "pet-name", description: "Dog is Rex", body: "Rex.", scope: .global, root: root)
+
+        func run(on kind: ServerKind, deny: Bool) async throws -> Conversation {
+            let context = try makeContext()
+            let provider = FakeProvider(scripts: [
+                [.toolCalls([ToolCall(id: "c1", name: "read_memory", arguments: #"{"name":"pet-name"}"#)])],
+                [.delta("Ok"), .usage(promptTokens: 20, completionTokens: 1)]
+            ])
+            let session = ChatSession(client: provider, context: context,
+                                      recorder: UsageRecorder(context: context),
+                                      registry: ToolRegistry([ReadMemoryTool(scopes: [.global], root: root)]),
+                                      cloudPolicy: ["read_memory": .approve])
+            let server = Server(label: "S", host: "s"); server.kind = kind; context.insert(server)
+            let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+            let turn = Task { await session.send("dog?", in: convo, server: server, modelSupportsTools: true) }
+            if deny {
+                try await waitForPendingApproval(in: session)
+                XCTAssertEqual(session.pendingApproval?.preview.kind, .cloud)
+                session.respondToApproval(.deny)
+            }
+            await turn.value
+            return convo
+        }
+
+        let cloud = try await run(on: .openRouter, deny: true)
+        XCTAssertEqual(cloud.messages.first { $0.role == .tool }?.content, "The user declined to run read_memory.")
+        let local = try await run(on: .lmStudio, deny: false)
+        XCTAssertEqual(local.messages.first { $0.role == .tool }?.content, "Rex.")
     }
 
     func test_send_capsToolRounds() async throws {
@@ -460,6 +643,32 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertLessThan(e2e, try XCTUnwrap(assistant.tokensPerSecond))
     }
 
+    /// Long research: approving an MCP tool (Fetch) for the session lets its later calls
+    /// in the same chat run without another click.
+    func test_sessionGrant_forMCPTool_skipsLaterPrompts() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: "fetch", arguments: #"{"url":"https://a.example"}"#)])],
+            [.toolCalls([ToolCall(id: "c2", name: "fetch", arguments: #"{"url":"https://b.example"}"#)])],
+            [.delta("Done"), .usage(promptTokens: 20, completionTokens: 1)]
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([FetchLikeTool()]))
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        let turn = Task { await session.send("research", in: convo, server: server, modelSupportsTools: true) }
+        try await waitForPendingApproval(in: session)
+        session.respondToApproval(.session)
+        await turn.value
+
+        XCTAssertNil(session.pendingApproval)                       // never asked a second time
+        XCTAssertEqual(convo.messages.filter { $0.role == .tool }.count, 2)
+        // `messages` isn't stored in time order, so look for the final reply directly.
+        XCTAssertTrue(convo.messages.contains { $0.role == .assistant && $0.content == "Done" })
+    }
+
     func test_withoutYolo_mutatingToolStillPrompts() async throws {
         let context = try makeContext()
         let provider = FakeProvider(scripts: [
@@ -480,5 +689,24 @@ final class ChatSessionTests: XCTestCase {
 
         XCTAssertEqual(convo.messages.first { $0.role == .tool }?.content,
                        "The user declined to run mutate.")
+    }
+
+    /// A bare `/skill` has no typed text but must still be saved and sent.
+    func test_send_bareSkill_isSentAndKept() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(events: [.delta("ok"), .usage(promptTokens: 1, completionTokens: 1)])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("", in: convo, server: server,
+                           skill: AgentSkill(name: "s", description: "", instructions: "Do X."))
+
+        let user = try XCTUnwrap(convo.messages.first { $0.role == .user })
+        XCTAssertEqual(user.skillName, "s")
+        XCTAssertEqual(user.skillInstructions, "Do X.")
+        let wire = LMStudioClient.wireMessages(provider.lastMessages, systemPrompt: "")
+        XCTAssertTrue(wire.contains { if case .text(let t)? = $0.content { t.contains("Do X.") } else { false } })
     }
 }

@@ -52,10 +52,13 @@ final class ChatSessionStore {
 
     /// Drops every session so the next message in each chat rebuilds it against
     /// current settings (e.g. the Settings ▸ Memory toggle, whose tool registration
-    /// is fixed at session build). In-flight turns are not cancelled — they finish
-    /// against the old session, and a replacement turn cancels via `setTask`.
-    /// Pending approvals are released so their continuations can't leak.
+    /// is fixed at session build). In-flight turns are cancelled too: a turn left
+    /// running on a dropped session could still ask for approval, and no view would
+    /// show that card or a Stop button for it. Pending approvals are released so
+    /// their continuations can't leak.
     func invalidateSessions() {
+        for task in tasks.values { task.cancel() }
+        tasks.removeAll()
         for session in sessions.values { session.cancelPendingWork() }
         sessions.removeAll()
     }

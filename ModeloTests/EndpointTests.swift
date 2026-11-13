@@ -95,9 +95,15 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(s.baseURL, "http://localhost:1234")
     }
 
-    func test_baseURL_stripsHttpsScheme_alwaysHTTPForLMStudio() {
-        let s = Server(label: "MacBook", host: "https://localhost", port: 1234)
-        XCTAssertEqual(s.baseURL, "http://localhost:1234")
+    // TLS-only servers (llama-swap behind `tailscale serve`) reject plain http with a 400.
+    func test_baseURL_keepsHttpsScheme() {
+        let s = Server(label: "Studio", host: " HTTPS://studio.example.ts.net/ ", port: 9292, kind: .llamaSwap)
+        XCTAssertEqual(s.baseURL, "https://studio.example.ts.net:9292")
+    }
+
+    func test_normalizedHost_keepsHttps_stripsHttp() {
+        XCTAssertEqual(Server.normalizedHost("https://studio/"), "https://studio")
+        XCTAssertEqual(Server.normalizedHost("http://studio/"), "studio")
     }
 
     func test_baseURL_bareHost_unchanged() {
@@ -160,5 +166,29 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(ep.baseURL, "https://api.groq.com/openai/v1")
         XCTAssertEqual(ep.kind, .cloudAPI)
         XCTAssertEqual(ep.apiKey, "gsk-123")
+    }
+
+    func test_appleIntelligence_kindProperties() {
+        let k = ServerKind.appleIntelligence
+        XCTAssertEqual(k.rawValue, "appleIntelligence")
+        XCTAssertEqual(k.displayName, "Apple Intelligence")
+        XCTAssertTrue(k.isLocal)
+        XCTAssertTrue(k.hasFixedURL)
+        XCTAssertEqual(k.defaultPort, 0)
+        XCTAssertFalse(ServerKind.localCases.contains(.appleIntelligence))
+    }
+
+    /// Apple's model reports "loaded" (green dot, never "NOT LOADED") but Modelo
+    /// can't unload it, so the eject affordance must not be offered.
+    func test_canEject_falseOnlyForAppleIntelligence() {
+        XCTAssertFalse(ServerKind.appleIntelligence.canEject)
+        for kind in ServerKind.allCases where kind != .appleIntelligence {
+            XCTAssertTrue(kind.canEject, "\(kind)")
+        }
+    }
+
+    func test_appleIntelligence_baseURLIsSentinel() {
+        let s = Server(label: "Apple Intelligence", host: "", port: 0, kind: .appleIntelligence)
+        XCTAssertEqual(s.baseURL, "apple-intelligence://on-device")
     }
 }

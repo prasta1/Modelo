@@ -13,25 +13,28 @@
 <img src="docs/screenshots/hero.png" alt="Modelo chatting with a local model, artifact panel open">
 -->
 
-> The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
-
 ## Install
 
 Download `Modelo-vX.Y.Z.zip` from the **[latest release](https://github.com/prasta1/Modelo/releases/latest)**, unzip it, and drag `Modelo.app` to `/Applications`. Builds are signed with Developer ID and notarized by Apple, so they open without Gatekeeper warnings. Universal binary (Apple Silicon + Intel), macOS 14+.
 
 You'll need at least one [endpoint](#endpoints) — a local runtime, a cloud API key, or both.
 
+### Updates
+
+Choose **Modelo → Check for Updates…**, or allow background checks when Modelo asks on its second launch. Each install needs your confirmation, and updates are signature-checked before extraction. v0.5.0 is the first release with in-app updates: coming from v0.4.0 or earlier, download it once by hand. Moving from a personally signed build can require you to enter API keys again. Signing keys and troubleshooting: [Sparkle updates](docs/sparkle-updates.md).
+
 ## Features
 
 - **Chat** — streaming Markdown with highlighted code, branch & regenerate any turn, queue messages mid-reply, slash commands (`/model`, `/temp`, `/system`, `/export`, …), and decode + end-to-end tok/s on every reply
 - **Vision** — paste or drag images into the composer for vision-capable models
 - **[Artifacts](#artifacts)** — HTML, SVG, Mermaid, code, and documents open in a side panel with live preview, versions, and export
-- **[Tools & agents](#tools--agents)** — opt-in filesystem + shell tools with approval cards, MCP servers, `~/.agents` skills, tuned so small local models can use them
-- **[Endpoints](#endpoints)** — six local runtimes and seven cloud providers in one picker; **Scan Network…** finds local servers for you
-- **Model picker** — endpoint sidebar with Free / Loaded filters, per-model load state, and unload for LM Studio and llama-swap
-- **Memory & Projects** — opt-in persistent memory as hand-editable Markdown; attach local folders as projects with scoped chats, tools, and memory
+- **[Tools & agents](#tools--agents)** — opt-in filesystem + shell tools with approval cards, MCP servers, and skills you run with `/<skill>`, tuned so small local models can use them
+- **[Endpoints](#endpoints)** — six local runtimes, Apple Intelligence on-device, and seven cloud providers in one picker; **Scan Network…** finds local servers for you
+- **Model picker** — endpoint sidebar with Free / Loaded filters, per-model load state, unload for LM Studio and llama-swap, and OpenRouter / Nous prices per million tokens (plus free-promo end dates) straight from the provider's list
+- **Memory & Projects** — opt-in persistent memory as hand-editable Markdown, kept out of cloud requests unless you turn on sharing; attach local folders as projects with scoped chats, tools, and memory
 - **Status & Reports** — live latency/throughput sparklines, a streaming console, and per-model / per-server usage charts
 - **Personas** — system-prompt presets with icons, applied per chat
+- **In-app updates** via Sparkle — see [Updates](#updates)
 - **Menu bar mini chat**, finished-reply notifications, and nine themes (Dark, Light, Lager, Negra, One Dark Pro, Catppuccin ×4)
 
 <!-- SCREENSHOT PLACEHOLDER: model picker — endpoint sidebar with several local + cloud endpoints.
@@ -43,7 +46,7 @@ You'll need at least one [endpoint](#endpoints) — a local runtime, a cloud API
 
 ## Endpoints
 
-Everything Modelo talks to speaks the OpenAI-compatible `/v1` wire protocol, so local runtimes and cloud providers sit side by side in the same model picker and you can switch mid-conversation. Add one from **Settings ▸ Endpoints ▸ Add Endpoint**, or let **Scan Network…** discover local servers on your subnet.
+Apart from Apple Intelligence, everything Modelo talks to speaks the OpenAI-compatible `/v1` wire protocol, so local runtimes and cloud providers sit side by side in the same model picker and you can switch mid-conversation. Add one from **Settings ▸ Endpoints ▸ Add Endpoint**, or let **Scan Network…** discover local servers on your subnet.
 
 ### Local runtimes
 
@@ -57,6 +60,7 @@ Self-hosted backends addressed by `host:port` — no API key, no data leaving yo
 | [llama-swap](https://github.com/mostlygeek/llama-swap) | 8080 | Reverse proxy that hot-swaps between several llama.cpp backends behind one address. |
 | [oMLX](https://omlx.ai) | 8000 | Apple-silicon MLX runtime — load a model in the app and tap Start Server. |
 | [exo](https://exolabs.net) | 52415 | Clusters several Macs into one runtime. Launch models from exo's dashboard first. |
+| Apple Intelligence | — | Apple's on-device model via Foundation Models. Added automatically on eligible Macs running macOS 26+ with Apple Intelligence turned on. Free; 4K context; no tool use. |
 
 The machine doesn't have to be on your LAN: a box on your **[Tailscale](https://tailscale.com)** tailnet works identically — enter its tailnet IP or MagicDNS name (`gpu-box.tailnet-name.ts.net`) as the host, with no ports exposed to the internet.
 
@@ -81,7 +85,7 @@ A layered tool stack, designed so even small/quantized **local** models can find
 
 - **Filesystem & shell** — `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`. **Off by default**: enable in **Settings ▸ Tools** and pick a workspace folder that all file access is confined to. Reads run automatically; **writes, edits, and shell commands pause for an approval card** showing the content, diff, or command first. An opt-in **YOLO mode** (global or per chat) auto-approves.
 - **MCP servers** — the standard way to add external tools; managed in Settings.
-- **`~/.agents` skills** — the cross-tool `~/.agents/skills/<name>/SKILL.md` convention, surfaced via a `use_skill` tool.
+- **Skills** — the cross-tool `<name>/SKILL.md` convention, read from `~/.agents/skills` by default. Type `/<skill>` (or `/skills` + Tab) to run one directly, even with tools off; models can also load them through a `use_skill` tool. **Settings ▸ Skills** adds folders (e.g. `~/.claude/skills`) and switches individual skills on or off.
 - **Local-model reliability** — a tolerant parser recovers tool calls emitted as text (`<tool_call>…`, fenced JSON), and **progressive disclosure** shows only the most relevant tools per request plus a `find_tools` meta-tool.
 
 ## Artifacts
@@ -104,6 +108,8 @@ When inference runs on a remote NVIDIA box (a DGX Spark, a vLLM host, …), the 
 ## Building from source & contributing
 
 See **[CONTRIBUTING.md](CONTRIBUTING.md)** for build, test, and PR workflow. Short version: `brew install xcodegen && xcodegen generate`, then build the **Modelo** scheme in Xcode 26+.
+
+For a locally signed install, copy `Developer.xcconfig.example` to `Developer.xcconfig`, set your Apple team and bundle ID, then run `./scripts/install.sh`. Keep the same identity across local builds to retain keychain access. Free-team profiles expire after seven days; Sparkle does not renew them.
 
 ## License
 

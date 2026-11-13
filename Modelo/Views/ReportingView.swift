@@ -185,7 +185,7 @@ struct ReportingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16).padding(.vertical, 15)
-        .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: 11))
+        .background(Theme.fgTint.opacity(0.018), in: RoundedRectangle(cornerRadius: 11))
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.line))
     }
 
@@ -226,7 +226,7 @@ struct ReportingView: View {
                     }
                     .frame(height: 40)
                     .overlay(alignment: .bottom) {
-                        Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1)
+                        Rectangle().fill(Theme.fgTint.opacity(0.04)).frame(height: 1)
                     }
                 }
             }
@@ -246,7 +246,7 @@ struct ReportingView: View {
                     }
                     .frame(height: 40)
                     .overlay(alignment: .bottom) {
-                        Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1)
+                        Rectangle().fill(Theme.fgTint.opacity(0.04)).frame(height: 1)
                     }
                 }
             }
@@ -331,7 +331,7 @@ struct ReportingView: View {
 
     private func shareBar(_ frac: Double) -> some View {
         HStack(spacing: 9) {
-            Capsule().fill(Color.white.opacity(0.07)).frame(height: 5)
+            Capsule().fill(Theme.fgTint.opacity(0.07)).frame(height: 5)
                 .overlay(alignment: .leading) {
                     GeometryReader { g in
                         Capsule().fill(Theme.amber).frame(width: g.size.width * min(1, max(0, frac)))
@@ -350,7 +350,7 @@ struct ReportingView: View {
         VStack(alignment: .leading, spacing: 0) { content() }
             .padding(.horizontal, 18).padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+            .background(Theme.fgTint.opacity(0.018), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.line))
     }
 

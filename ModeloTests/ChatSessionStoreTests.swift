@@ -44,4 +44,22 @@ final class ChatSessionStoreTests: XCTestCase {
         store.discard(convo.persistentModelID)
         XCTAssertNil(store.session(for: convo.persistentModelID))
     }
+
+    /// Flipping a memory setting mid-reply must stop the reply, or it could park on an
+    /// approval card that no view shows anymore.
+    func test_invalidateSessionsCancelsInFlightTurns() throws {
+        let context = try makeContext()
+        let convo = Conversation(modelID: "m", serverID: nil); context.insert(convo)
+        try context.save()
+
+        let store = ChatSessionStore()
+        store.setSession(makeSession(context), for: convo.persistentModelID)
+        let turn = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        store.setTask(turn, for: convo.persistentModelID)
+
+        store.invalidateSessions()
+
+        XCTAssertTrue(turn.isCancelled)
+        XCTAssertNil(store.session(for: convo.persistentModelID))
+    }
 }

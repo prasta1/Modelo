@@ -44,6 +44,8 @@ final class ReachabilityMonitor {
         switch kind {
         case .cloudAPI, .openRouter, .nous: return .seconds(30)
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: return status == .online ? .seconds(10) : .seconds(30)
+        // Availability changes rarely (model download, Apple Intelligence toggled).
+        case .appleIntelligence: return .seconds(60)
         }
     }
 

@@ -65,11 +65,22 @@ struct MessageRow: View {
         let imageAtts = message.attachmentsJSON.flatMap { MessageAttachment.decodeList($0) } ?? []
         return VStack(alignment: .leading, spacing: 8) {
             if !imageAtts.isEmpty { attachmentThumbs(imageAtts) }
-            Text(message.content)
-                .font(.system(size: messageFontSize))
-                .lineSpacing(messageFontSize * 0.22)
-                .foregroundStyle(Theme.textHi)
-                .textSelection(.enabled)
+            // Skill turns show which skill ran; its instructions stay out of the bubble (§3.7).
+            if let skill = message.skillName {
+                Label(skill, systemImage: "sparkles")
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.amber)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Theme.amber.opacity(0.12), in: Capsule())
+            }
+            if !message.content.isEmpty || message.skillName == nil {
+                Text(message.content)
+                    .font(.system(size: messageFontSize))
+                    .lineSpacing(messageFontSize * 0.22)
+                    .foregroundStyle(Theme.textHi)
+                    .textSelection(.enabled)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -117,14 +128,7 @@ struct MessageRow: View {
                 BlinkingCursor()
             } else if !message.content.isEmpty {
                 if isLiveStreaming {
-                    // Plain text while tokens are still arriving — cheap per delta, and
-                    // artifact markup isn't parsed until the turn completes.
-                    Text(message.content)
-                        .font(.system(size: messageFontSize))
-                        .lineSpacing(messageFontSize * 0.3)
-                        .foregroundStyle(Theme.textMid)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    streamingBody
                 } else {
                     renderedContent
                 }
@@ -144,6 +148,35 @@ struct MessageRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Body while tokens are still arriving: plain text (cheap per delta), with an
+    /// artifact being written shown as a collapsible draft box instead of raw markup.
+    @ViewBuilder private var streamingBody: some View {
+        let segments: [StreamingSegment] = onOpenArtifact == nil
+            ? [.text(message.content)]
+            : ArtifactParser.streamingSegments(from: message.content)
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case .text(let text):
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(StreamingMarkdown.attributed(text))
+                            .font(.system(size: messageFontSize))
+                            .lineSpacing(messageFontSize * 0.3)
+                            .foregroundStyle(Theme.textMid)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                case .artifact(let art):
+                    ArtifactCard(artifact: art, isOpen: openArtifactID == art.id) {
+                        onOpenArtifact?(art.id)
+                    }
+                case .draft(let title, let kind, let code):
+                    ArtifactDraftBox(title: title, kind: kind, code: code)
+                }
+            }
+        }
     }
 
     /// Completed assistant body: Markdown with any `<artifact>` blocks replaced by
@@ -396,21 +429,114 @@ private struct ToolCard: View {
         return (trimmed.hasPrefix("{") || trimmed.hasPrefix("[")) ? "json" : nil
     }
 
+    private var lineCount: Int { detail.isEmpty ? 0 : detail.split(separator: "\n", omittingEmptySubsequences: false).count }
+
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ModeloSyntaxHighlighter.shared
-                .highlightCode(detail, language: effectiveLanguage)
-                .font(Theme.code(11))
-                .foregroundStyle(Theme.textDim)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Capped at ~12 lines with its own scroll: uncapped, a long result (a big
+            // directory listing) filled the whole chat when cards open expanded.
+            ScrollView {
+                ModeloSyntaxHighlighter.shared
+                    .highlightCode(detail, language: effectiveLanguage)
+                    .font(Theme.code(11))
+                    .foregroundStyle(Theme.textDim)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 200)
+            .fixedSize(horizontal: false, vertical: true)
         } label: {
-            Text(title)
+            Text(lineCount > 1 ? "\(title) · \(lineCount) lines" : title)
                 .font(Theme.code(10))
                 .foregroundStyle(Theme.textDim)
         }
         .padding(8)
         .background(Theme.fill, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control).stroke(Theme.line))
+    }
+}
+
+/// An artifact still being written (§2.4): dimmed code in a dashed box so it doesn't
+/// read as the final answer, showing only the newest lines in a fixed-height window so
+/// the chat doesn't grow with every line. Collapsing it is remembered for later drafts.
+private struct ArtifactDraftBox: View {
+    let title: String?
+    let kind: ArtifactKind
+    let code: String
+    @AppStorage("artifactDraftCollapsed") private var collapsed = false
+
+    private static let visibleLines = 10
+
+    private var lines: [Substring] { code.isEmpty ? [] : code.split(separator: "\n", omittingEmptySubsequences: false) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { collapsed.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Image(systemName: kind.icon)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textDim)
+                    Text("Writing \(title ?? "artifact")…")
+                        .font(Theme.metric(12))
+                        .foregroundStyle(Theme.textMid)
+                        .lineLimit(1)
+                    Text("\(kind.label) · \(lines.count) line\(lines.count == 1 ? "" : "s")")
+                        .font(Theme.mono(10))
+                        .foregroundStyle(Theme.textFaint)
+                    Spacer(minLength: 0)
+                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textDim)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Writing \(title ?? "artifact"), \(lines.count) lines")
+            .accessibilityHint(collapsed ? "Shows the code as it's written" : "Hides the code until it's done")
+
+            if !collapsed {
+                // Newest lines only, in a box that keeps its height (reservesSpace), with
+                // long wrapped lines trimmed from the front so the latest text stays visible.
+                Text(lines.suffix(Self.visibleLines).joined(separator: "\n"))
+                    .font(Theme.mono(11))
+                    .foregroundStyle(Theme.textFaint)
+                    .lineLimit(Self.visibleLines, reservesSpace: true)
+                    .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(10)
+        .background(Theme.fill.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card)
+                .strokeBorder(Theme.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+    }
+}
+
+/// Inline-only Markdown for text that's still streaming: bold, italics, `code` and links,
+/// cheap enough to redo on every flush (full Markdown waits for the finished reply).
+enum StreamingMarkdown {
+    static func attributed(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+}
+
+/// Lets the transcript skip rows that haven't changed. While a reply streams, the chat
+/// re-renders ~20×/s and rebuilds every row with fresh action closures, which made every
+/// finished message (long code blocks included) redraw too. Closures are ignored here;
+/// the message is compared by identity — edits to its own content still redraw the row
+/// through the model's observation tracking.
+extension MessageRow: @MainActor Equatable {
+    static func == (a: MessageRow, b: MessageRow) -> Bool {
+        a.message === b.message
+            && a.modelName == b.modelName
+            && a.isLiveStreaming == b.isLiveStreaming
+            && a.openArtifactID == b.openArtifactID
     }
 }

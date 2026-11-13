@@ -103,6 +103,9 @@ struct ContentView: View {
     @State private var pickedModel: DiscoveredModel?
     @State private var pendingExoLoad: ExoLoadPrompt?
     @State private var discovered: [DiscoveredModel] = []
+    /// When `refreshModels` last finished — the age of the picker's prices, which
+    /// arrive in the same model-list download.
+    @State private var modelsRefreshedAt: Date?
     @State private var endpointFilter: UUID?
     @State private var renamingIDs: Set<PersistentIdentifier> = []
     /// This view's own window, resolved from the view hierarchy so screen-clamping
@@ -112,6 +115,7 @@ struct ContentView: View {
     /// Observed so flipping Settings ▸ Memory drops all sessions — their memory tools
     /// and index injection are fixed at build, so each chat rebuilds on its next message.
     @AppStorage(MemoryStore.enabledKey) private var memoryEnabled = false
+    @AppStorage(MemoryStore.shareWithCloudKey) private var memoryShareWithCloud = false
     @SceneStorage("sidebarRoute") private var storedRoute: String = ""
 
     private let client = LMStudioClient.shared
@@ -196,13 +200,14 @@ struct ContentView: View {
         // switches and the sidebar can discard a deleted conversation's session.
         .environment(sessionStore)
         .onChange(of: memoryEnabled) { sessionStore.invalidateSessions() }
+        .onChange(of: memoryShareWithCloud) { sessionStore.invalidateSessions() }
         .preferredColorScheme(Theme.active.scheme)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
             if routeSupportsConsole {
                 ToolbarItem {
                     Button {
-                        inspectorOpen.toggle()
+                        toggleConsoleInstantly($inspectorOpen)
                     } label: {
                         Label("Console", systemImage: "chart.bar.xaxis")
                     }
@@ -290,7 +295,8 @@ struct ContentView: View {
             }
         case .conversation:
             if let convo = selectedConversation {
-                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChatFromPicker)
+                ChatView(conversation: convo, discovered: discoveredWithLiveState, pickedModel: $pickedModel, onModelSelect: handleModelSelection, onModelEject: handleModelEject, onNewChat: newChatFromPicker,
+                         pricesRefreshedAt: modelsRefreshedAt, onRefreshModels: { await refreshModels() })
                     .id(convo.persistentModelID)
             } else {
                 launcher
@@ -303,7 +309,8 @@ struct ContentView: View {
             discovered: discoveredWithLiveState,
             onLaunch: { model in Task { await launch(model: model) } },
             onRefresh: { await refreshModels() },
-            onEject: handleModelEject
+            onEject: handleModelEject,
+            pricesRefreshedAt: modelsRefreshedAt
         )
     }
 
@@ -391,6 +398,8 @@ struct ContentView: View {
                 // If loading fails, still proceed - the error will surface in chat
                 Log.network.error("Model load before launch failed for \(model.model.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
+        } else if model.server.kind == .appleIntelligence {
+            AppleIntelligenceClient.prewarm()
         } else if model.server.kind == .exo, !model.model.isLoaded {
             guard await confirmExoLoad(model) else { return }
             let endpoint = Endpoint(server: model.server, keychain: keychain)
@@ -514,7 +523,7 @@ struct ContentView: View {
 
         let opener = convo.messages
             .sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         guard !opener.isEmpty else { return }
 
         renamingIDs.insert(convo.persistentModelID)
@@ -637,6 +646,7 @@ struct ContentView: View {
         discovered = targets.enumerated().flatMap { index, target in
             (modelsByIndex[index] ?? []).map { DiscoveredModel(server: target.server, model: $0) }
         }
+        modelsRefreshedAt = Date()
     }
 
     /// Unloads a model (LM Studio, exo or llama-swap) and clears the selection if it was

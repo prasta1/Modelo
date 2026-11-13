@@ -18,4 +18,21 @@ final class TokenEstimatorTests: XCTestCase {
         let b = Message(role: .assistant, content: "abcdefgh") // 2
         XCTAssertEqual(TokenEstimator.estimate([a, b]), 3)
     }
+
+    func test_estimate_messagesCountsSkillInstructions() {
+        let m = Message(role: .user, content: "hi")
+        m.skillName = "s"
+        m.skillInstructions = String(repeating: "x", count: 400)
+        XCTAssertEqual(TokenEstimator.estimate([m]), TokenEstimator.estimate(m.wireContent))
+        XCTAssertGreaterThan(TokenEstimator.estimate([m]), 100)
+    }
+
+    /// A skill must leave room for the reply: 3,500 tokens doesn't fit a 4K window
+    /// (Apple Intelligence) once the 1,024-token response reserve is set aside.
+    func test_fits_leavesRoomForTheReply() {
+        let text = String(repeating: "x", count: 3_500 * 4)
+        XCTAssertFalse(TokenEstimator.fits(text, contextWindow: 4_096))
+        XCTAssertTrue(TokenEstimator.fits(text, contextWindow: 32_768))
+        XCTAssertTrue(TokenEstimator.fits(text, contextWindow: 0))   // unknown window → allow
+    }
 }

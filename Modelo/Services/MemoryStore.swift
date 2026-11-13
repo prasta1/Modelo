@@ -51,6 +51,10 @@ enum MemoryError: LocalizedError {
 enum MemoryStore {
     /// `@AppStorage` key for the master switch (off by default — one-off chats stay one-off).
     static let enabledKey = "memoryEnabled"
+    /// `@AppStorage` key: whether cloud endpoints see memories (off by default). Off,
+    /// cloud turns get neither the index nor the memory tools; on, each `read_memory`
+    /// on a cloud turn asks first. Local endpoints are unaffected either way.
+    static let shareWithCloudKey = "memoryShareWithCloud"
 
     /// Cap on a single memory body: ~2k tokens, so one `read_memory` can't blow a
     /// small local-model context.

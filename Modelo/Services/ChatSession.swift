@@ -9,6 +9,10 @@ import SwiftData
 final class ChatSession {
     private(set) var isStreaming = false
     var errorText: String?
+    /// True when the last turn failed (server offline, a stream error, the tool-call
+    /// limit) — unlike `errorText`, which also carries harmless notices such as dropped
+    /// history. Drives the sidebar's red "problem" light.
+    private(set) var lastTurnFailed = false
     /// Called on the main actor when a turn finishes replying normally (not after a
     /// user stop or a transport error). The owning view uses it to post a completion
     /// notification when the user isn't watching this chat.
@@ -72,7 +76,8 @@ final class ChatSession {
     /// proceed, and remembers session-wide approvals so we don't ask again.
     private func requestApproval(toolName: String, preview: ToolApprovalPreview) async -> Bool {
         if yoloMode { return true }
-        if sessionApprovedTools.contains(toolName) { return true }
+        let key = Self.grantKey(toolName: toolName, preview: preview)
+        if sessionApprovedTools.contains(key) { return true }
         let decision = await withTaskCancellationHandler {
             await withCheckedContinuation { (cont: CheckedContinuation<ApprovalDecision, Never>) in
                 pendingApproval = PendingApproval(toolName: toolName, preview: preview) { cont.resume(returning: $0) }
@@ -83,11 +88,17 @@ final class ChatSession {
             Task { @MainActor in self.cancelPendingApproval() }
         }
         // "Approve for session" is deliberately NOT honored for the shell tool: one grant
-        // must never authorize every later command. Writes/edits stay workspace-scoped,
-        // so a session grant for those is acceptable. MCP tools aren't workspace-scoped
-        // (a Filesystem server rooted at ~, Fetch to any URL), so they're excluded too.
-        if decision == .session && preview.allowsSessionGrant { sessionApprovedTools.insert(toolName) }
+        // must never authorize every later command. Writes/edits stay workspace-scoped;
+        // an MCP grant is keyed to its server + tool, so it can't leak to a same-named
+        // built-in (or vice versa).
+        if decision == .session && preview.allowsSessionGrant { sessionApprovedTools.insert(key) }
         return decision != .deny
+    }
+
+    /// What a session grant is remembered under: the preview's server-qualified key for
+    /// MCP tools, else the tool name.
+    nonisolated static func grantKey(toolName: String, preview: ToolApprovalPreview) -> String {
+        preview.grantKey ?? toolName
     }
 
     private let client: any ChatProvider
@@ -99,8 +110,11 @@ final class ChatSession {
     /// instructions §2.4, the memory index). Re-evaluated at the top of every round so
     /// a memory saved mid-turn — or edited in Settings — is in the prompt next round
     /// without rebuilding the session. The argument is whether tools are offered this
-    /// request, so the suffix can drop call-these-tools phrasing when they aren't.
-    private let systemSuffix: @MainActor (_ toolsActive: Bool) -> String?
+    /// request, so the suffix can drop call-these-tools phrasing when they aren't; the
+    /// second is whether this turn goes to a cloud endpoint.
+    private let systemSuffix: @MainActor (_ toolsActive: Bool, _ cloud: Bool) -> String?
+    /// Per-tool treatment on cloud turns, keyed by tool name (e.g. memory tools).
+    private let cloudPolicy: [String: CloudToolPolicy]
     /// The best-effort title run, tracked so it can be cancelled when the view
     /// goes away (e.g. the user switches conversations mid-titling).
     private var titleTask: Task<Void, Never>?
@@ -110,7 +124,8 @@ final class ChatSession {
     init(client: any ChatProvider, context: ModelContext, recorder: UsageRecorder,
          keychain: KeychainStore = KeychainStore(),
          registry: ToolRegistry = ToolRegistry([]),
-         systemSuffix: @escaping @MainActor (Bool) -> String? = { _ in nil },
+         systemSuffix: @escaping @MainActor (Bool, Bool) -> String? = { _, _ in nil },
+         cloudPolicy: [String: CloudToolPolicy] = [:],
          maxToolRounds: Int = defaultMaxToolRounds,
          yoloMode: Bool = false) {
         self.client = client
@@ -119,6 +134,7 @@ final class ChatSession {
         self.keychain = keychain
         self.registry = registry
         self.systemSuffix = systemSuffix
+        self.cloudPolicy = cloudPolicy
         self.maxToolRounds = maxToolRounds
         self.yoloMode = yoloMode
     }
@@ -136,17 +152,25 @@ final class ChatSession {
               serverOnline: Bool = true, modelSupportsTools: Bool = false,
               sampling: SamplingParams = SamplingParams(),
               contextWindow: Int = 0,
+              skill: AgentSkill? = nil,
               replacing edited: Message? = nil) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't send right now."
+            lastTurnFailed = true
             return
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        // A bare `/skill` has no typed text but is still a real turn.
+        guard !trimmed.isEmpty || !attachments.isEmpty || skill != nil else { return }
 
         let userMsg = Message(role: .user, content: trimmed)
         if !attachments.isEmpty { userMsg.attachmentsJSON = attachments.json }
+        if let skill {
+            userMsg.skillName = skill.name
+            userMsg.skillInstructions = skill.instructions
+        }
         if let edited, edited.parent != nil {
             conversation.branch(userMsg, asSiblingOf: edited)
         } else {
@@ -175,8 +199,10 @@ final class ChatSession {
                     sampling: SamplingParams = SamplingParams(),
                     contextWindow: Int = 0) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't regenerate right now."
+            lastTurnFailed = true
             return
         }
         guard target.role == .assistant else { return }
@@ -201,8 +227,10 @@ final class ChatSession {
                sampling: SamplingParams = SamplingParams(),
                contextWindow: Int = 0) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't retry right now."
+            lastTurnFailed = true
             return
         }
         guard conversation.activePath().last?.role == .user else { return }
@@ -231,6 +259,10 @@ final class ChatSession {
         await compactIfNeeded(conversation, server: server, contextWindow: contextWindow)
 
         let endpoint = Endpoint(server: server, keychain: keychain)
+        // Decided per turn from the server actually sent to, so a chat switched from a
+        // local model to a cloud one is covered without rebuilding the session.
+        let cloud = !server.kind.isLocal
+        let withheld: Set<String> = cloud ? Set(cloudPolicy.filter { $0.value == .withhold }.keys) : []
         // Global tools toggle (Settings ▸ Tools); defaults on when unset.
         let globalToolsEnabled = UserDefaults.standard.object(forKey: "toolsGloballyEnabled") as? Bool ?? true
         let toolsActive = globalToolsEnabled && modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
@@ -272,14 +304,15 @@ final class ChatSession {
                 // just-appended empty assistant is dropped by wireKeep.
                 let wire = conversation.wireContext()
                 let toolSpecs = activeToolSpecs(active: toolsActive, progressive: progressive, query: queryText)
-                let system = [wire.system, systemSuffix(toolsActive)]
+                    .map { $0.filter { !withheld.contains($0.function.name) } }
+                let system = [wire.system, systemSuffix(toolsActive, cloud)]
                     .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
                 let stream = client.streamChat(
                     endpoint: endpoint, modelID: conversation.modelID,
                     messages: wire.messages.filter(wireKeep),
                     systemPrompt: system,
                     sampling: sampling,
-                    tools: toolSpecs)
+                    tools: toolSpecs?.isEmpty == true ? nil : toolSpecs)
                 // Buffer incoming tokens and flush to the observable property at ~20fps
                 // rather than on every character. This prevents SwiftUI from scheduling a
                 // full layout pass for each token, which was the primary source of latency.
@@ -308,6 +341,9 @@ final class ChatSession {
                         lastPromptTokens = p; roundCompletion = c
                     case .toolCalls(let cs):
                         toolCalls = cs
+                    case .notice(let text):
+                        // Reuses the chat banner; it's cleared at the start of each turn.
+                        errorText = text
                     }
                 }
                 // Flush any tokens buffered since the last 50ms window.
@@ -324,6 +360,7 @@ final class ChatSession {
                     \(error.localizedDescription, privacy: .public)
                     """)
                 errorText = (error as? ClientError)?.errorDescription ?? error.localizedDescription
+                lastTurnFailed = true
                 if assistant.content.isEmpty && assistant.toolCallsJSON == nil {
                     conversation.dropLeaf(assistant)
                     context.delete(assistant)
@@ -357,11 +394,20 @@ final class ChatSession {
                 // become callable next round, and return their briefs (handled here, not
                 // via the registry).
                 if call.name == FindToolsTool.toolName {
-                    appendToolResult(revealTools(matching: call.arguments), call: call, in: conversation)
+                    appendToolResult(revealTools(matching: call.arguments, withheld: withheld), call: call, in: conversation)
                     continue
                 }
-                // Mutating tools (write/edit/bash) pause for the user's approval.
-                if let preview = registry.approvalPreview(name: call.name, argumentsJSON: call.arguments) {
+                if withheld.contains(call.name) {
+                    appendToolResult("Error: unknown tool \"\(call.name)\".", call: call, in: conversation)
+                    continue
+                }
+                // Mutating tools (write/edit/bash) pause for the user's approval, as do
+                // tools whose result a cloud endpoint would receive.
+                let cloudPreview = cloud && cloudPolicy[call.name] == .approve
+                    ? ToolApprovalPreview(kind: .cloud, title: "Send \(call.name) result to \(server.label)",
+                                          detail: MCPTool.prettyArguments(call.arguments))
+                    : nil
+                if let preview = registry.approvalPreview(name: call.name, argumentsJSON: call.arguments) ?? cloudPreview {
                     let approved = await requestApproval(toolName: call.name, preview: preview)
                     if Task.isCancelled { break }
                     if !approved {
@@ -377,6 +423,7 @@ final class ChatSession {
             round += 1
             if !yoloMode && round >= maxToolRounds {
                 errorText = "Reached the tool-call limit (\(maxToolRounds)) for this turn."
+                lastTurnFailed = true
                 break
             }
         }
@@ -464,14 +511,16 @@ final class ChatSession {
     }
 
     /// Handle a find_tools call: record the matching tools as revealed (so they become
-    /// callable next round) and return their briefs for the model.
-    private func revealTools(matching argumentsJSON: String) -> String {
+    /// callable next round) and return their briefs for the model. `withheld` tools
+    /// (cloud policy) are left out, since calling them would only fail.
+    private func revealTools(matching argumentsJSON: String, withheld: Set<String>) -> String {
         struct Q: Decodable { let query: String }
         let query = (try? JSONDecoder().decode(Q.self, from: Data(argumentsJSON.utf8)))?.query ?? ""
-        let matches = ToolSelector.select(catalog: registry.catalog(), query: query, limit: 8)
+        let catalog = registry.catalog().filter { !withheld.contains($0.name) }
+        let matches = ToolSelector.select(catalog: catalog, query: query, limit: 8)
             .filter { $0 != FindToolsTool.toolName }
         revealedTools.formUnion(matches)
-        let briefs = registry.catalog()
+        let briefs = catalog
             .filter { matches.contains($0.name) }
             .map { "- \($0.name): \($0.description)" }
             .joined(separator: "\n")
@@ -561,9 +610,10 @@ final class ChatSession {
     /// then writes it to `conversation.title`. Silent on failure — the sidebar
     /// falls back to "New Chat" until (and unless) this succeeds.
     private func generateTitle(for conversation: Conversation, server: Server) async {
+        // First user turn with text: a bare `/skill` opener has none (§3.7).
         let opener = conversation.messages
             .sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         guard !opener.isEmpty else { return }
 
         // A transient (un-inserted) prompt — never persisted, just fed to the model.
@@ -620,7 +670,7 @@ final class ChatSession {
     static func needsModelTitle(_ conversation: Conversation) -> Bool {
         guard let title = conversation.title, !title.isEmpty else { return true }
         let opener = conversation.messages.sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         return title == provisionalTitle(from: opener)
     }
 
@@ -645,6 +695,6 @@ final class ChatSession {
     private func wireKeep(_ m: Message) -> Bool {
         if m.role == .tool { return true }
         if m.role == .assistant && m.toolCallsJSON != nil { return true }
-        return !m.content.isEmpty
+        return !m.wireContent.isEmpty
     }
 }
