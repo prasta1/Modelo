@@ -281,17 +281,29 @@ final class ArtifactPNGRenderer: NSObject, WKNavigationDelegate {
         finish(nil)
     }
 
-    /// Shrinks the view to the content's actual rendered height before capturing, so the
-    /// PNG is cropped to the diagram/document instead of padded to the working frame.
+    /// Resizes the view to the content before capturing, so the PNG is cropped to the
+    /// diagram/document instead of padded to the working frame. Mermaid draws its SVG
+    /// width="100%", which squeezed wide diagrams into the 1000pt frame; pin it to its
+    /// natural (viewBox) size and widen the frame to match. Other kinds keep 1000pt.
     private func snapshot() {
-        webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] result, _ in
+        let pinMermaid = """
+        (() => { const s = document.querySelector('.mermaid svg'); if (!s) return 0;
+          const vb = s.viewBox.baseVal; s.setAttribute('width', vb.width); s.setAttribute('height', vb.height);
+          s.style.maxWidth = 'none'; return vb.width; })()
+        """
+        webView.evaluateJavaScript(pinMermaid) { [weak self] result, _ in
             guard let self else { return }
-            let height = (result as? CGFloat) ?? self.webView.frame.height
-            self.webView.setFrameSize(NSSize(width: self.webView.frame.width, height: max(height, 1)))
-            let config = WKSnapshotConfiguration()
-            config.rect = self.webView.bounds
-            self.webView.takeSnapshot(with: config) { image, _ in
-                self.finish(image)
+            if let width = result as? CGFloat, width > 0 {
+                self.webView.setFrameSize(NSSize(width: ceil(width) + 48, height: self.webView.frame.height))
+            }
+            self.webView.evaluateJavaScript("document.body.scrollHeight") { result, _ in
+                let height = (result as? CGFloat) ?? self.webView.frame.height
+                self.webView.setFrameSize(NSSize(width: self.webView.frame.width, height: max(height, 1)))
+                let config = WKSnapshotConfiguration()
+                config.rect = self.webView.bounds
+                self.webView.takeSnapshot(with: config) { image, _ in
+                    self.finish(image)
+                }
             }
         }
     }
