@@ -202,10 +202,17 @@ struct SnapshotProbeView: NSViewRepresentable {
         weak var view: NSView?
     }
 
+    /// Never takes events: AppKit can stack it above sibling platform views (the
+    /// artifact panel's WKWebView), and a plain NSView would swallow their clicks
+    /// and pinches.
+    final class PassthroughView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
     let holder: Holder
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+        let view = PassthroughView(frame: .zero)
         holder.view = view
         return view
     }

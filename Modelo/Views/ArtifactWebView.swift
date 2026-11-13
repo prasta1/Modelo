@@ -140,7 +140,84 @@ enum ArtifactHTML {
         <body><pre class="mermaid">\(safeSource)</pre>
         <script>\(js)</script>
         <script>mermaid.initialize({startOnLoad:true, theme:'\(dark ? "dark" : "default")', securityLevel:'strict'});</script>
+        \(forExport ? "" : panZoom(dark: dark))
         </body></html>
+        """
+    }
+
+    /// Zoom/pan for the live Mermaid preview: dense graphs shrink to fit the panel and
+    /// their labels become unreadable. Pinch or ⌘/⌃-scroll zooms about the cursor,
+    /// scroll or drag pans, and corner buttons cover mouse users (⤢ refits).
+    /// The diagram opens fitted whole and centered, and refits when the panel resizes.
+    /// Exports skip it: the PNG renderer measures the page's natural scroll height.
+    private static func panZoom(dark: Bool) -> String {
+        let (bg, fg, line) = dark ? ("#2a2a31", "#e6e6e6", "#3a3a42") : ("#f2f2f4", "#1a1a1a", "#d0d0d6")
+        return """
+        <style>
+          /* The script places the diagram itself, so take it out of the base template's
+             flex layout: pinned at the origin, at its natural size, clipped at the panel. */
+          html{overflow:hidden}
+          html,body{width:100%;height:100%;display:block}
+          .mermaid{position:absolute;left:0;top:0;margin:0;transform-origin:0 0;
+            cursor:grab;user-select:none;-webkit-user-select:none}
+          .mermaid svg{display:block;max-width:none!important}
+          .mermaid.drag{cursor:grabbing}
+          #zoom{position:fixed;top:8px;right:8px;display:flex;gap:4px}
+          #zoom button{width:26px;height:24px;border:1px solid \(line);border-radius:6px;
+            background:\(bg);color:\(fg);font:13px -apple-system,system-ui;cursor:pointer}
+        </style>
+        <div id="zoom"><button data-z="0.8" title="Zoom out">−</button><button data-z="0" title="Fit">⤢</button><button data-z="1.25" title="Zoom in">+</button></div>
+        <script>
+        (() => {
+          const el = document.querySelector('.mermaid');
+          let s = 1, x = 0, y = 0, f = 1, pinching = false, drag = null;
+          const apply = () => { el.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
+          // Show the whole diagram centered, never enlarged past 100%. Mermaid draws it
+          // width="100%" (fill the container), so pin it to its viewBox size first.
+          const fit = () => {
+            const vb = el.querySelector('svg')?.viewBox.baseVal; if (!vb?.width) return;
+            const svg = el.querySelector('svg');
+            svg.setAttribute('width', vb.width); svg.setAttribute('height', vb.height);
+            const pad = 16;
+            f = s = Math.min(1, (innerWidth - 2 * pad) / vb.width, (innerHeight - 2 * pad) / vb.height);
+            x = (innerWidth - vb.width * s) / 2; y = (innerHeight - vb.height * s) / 2; apply();
+          };
+          // Mermaid renders asynchronously after load, inserting the <svg> before it measures
+          // the drawing and sets its viewBox; fit once that size exists.
+          const obs = new MutationObserver(() => {
+            if (el.querySelector('svg')?.viewBox.baseVal.width) { obs.disconnect(); fit(); }
+          });
+          obs.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['viewBox'] });
+          addEventListener('resize', fit);
+          // Scale by k, keeping the point under (cx, cy) fixed on screen.
+          const zoom = (k, cx, cy) => {
+            const n = Math.min(8, Math.max(Math.min(0.2, f), s * k)); k = n / s;
+            x = cx - k * (cx - x); y = cy - k * (cy - y); s = n; apply();
+          };
+          addEventListener('wheel', e => {
+            e.preventDefault();
+            // WebKit may report a trackpad pinch as ctrl+wheel; skip it if gesture events already handle it.
+            if (e.ctrlKey || e.metaKey) { if (!pinching) zoom(Math.exp(-e.deltaY / 100), e.clientX, e.clientY); }
+            else { x -= e.deltaX; y -= e.deltaY; apply(); }
+          }, { passive: false });
+          let g = 1;   // gesturechange's scale is cumulative; zoom by the step since the last event
+          addEventListener('gesturestart', e => { e.preventDefault(); pinching = true; g = 1; });
+          addEventListener('gesturechange', e => { e.preventDefault(); zoom(e.scale / g, e.clientX, e.clientY); g = e.scale; });
+          addEventListener('gestureend', e => { e.preventDefault(); pinching = false; });
+          el.addEventListener('mousedown', e => { e.preventDefault(); drag = [e.clientX - x, e.clientY - y]; el.classList.add('drag'); });
+          addEventListener('mousemove', e => { if (drag) { x = e.clientX - drag[0]; y = e.clientY - drag[1]; apply(); } });
+          addEventListener('mouseup', () => { drag = null; el.classList.remove('drag'); });
+          document.getElementById('zoom').addEventListener('click', e => {
+            const z = Number(e.target.dataset.z);
+            if (Number.isNaN(z)) return;   // click landed in the gap between buttons
+            // Zoom about the middle of the diagram's on-screen part, so it stays in view after a pan.
+            const r = (el.querySelector('svg') || el).getBoundingClientRect();
+            const cx = (Math.max(r.left, 0) + Math.min(r.right, innerWidth)) / 2;
+            const cy = (Math.max(r.top, 0) + Math.min(r.bottom, innerHeight)) / 2;
+            if (z) zoom(z, cx, cy); else fit();
+          });
+        })();
+        </script>
         """
     }
 
