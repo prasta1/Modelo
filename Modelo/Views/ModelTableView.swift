@@ -451,7 +451,16 @@ struct ModelTableRow: View {
                 if model.isFree           { capIcon("gift",                    "Free",      Theme.green) }
                 // Neutral, not accent: nearly every model has tools, and a column
                 // of accent glyphs read as 30 controls (One Signal Rule).
-                if model.supportsToolUse  { capIcon("wrench.and.screwdriver", "Tool use",  Theme.textLo) }
+                // Dimmed when guessed: the server declared nothing, so "yes" is only
+                // the id heuristic. Chat still offers tools either way.
+                if model.supportsToolUse {
+                    if model.toolUseVerified {
+                        capIcon("wrench.and.screwdriver", "Tool use", Theme.textLo)
+                    } else {
+                        capIcon("wrench.and.screwdriver", "Tool use (unverified: not declared by the server)",
+                                Theme.textLo.opacity(0.4))
+                    }
+                }
                 if model.supportsVision   { capIcon("eye",                     "Vision",    Theme.blue) }
                 if model.supportsThinking { capIcon("brain",                   "Reasoning", Theme.purple) }
                 if model.isLoaded         { capIcon("memorychip",              "Loaded",    Theme.green) }
