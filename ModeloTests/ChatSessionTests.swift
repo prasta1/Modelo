@@ -456,9 +456,10 @@ final class ChatSessionTests: XCTestCase {
 
     func test_send_capsToolRounds() async throws {
         let context = try makeContext()
-        let provider = FakeProvider(scripts: [
-            [.toolCalls([ToolCall(id: "c", name: "echo", arguments: "{}")])]   // never stops asking
-        ])
+        // Never stops asking; distinct arguments so the stuck-loop guard doesn't fire first.
+        let provider = FakeProvider(scripts: (1...ChatSession.defaultMaxToolRounds).map { n in
+            [.toolCalls([ToolCall(id: "c\(n)", name: "echo", arguments: #"{"text":"\#(n)"}"#)])]
+        })
         let session = ChatSession(client: provider, context: context,
                                   recorder: UsageRecorder(context: context),
                                   registry: ToolRegistry([EchoTool(reply: "x")]))
@@ -532,9 +533,11 @@ final class ChatSessionTests: XCTestCase {
 
     func test_send_yolo_ignoresRoundCap() async throws {
         let context = try makeContext()
-        let toolRound: [StreamEvent] = [.toolCalls([ToolCall(id: "c", name: "echo", arguments: "{}")])]
-        let provider = FakeProvider(scripts: [
-            toolRound, toolRound, toolRound, toolRound, toolRound,
+        // Distinct arguments per round, so the stuck-loop guard doesn't stop it first.
+        let toolRound = { (n: Int) -> [StreamEvent] in
+            [.toolCalls([ToolCall(id: "c\(n)", name: "echo", arguments: #"{"text":"\#(n)"}"#)])]
+        }
+        let provider = FakeProvider(scripts: (1...5).map(toolRound) + [
             [.delta("Final"), .usage(promptTokens: 20, completionTokens: 1)]
         ])
         let session = ChatSession(client: provider, context: context,
@@ -739,6 +742,42 @@ final class ChatSessionTests: XCTestCase {
         await session.send("go", in: convo, server: server, modelSupportsTools: false)
 
         XCTAssertTrue(session.errorText?.contains("sushi's server doesn't list tool support") == true)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    /// The same call three rounds running stops the turn, even in YOLO with no round cap.
+    func test_identicalCallsThreeTimes_stopsAsStuck() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c", name: "echo", arguments: #"{"text":"same"}"#)])]   // repeats forever
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([EchoTool(reply: "x")]),
+                                  yoloMode: true)
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("go", in: convo, server: server, modelSupportsTools: true)
+
+        XCTAssertEqual(provider.callCount, 3)
+        XCTAssertEqual(convo.messages.filter { $0.role == .tool }.count, 2)   // third never ran
+        XCTAssertTrue(session.errorText?.contains("same arguments 3 times") == true)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    /// A turn that streams nothing says it ended instead of looking hung.
+    func test_emptyReply_explainsItEnded() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(events: [.usage(promptTokens: 1, completionTokens: 1)])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("hi", in: convo, server: server)
+
+        XCTAssertTrue(session.errorText?.contains("ended its turn without replying") == true)
         XCTAssertTrue(session.lastTurnFailed)
     }
 }
