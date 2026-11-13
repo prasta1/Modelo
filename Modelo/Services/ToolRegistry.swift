@@ -13,6 +13,7 @@ struct ToolRegistry: Sendable {
 
     var isEmpty: Bool { tools.isEmpty }
     var count: Int { tools.count }
+    func has(_ name: String) -> Bool { tools[name] != nil }
 
     func specs() -> [ToolSpec] { tools.values.map(ToolSpec.init) }
 
