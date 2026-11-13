@@ -165,6 +165,13 @@ struct ArtifactPanel: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.textMute)
             }
             .buttonStyle(.plain).help("Save to file")
+            if group.kind.isRenderable {
+                Button { exportArtifactAsPNG(current) } label: {
+                    Image(systemName: "photo")
+                        .font(.system(size: 12)).foregroundStyle(Theme.textMute)
+                }
+                .buttonStyle(.plain).help("Export as PNG")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)

@@ -58,4 +58,21 @@ final class ArtifactHTMLTests: XCTestCase {
         XCTAssertTrue(exported.contains(":where(html,body)"),
                       "Exported complete document must get a zero-specificity CSS fallback")
     }
+
+    /// A wide Mermaid chart must export at its natural width, not squeezed into the
+    /// renderer's 1000pt working frame (which shrank its labels to unreadable).
+    @MainActor
+    func test_wideMermaidPNG_exportsAtNaturalWidth() throws {
+        let chain = (0..<8).map { "N\($0)[Step number \($0) with a long label]" }.joined(separator: " --> ")
+        let artifact = Artifact(id: "wide", title: "Wide", kind: .mermaid,
+                                language: nil, content: "flowchart LR\n" + chain)
+        let done = expectation(description: "rendered")
+        var image: NSImage?
+        _ = ArtifactPNGRenderer(artifact: artifact, dark: true) { image = $0; done.fulfill() }
+        wait(for: [done], timeout: 20)
+
+        let rendered = try XCTUnwrap(image)
+        XCTAssertGreaterThan(rendered.size.width, 1200, "Wide chart was squeezed to the 1000pt frame")
+        XCTAssertLessThan(rendered.size.height, 400, "Export should crop to the diagram's height")
+    }
 }
