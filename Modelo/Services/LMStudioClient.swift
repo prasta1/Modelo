@@ -76,8 +76,18 @@ final class LMStudioClient: ChatProvider {
             }
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
-        case .llamaCpp, .llamaSwap, .oMLX, .mlxServe:
-            // Generic local OpenAI-compatible servers (llama.cpp, llama-swap, oMLX, mlx-serve): no /api/v0.
+        case .llamaCpp:
+            var models = try await fetch(path: "/v1/models", endpoint: endpoint)
+                .filter { !$0.isEmbeddingModel }
+            // /v1/models gives only the trained maximum; /props has the size it runs at.
+            // ponytail: single-model servers only; router mode would need /props?model= per model.
+            if models.count == 1, let data = try? await authedGet(path: "/props", endpoint: endpoint),
+               let runtime = Self.llamaCppRuntimeContext(from: data) {
+                models[0].loadedContextLength = runtime
+            }
+            return models
+        case .llamaSwap, .oMLX, .mlxServe:
+            // Generic local OpenAI-compatible servers (llama-swap, oMLX, mlx-serve): no /api/v0.
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
         case .exo:
@@ -86,8 +96,17 @@ final class LMStudioClient: ChatProvider {
             return try await fetch(path: "/v1/models?status=downloaded", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
         case .ollama:
-            return try await fetch(path: "/v1/models", endpoint: endpoint)
+            var models = try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
+            // /v1/models carries no size. /api/ps reports what each loaded model runs at
+            // (Ollama's num_ctx, often far below the model's maximum); unloaded stay unknown.
+            if let data = try? await authedGet(path: "/api/ps", endpoint: endpoint) {
+                let running = Self.ollamaLoadedContexts(from: data)
+                for i in models.indices {
+                    if let size = running[models[i].id] { models[i].loadedContextLength = size }
+                }
+            }
+            return models
         case .custom:
             // The user's base URL already carries its path prefix (e.g. /v1).
             return try await fetch(path: "/models", endpoint: endpoint)
@@ -95,6 +114,36 @@ final class LMStudioClient: ChatProvider {
         case .appleIntelligence:
             return AppleIntelligenceClient.models()
         }
+    }
+
+    /// The context a llama-server runs at, from its `/props` body.
+    /// - Parameter data: The raw `/props` response.
+    /// - Returns: `n_ctx`, or nil when the body doesn't carry it.
+    static func llamaCppRuntimeContext(from data: Data) -> Int? {
+        struct Props: Decodable {
+            let n_ctx: Int?
+            let default_generation_settings: Settings?
+            struct Settings: Decodable { let n_ctx: Int? }
+        }
+        let props = try? JSONDecoder().decode(Props.self, from: data)
+        return props?.default_generation_settings?.n_ctx ?? props?.n_ctx
+    }
+
+    /// Context per loaded model from Ollama's `/api/ps` body.
+    /// - Parameter data: The raw `/api/ps` response.
+    /// - Returns: Model name (as `/v1/models` ids it) to its running context length.
+    static func ollamaLoadedContexts(from data: Data) -> [String: Int] {
+        struct PS: Decodable {
+            let models: [Running]
+            struct Running: Decodable { let name: String?; let model: String?; let context_length: Int? }
+        }
+        guard let ps = try? JSONDecoder().decode(PS.self, from: data) else { return [:] }
+        var sizes: [String: Int] = [:]
+        for m in ps.models {
+            guard let size = m.context_length else { continue }
+            for key in [m.name, m.model].compactMap({ $0 }) { sizes[key] = size }
+        }
+        return sizes
     }
 
     /// GET with optional bearer auth; returns raw body.
