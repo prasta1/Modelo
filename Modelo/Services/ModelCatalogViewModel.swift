@@ -260,8 +260,11 @@ final class ModelCatalogViewModel {
             return
         }
 
-        let loaded = sorted.filter { $0.model.isLoaded }
-        let notLoaded = sorted.filter { !$0.model.isLoaded }
+        // Apple Intelligence reports "loaded" because it's always ready, but no server
+        // holds it in memory, so it keeps its own group rather than heading "Loaded on".
+        let inMemory = { (m: DiscoveredModel) in m.model.isLoaded && m.server.kind != .appleIntelligence }
+        let loaded = sorted.filter(inMemory)
+        let notLoaded = sorted.filter { !inMemory($0) }
 
         let groups = buildGroups(notLoaded)
         loadedModels = loaded
