@@ -24,8 +24,9 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     let quantization: String?
     /// `"loaded"`, `"not-loaded"`. nil means unknown.
     var state: String?
-    /// Maximum context the model can hold.
-    let maxContextLength: Int?
+    /// Maximum context the model can hold. `var` so `ModelsResponse` can fill it from
+    /// the field names other backends use (see `ContextFields`).
+    var maxContextLength: Int?
     /// Publisher / organization, e.g. `"mlx-community"`, `"lmstudio-community"`.
     let publisher: String?
     /// Context length the model is currently loaded with (`loaded_context_length`), when reported.
@@ -394,6 +395,35 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
 
 struct ModelsResponse: Decodable {
     let data: [LMStudioModel]
+
+    private enum CodingKeys: String, CodingKey { case data }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var models = try c.decode([LMStudioModel].self, forKey: .data)
+        // Same array again, reading only the context-size fields each backend names
+        // its own way; best effort, so an odd shape never fails the model list.
+        let contexts = (try? c.decode([ContextFields].self, forKey: .data)) ?? []
+        for (i, ctx) in zip(models.indices, contexts) {
+            models[i].maxContextLength = models[i].maxContextLength ?? ctx.resolved
+        }
+        data = models
+    }
+}
+
+/// Context size as backends other than LM Studio report it in `/v1/models`.
+struct ContextFields: Decodable {
+    let context_length: Int?   // llama-swap, exo, Together, Fireworks
+    let context_window: Int?   // Groq
+    let max_model_len: Int?    // vLLM
+    let meta: Meta?            // llama.cpp / llama-swap
+    struct Meta: Decodable {
+        let n_ctx: Int?        // context the server runs it at (llama-swap)
+        let n_ctx_train: Int?  // the model's trained maximum (llama-server)
+    }
+
+    /// First reported size, preferring what the server runs over the trained maximum.
+    var resolved: Int? { context_length ?? context_window ?? max_model_len ?? meta?.n_ctx ?? meta?.n_ctx_train }
 }
 
 /// A server's own capability declaration for one model. Two wire shapes exist:

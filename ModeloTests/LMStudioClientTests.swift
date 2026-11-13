@@ -45,6 +45,50 @@ final class LMStudioClientTests: XCTestCase {
         XCTAssertTrue(models.first?.isLoaded == true)
     }
 
+    // MARK: Context size per backend
+
+    private func endpoint(_ kind: ServerKind) -> Endpoint {
+        Endpoint(baseURL: "http://box:1", kind: kind, apiKey: nil)
+    }
+
+    func test_fetchModels_llamaSwap_readsContextLength() async throws {
+        // Shape from a live llama-swap /v1/models (2026-11-13).
+        let body = #"{"data":[{"id":"arete-27b","object":"model","context_length":65536,"context_window":65536,"meta":{"llamaswap":{"type":"model"},"n_ctx":65536}}]}"#
+        StubURLProtocol.handler = { _ in (.stub(200), Data(body.utf8)) }
+        let models = try await makeClient().fetchModels(endpoint: endpoint(.llamaSwap))
+        XCTAssertEqual(models.first?.contextWindow, 65536)
+    }
+
+    func test_modelsResponse_readsEachBackendsFieldName() throws {
+        let body = #"{"data":[{"id":"groq","context_window":131072},{"id":"vllm","max_model_len":32768},{"id":"lms","max_context_length":8192,"context_length":4},{"id":"bare"}]}"#
+        let models = try JSONDecoder().decode(ModelsResponse.self, from: Data(body.utf8)).data
+        XCTAssertEqual(models.map(\.maxContextLength), [131072, 32768, 8192, nil])   // LM Studio's own field wins
+    }
+
+    func test_fetchModels_llamaCpp_usesRuntimeContextFromProps() async throws {
+        StubURLProtocol.handler = { req in
+            if req.url!.path == "/props" {
+                return (.stub(200), Data(#"{"default_generation_settings":{"n_ctx":8192},"total_slots":1}"#.utf8))
+            }
+            return (.stub(200), Data(#"{"data":[{"id":"gemma.gguf","object":"model","meta":{"n_ctx_train":131072}}]}"#.utf8))
+        }
+        let models = try await makeClient().fetchModels(endpoint: endpoint(.llamaCpp))
+        let m = try XCTUnwrap(models.first)
+        XCTAssertEqual(m.maxContextLength, 131072)
+        XCTAssertEqual(m.contextWindow, 8192)   // what it actually runs at
+    }
+
+    func test_fetchModels_ollama_usesLoadedContextFromPs() async throws {
+        StubURLProtocol.handler = { req in
+            if req.url!.path == "/api/ps" {
+                return (.stub(200), Data(#"{"models":[{"name":"qwen3:8b","model":"qwen3:8b","context_length":4096}]}"#.utf8))
+            }
+            return (.stub(200), Data(#"{"data":[{"id":"qwen3:8b","object":"model"},{"id":"llama3:latest","object":"model"}]}"#.utf8))
+        }
+        let models = try await makeClient().fetchModels(endpoint: endpoint(.ollama))
+        XCTAssertEqual(models.map(\.contextWindow), [4096, nil])   // unloaded stays unknown
+    }
+
     func test_fetchModels_filtersEmbeddingModels() async throws {
         let body = #"{"data":[{"id":"nomic-embed","object":"model","type":"embeddings"},{"id":"qwen3","object":"model","type":"llm"}]}"#
         StubURLProtocol.handler = { _ in (.stub(200), Data(body.utf8)) }
