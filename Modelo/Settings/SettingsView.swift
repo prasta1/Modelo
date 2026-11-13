@@ -283,7 +283,9 @@ struct SettingsView: View {
 
     private func addLocalServer(kind: ServerKind = .lmStudio) {
         let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
-        let server = Server(label: kind.displayName, host: "localhost",
+        // Custom takes a full base URL in `host`; seed a typical OpenAI-compatible one.
+        let host = kind == .custom ? "http://localhost:8080/v1" : "localhost"
+        let server = Server(label: kind.displayName, host: host,
                             port: kind.defaultPort, sortOrder: nextOrder, kind: kind)
         context.insert(server)
         context.saveOrLog()
@@ -298,6 +300,7 @@ struct SettingsView: View {
         case .oMLX:                        return "cpu"
         case .ollama:                      return "cylinder"
         case .exo:                         return "point.3.connected.trianglepath.dotted"
+        case .custom:                      return "slider.horizontal.3"
         case .appleIntelligence:           return "apple.intelligence"
         case .cloudAPI, .openRouter, .nous: return "server.rack"
         }
@@ -1078,7 +1081,15 @@ private struct ServerSettingsRow: View {
                         .foregroundStyle(Theme.textHi)
                         .focused($focus, equals: .label)
 
-                    // Local runtimes (LM Studio, llama.cpp/llama-swap, oMLX) are all addressed by host:port.
+                    // Custom takes one full base URL; the named runtimes are addressed by host:port.
+                    if server.kind == .custom {
+                        FieldGroup(caption: "Base URL") {
+                            TextField("http://host:port/v1", text: $server.host)
+                                .textFieldStyle(.plain)
+                                .focused($focus, equals: .host)
+                                .fieldChrome(focused: focus == .host)
+                        }
+                    } else {
                     HStack(alignment: .bottom, spacing: 12) {
                         FieldGroup(caption: "Host") {
                             TextField("hostname, IP, or https://host", text: $server.host)
@@ -1096,6 +1107,7 @@ private struct ServerSettingsRow: View {
                                 .frame(width: 72)
                         }
                         .fixedSize()
+                    }
                     }
 
                     LocalSetupHint(kind: server.kind)
@@ -1362,10 +1374,27 @@ private struct ServerSettingsRow: View {
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .onChange(of: server.kind) { _, newKind in reseedDefaults(for: newKind) }
+                .onChange(of: server.kind) { oldKind, newKind in
+                    convertAddress(from: oldKind, to: newKind)
+                    reseedDefaults(for: newKind)
+                }
             }
             .fixedSize()
             .help("Runtime")
+    }
+
+    /// Custom stores a full base URL in `host`; the other runtimes store a bare host plus
+    /// `port`. Translate between the two so switching runtimes keeps pointing at the same box.
+    private func convertAddress(from oldKind: ServerKind, to newKind: ServerKind) {
+        if newKind == .custom, oldKind != .custom {
+            server.host = Server.hostPortURL(host: server.host, port: server.port) + "/v1"
+            server.port = 0
+        } else if oldKind == .custom, newKind != .custom {
+            let parsed = Server.hostPort(fromURL: server.host)
+            server.host = parsed?.host ?? "localhost"
+            // No explicit port (or unparseable) → 0, which reseedDefaults swaps for the kind's default.
+            server.port = parsed?.port ?? 0
+        }
     }
 
     /// When the user switches runtimes, re-seed the port and label to the new kind's
@@ -1428,6 +1457,8 @@ private struct LocalSetupHint: View {
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
         case .exo:
             return "Run exo (exolabs.net) on this or another Mac. Add its host and port (default 52415). Models must be launched in exo's dashboard before you can chat with them."
+        case .custom:
+            return "For any other OpenAI-compatible server (mlx-serve, vLLM, a proxy…). Enter the base URL up to, but not including, /models and /chat/completions — usually http://host:port/v1. Add an API key only if the server asks for one."
         case .cloudAPI, .openRouter, .nous, .appleIntelligence:
             return ""
         }

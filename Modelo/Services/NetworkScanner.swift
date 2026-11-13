@@ -49,7 +49,8 @@ final class NetworkScanner {
         state = .scanning(progress: 0)
 
         // Cross-product of hosts × all known local default ports.
-        let ports = Array(Set(ServerKind.localCases.map(\.defaultPort))).sorted()
+        // `custom` has no default port (0), so it's filtered out here.
+        let ports = Array(Set(ServerKind.localCases.map(\.defaultPort).filter { $0 > 0 })).sorted()
         let hosts = buildCandidates()
         let candidates: [(String, Int)] = hosts.flatMap { h in ports.map { (h, $0) } }
         let total = max(1, candidates.count)

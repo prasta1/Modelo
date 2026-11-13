@@ -88,6 +88,10 @@ final class LMStudioClient: ChatProvider {
         case .ollama:
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
+        case .custom:
+            // The user's base URL already carries its path prefix (e.g. /v1).
+            return try await fetch(path: "/models", endpoint: endpoint)
+                .filter { !$0.isEmbeddingModel }
         case .appleIntelligence:
             return AppleIntelligenceClient.models()
         }
@@ -130,7 +134,7 @@ final class LMStudioClient: ChatProvider {
         let path: String
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
-        case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .custom, .cloudAPI, .openRouter, .nous: path = "/models"
         case .appleIntelligence: return AppleIntelligenceClient.isAvailable()
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
@@ -183,7 +187,7 @@ final class LMStudioClient: ChatProvider {
         let path: String
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
-        case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .custom, .cloudAPI, .openRouter, .nous: path = "/models"
         case .appleIntelligence: return AppleIntelligenceClient.isAvailable() ? .reachable : .unreachable
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
@@ -439,11 +443,11 @@ final class LMStudioClient: ChatProvider {
     ) async -> Bool {
         do {
             // LM Studio's base is host:port (needs /v1); llama.cpp/llama-swap and oMLX also need /v1.
-            // Cloud API bases already end in /v1.
+            // Cloud API and custom bases already end in /v1 (or whatever prefix the user typed).
             let chatPath: String
             switch endpoint.kind {
             case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .exo: chatPath = "/v1/chat/completions"
-            case .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
+            case .custom, .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
             case .ollama: chatPath = "/v1/chat/completions"
             case .appleIntelligence:
                 // Unreachable: streamChat forwards this kind before any HTTP.
@@ -563,7 +567,7 @@ final class LMStudioClient: ChatProvider {
         switch kind {
         case .cloudAPI, .openRouter, .nous:
             return Bundle.main.bundleIdentifier ?? "modelo-app"
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo, .appleIntelligence:
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo, .custom, .appleIntelligence:
             return nil
         }
     }
