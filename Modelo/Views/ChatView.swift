@@ -506,7 +506,6 @@ struct ChatView: View {
                 yoloChip
             }
             workspaceButton
-            artifactsButton
             settingsButton
             if compact {
                 moreMenu
@@ -521,6 +520,8 @@ struct ChatView: View {
             if let server = pickedModel?.server {
                 statusPill(for: server)
             }
+            // Trailing edge, beside the panel it opens (macOS right-sidebar convention).
+            artifactsButton
         }
     }
 
