@@ -169,7 +169,7 @@ final class ChatSession {
         if !attachments.isEmpty { userMsg.attachmentsJSON = attachments.json }
         if let skill {
             userMsg.skillName = skill.name
-            userMsg.skillInstructions = skill.instructions
+            userMsg.skillInstructions = skill.promptInstructions
         }
         if let edited, edited.parent != nil {
             conversation.branch(userMsg, asSiblingOf: edited)
@@ -184,6 +184,14 @@ final class ChatSession {
             if !provisional.isEmpty { conversation.title = provisional }
         }
         context.saveOrLog()
+
+        // A skill that ships scripts can't be followed without a shell; say how to get
+        // one instead of leaving the model to apologize. The turn still runs.
+        if let skill, skill.hasScripts,
+           !(toolsActive(modelSupportsTools: modelSupportsTools, conversation: conversation) && registry.has("bash")) {
+            errorText = "The \"\(skill.name)\" skill runs scripts, but the bash tool isn't available in this chat. "
+                + "Turn on Settings ▸ Filesystem tools ▸ Allow the bash tool and check the chat's Tools toggle, then reopen the chat."
+        }
 
         await runTurn(in: conversation, server: server,
                       modelSupportsTools: modelSupportsTools, sampling: sampling,
@@ -246,6 +254,13 @@ final class ChatSession {
     /// streamed into on the first round (regenerate passes its pre-branched sibling);
     /// otherwise a fresh assistant is appended each round. The user turn must already
     /// be on the active path.
+    /// Whether this chat's turns offer tools to the model at all.
+    private func toolsActive(modelSupportsTools: Bool, conversation: Conversation) -> Bool {
+        // Global tools toggle (Settings ▸ Tools); defaults on when unset.
+        let globalToolsEnabled = UserDefaults.standard.object(forKey: "toolsGloballyEnabled") as? Bool ?? true
+        return globalToolsEnabled && modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
+    }
+
     private func runTurn(in conversation: Conversation, server: Server,
                          modelSupportsTools: Bool,
                          sampling: SamplingParams,
@@ -263,9 +278,7 @@ final class ChatSession {
         // local model to a cloud one is covered without rebuilding the session.
         let cloud = !server.kind.isLocal
         let withheld: Set<String> = cloud ? Set(cloudPolicy.filter { $0.value == .withhold }.keys) : []
-        // Global tools toggle (Settings ▸ Tools); defaults on when unset.
-        let globalToolsEnabled = UserDefaults.standard.object(forKey: "toolsGloballyEnabled") as? Bool ?? true
-        let toolsActive = globalToolsEnabled && modelSupportsTools && conversation.toolsEnabled && !registry.isEmpty
+        let toolsActive = self.toolsActive(modelSupportsTools: modelSupportsTools, conversation: conversation)
         // Progressive disclosure (large tool sets): show only the most relevant tools for
         // this request + a find_tools meta-tool, so a small model isn't drowned in specs.
         let progressive = toolsActive && registry.count > Self.progressiveThreshold
@@ -383,6 +396,11 @@ final class ChatSession {
                 if !parsed.isEmpty {
                     toolCalls = parsed
                     assistant.content = cleaned
+                } else if ToolCallParser.looksLikeAttempt(assistant.content) {
+                    // Otherwise the raw markup reads as a confused answer, not a failed action.
+                    errorText = "The model tried to use a tool, but Modelo couldn't read the request, so nothing ran. "
+                        + "Try again, or pick a model with native tool calling."
+                    lastTurnFailed = true
                 }
             }
             if toolCalls.isEmpty { break }   // model produced a final answer

@@ -33,6 +33,20 @@ final class AgentsLoaderTests: XCTestCase {
         XCTAssertEqual(s.instructions, "Stop at the first rung that holds.")
     }
 
+    func test_recordsFolderAndScripts() throws {
+        let root = try tempRoot()
+        try writeSkill(root, dir: "runner", contents: "Run scripts/go.")
+        try writeSkill(root, dir: "plain", contents: "Just think.")
+        try FileManager.default.createDirectory(at: root.appending(path: "skills/runner/scripts"),
+                                                withIntermediateDirectories: true)
+        let skills = AgentsLoader.loadSkills(root: root)
+        let runner = try XCTUnwrap(skills.first { $0.name == "runner" })
+        XCTAssertTrue(runner.hasScripts)
+        XCTAssertFalse(try XCTUnwrap(skills.first { $0.name == "plain" }).hasScripts)
+        XCTAssertTrue(runner.promptInstructions.contains(root.appending(path: "skills/runner").path))
+        XCTAssertTrue(runner.promptInstructions.hasSuffix("Run scripts/go."))
+    }
+
     func test_fallsBackToDirNameAndSkipsBadEntries() throws {
         let root = try tempRoot()
         try writeSkill(root, dir: "no-frontmatter", contents: "Just a body, no frontmatter.")

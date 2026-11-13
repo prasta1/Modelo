@@ -2,7 +2,8 @@ import Foundation
 
 /// Recovers tool calls that a model emitted as **text** instead of native OpenAI
 /// `tool_calls`. Many local/quantized models (Qwen, Hermes, Llama variants) print the
-/// call as `<tool_call>{…}</tool_call>`, a fenced ```json block, or a lone JSON object,
+/// call as `<tool_call>{…}</tool_call>`, a fenced ```json block, a lone JSON object, or
+/// Qwen3-Coder's `<function=…><parameter=…>` XML,
 /// and the server's chat template fails to convert it — so without this, the call is
 /// silently shown as the "answer" and never runs. Used as a fallback when the native
 /// `tool_calls` list is empty.
@@ -20,7 +21,12 @@ enum ToolCallParser {
         for body in captures(in: text, pattern: #"```(?:json|tool_call|tool_code)?\s*\n?(.*?)```"#) {
             if looksLikeCall(body), let c = toolCall(from: body) { calls.append(c) }
         }
-        // 3. The whole message is a single JSON call object (no delimiters).
+        // 3. Qwen3-Coder XML: <function=name><parameter=key>value</parameter>…</function>,
+        //    usually inside <tool_call> (whose body then isn't JSON, so step 1 skipped it).
+        for groups in matchGroups(in: text, pattern: #"<function=([^>\s]+)>(.*?)</function>"#) {
+            calls.append(xmlToolCall(name: groups[0], body: groups[1]))
+        }
+        // 4. The whole message is a single JSON call object (no delimiters).
         if calls.isEmpty {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("{"), looksLikeCall(trimmed), let c = toolCall(from: trimmed) {
@@ -32,7 +38,31 @@ enum ToolCallParser {
         var cleaned = text
         cleaned = remove(#"<tool_call>\s*.*?\s*</tool_call>"#, from: cleaned)
         cleaned = remove(#"```(?:json|tool_call|tool_code)?\s*\n?.*?```"#, from: cleaned)
+        cleaned = remove(#"<function=[^>\s]+>.*?</function>"#, from: cleaned)
         return (calls, cleaned.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// True if `text` carries tool-call markup. When `extract` recovers nothing from
+    /// such text, the model tried to call a tool and nothing ran.
+    static func looksLikeAttempt(_ text: String) -> Bool {
+        text.contains("<tool_call>") || text.contains("<function=")
+    }
+
+    /// Builds a call from the XML format's `<parameter=key>value</parameter>` pairs.
+    /// ponytail: values stay strings (no tool schema here to coerce by); a numeric MCP
+    /// argument would need the server's schema to convert.
+    private static func xmlToolCall(name: String, body: String) -> ToolCall {
+        var args: [String: String] = [:]
+        for groups in matchGroups(in: body, pattern: #"<parameter=([^>\s]+)>(.*?)</parameter>"#) {
+            // The format puts each value on its own lines; drop that one wrapping newline.
+            var value = Substring(groups[1])
+            if value.hasPrefix("\n") { value = value.dropFirst() }
+            if value.hasSuffix("\n") { value = value.dropLast() }
+            args[groups[0]] = String(value)
+        }
+        let json = (try? JSONSerialization.data(withJSONObject: args, options: [.sortedKeys]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return ToolCall(id: "parsed-" + UUID().uuidString, name: name, arguments: json)
     }
 
     /// A JSON blob is call-shaped if it names a tool and carries an argument bag.
@@ -62,10 +92,18 @@ enum ToolCallParser {
     // MARK: Regex helpers (dot matches newlines so multi-line JSON is captured whole)
 
     private static func captures(in text: String, pattern: String) -> [String] {
+        matchGroups(in: text, pattern: pattern).compactMap(\.first)
+    }
+
+    /// Every match's capture groups, in order (group 0, the whole match, left out).
+    private static func matchGroups(in text: String, pattern: String) -> [[String]] {
         guard let re = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
         let ns = text as NSString
-        return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
-            m.numberOfRanges > 1 ? ns.substring(with: m.range(at: 1)) : nil
+        return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { m in
+            (1..<m.numberOfRanges).map {
+                let r = m.range(at: $0)
+                return r.location == NSNotFound ? "" : ns.substring(with: r)
+            }
         }
     }
 

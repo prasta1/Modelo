@@ -38,4 +38,20 @@ final class ToolCallParserTests: XCTestCase {
         let (calls, _) = ToolCallParser.extract(from: "```json\n{\"foo\": 1}\n```")
         XCTAssertTrue(calls.isEmpty)
     }
+
+    func test_parsesQwenXMLCall() {
+        let text = "Looking.\n<tool_call>\n<function=grep>\n<parameter=pattern>\nfoo bar\n</parameter>\n<parameter=path>\nsrc\n</parameter>\n</function>\n</tool_call>"
+        let (calls, cleaned) = ToolCallParser.extract(from: text)
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.name, "grep")
+        XCTAssertEqual(calls.first?.arguments, #"{"path":"src","pattern":"foo bar"}"#)
+        XCTAssertEqual(cleaned, "Looking.")
+    }
+
+    func test_flagsUnreadableAttempt() {
+        let broken = "<tool_call>{\"name\": \"glob\", oops</tool_call>"
+        XCTAssertTrue(ToolCallParser.extract(from: broken).calls.isEmpty)
+        XCTAssertTrue(ToolCallParser.looksLikeAttempt(broken))
+        XCTAssertFalse(ToolCallParser.looksLikeAttempt("Plain answer."))
+    }
 }

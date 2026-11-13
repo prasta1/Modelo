@@ -2017,7 +2017,7 @@ struct ChatView: View {
            let found = enabledSkills.first(where: { $0.name == name }) {
             // A skill too big for the model's window would fail on every later turn
             // too, so refuse up front and keep the draft (§3.7).
-            let wanted = found.instructions + "\n\n" + request
+            let wanted = found.promptInstructions + "\n\n" + request
             if !TokenEstimator.fits(wanted, contextWindow: contextWindow) {
                 flash("\"\(name)\" is ~\(TokenEstimator.estimate(wanted).formatted()) tokens — too big for this model's \(contextWindow.formatted())-token context.")
                 return

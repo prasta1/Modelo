@@ -709,4 +709,20 @@ final class ChatSessionTests: XCTestCase {
         let wire = LMStudioClient.wireMessages(provider.lastMessages, systemPrompt: "")
         XCTAssertTrue(wire.contains { if case .text(let t)? = $0.content { t.contains("Do X.") } else { false } })
     }
+
+    /// A skill with scripts sent where no bash tool exists says how to get one.
+    func test_send_scriptSkillWithoutBash_explainsHowToEnable() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(events: [.delta("ok"), .usage(promptTokens: 1, completionTokens: 1)])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("go", in: convo, server: server,
+                           skill: AgentSkill(name: "s", description: "", instructions: "Run it.", hasScripts: true))
+
+        XCTAssertTrue(session.errorText?.contains("Allow the bash tool") == true)
+        XCTAssertFalse(session.lastTurnFailed)
+    }
 }

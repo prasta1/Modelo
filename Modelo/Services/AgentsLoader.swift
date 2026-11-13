@@ -9,6 +9,17 @@ struct AgentSkill: Sendable, Equatable {
     let instructions: String
     /// The skills folder this skill was loaded from (shown in Settings ▸ Skills).
     var source: URL? = nil
+    /// This skill's own folder (the one holding its SKILL.md).
+    var folder: URL? = nil
+    /// The folder has a `scripts/` directory, so following the skill needs a shell.
+    var hasScripts = false
+
+    /// What the model receives: `instructions` prefixed with the skill's folder, so it
+    /// can resolve the relative paths and scripts a skill names (`<skill-base-dir>/…`).
+    var promptInstructions: String {
+        guard let folder else { return instructions }
+        return "This skill's base directory is \(folder.path). Resolve the relative paths and scripts it names from there.\n\n\(instructions)"
+    }
 }
 
 /// Discovers agent skills from the shared `~/.agents` directory so Modelo can use the
@@ -45,7 +56,10 @@ enum AgentsLoader {
                     name: name,
                     description: parsed.description ?? "",
                     instructions: body.trimmingCharacters(in: .whitespacesAndNewlines),
-                    source: dir
+                    source: dir,
+                    folder: entry,
+                    hasScripts: (try? entry.appending(path: "scripts")
+                        .resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
                 )
             }
         }
@@ -136,7 +150,7 @@ struct UseSkillTool: Tool {
         }
         return skill.instructions.isEmpty
             ? "The \"\(skill.name)\" skill has no instructions."
-            : skill.instructions
+            : skill.promptInstructions
     }
 
     /// First sentence (or ~140 chars) of a description, to keep the tool spec compact.
