@@ -51,6 +51,7 @@ targets:
         SUVerifyUpdateBeforeExtraction: true
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Modelo scans your local network to find LLM servers such as LM Studio, Ollama and llama-swap running on other machines.
         NSHumanReadableCopyright: "© 2025 Patrick Ruster"
     # See Signing.xcconfig for why signing is per-dev.
     configFiles:

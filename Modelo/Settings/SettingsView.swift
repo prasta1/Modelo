@@ -305,46 +305,74 @@ struct SettingsView: View {
 
     // MARK: Scan UI
 
-    /// True while actively scanning or when previous results are still displayed.
-    private var isScanActive: Bool {
-        if case .scanning = scanner.state { return true }
-        return !scanner.found.isEmpty
-    }
+    /// True while scanning, once a scan has finished, or after a cancel that left results.
+    private var isScanActive: Bool { scanner.state != .idle || !scanner.found.isEmpty }
 
     @ViewBuilder
     private var scanResultsPanel: some View {
         VStack(spacing: 6) {
             switch scanner.state {
-            case .scanning(let progress):
-                HStack(spacing: 10) {
-                    ProgressView(value: progress)
-                        .tint(Theme.amber)
-                        .frame(maxWidth: .infinity)
-                    Button("Cancel") { scanner.cancel() }
-                        .font(Theme.label(11))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
+            case .scanning:
+                VStack(spacing: 6) {
+                    HStack {
+                        Text(NetworkScanner.scanningLabel(subnets: scanner.subnets,
+                                                          portCount: scanner.ports.count))
+                            .help("Ports: " + scanner.ports.map(String.init).joined(separator: ", "))
+                        Spacer()
+                        Text("\(scanner.completed.formatted()) / \(scanner.total.formatted())")
+                            .monospacedDigit()
+                    }
+                    .font(Theme.label(11))
+                    .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        ProgressView(value: scanner.progress)
+                            .tint(Theme.amber)
+                            .frame(maxWidth: .infinity)
+                        Button("Cancel") { scanner.cancel() }
+                            .font(Theme.label(11))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
                 .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
-            case .idle, .done:
-                if !scanner.found.isEmpty {
+            case .done:
+                HStack(spacing: 10) {
+                    Text(NetworkScanner.summary(foundCount: scanner.found.count,
+                                                alreadyAdded: scanner.found.filter(isAdded).count,
+                                                subnets: scanner.subnets))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Button { scanner.scan() } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "dot.radiowaves.left.and.right")
                                 .font(.system(size: 11, weight: .semibold))
                             Text("Scan Again")
-                                .font(Theme.label(11))
                         }
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .frame(maxWidth: .infinity)
-                        .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
                     }
                     .buttonStyle(.plain)
                 }
+                .font(Theme.label(11))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+            case .idle:
+                // Reached only after Cancel (or Add mid-scan) with hosts already found.
+                Button { scanner.scan() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Scan Again")
+                            .font(Theme.label(11))
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity)
+                    .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+                }
+                .buttonStyle(.plain)
             }
             ForEach(scanner.found) { host in
                 discoveredHostRow(host)
@@ -352,18 +380,23 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private func discoveredHostRow(_ host: DiscoveredHost) -> some View {
-        let alreadyAdded = servers.contains {
+    /// Whether a discovered host matches an endpoint that's already saved.
+    private func isAdded(_ host: DiscoveredHost) -> Bool {
+        servers.contains {
             Server.normalizedHost($0.host) == Server.normalizedHost(host.host) && $0.port == host.port
         }
+    }
+
+    @ViewBuilder
+    private func discoveredHostRow(_ host: DiscoveredHost) -> some View {
+        let alreadyAdded = isAdded(host)
         HStack(spacing: 10) {
             Image(systemName: localIcon(for: host.kind))
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.amber)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(host.host):\(host.port)")
+                Text(verbatim: "\(host.host):\(host.port)")
                     .font(Theme.mono(12))
                     .foregroundStyle(.primary)
                 Text(host.kind.displayName)
@@ -385,6 +418,8 @@ struct SettingsView: View {
     }
 
     private func addDiscoveredServer(_ host: DiscoveredHost) {
+        // Adding means the user found what they were scanning for.
+        if scanner.state == .scanning { scanner.cancel() }
         let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
         let server = Server(label: host.kind.displayName, host: host.host,
                             port: host.port, sortOrder: nextOrder, kind: host.kind)

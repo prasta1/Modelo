@@ -49,3 +49,6 @@ Developer.xcconfig
 .claude/
 .hermes/
 skills-lock.json
+
+# Brainstorming specs and plans stay local
+docs/superpowers/
