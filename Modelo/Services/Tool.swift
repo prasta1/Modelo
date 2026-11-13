@@ -29,8 +29,9 @@ extension Tool {
 
 /// A preview of a pending mutating tool call, surfaced in the in-chat approval card.
 struct ToolApprovalPreview: Sendable, Equatable, Identifiable {
-    /// `external`: a tool from a user-configured MCP server.
-    enum Kind: Sendable, Equatable { case write, edit, shell, external }
+    /// `external`: a tool from a user-configured MCP server. `cloud`: a tool whose
+    /// result would leave the machine in the next request to a cloud endpoint.
+    enum Kind: Sendable, Equatable { case write, edit, shell, external, cloud }
     let id = UUID()
     let kind: Kind
     /// Everything but shell may be approved for a whole session: a shell grant would
@@ -44,6 +45,15 @@ struct ToolApprovalPreview: Sendable, Equatable, Identifiable {
     /// MCP tools use "mcp:<server>/<tool>", since the Filesystem server's `write_file`
     /// (rooted at ~) shares its name with the workspace-scoped built-in. nil = tool name.
     var grantKey: String? = nil
+}
+
+/// How a tool is treated on a turn sent to a cloud endpoint (`!ServerKind.isLocal`).
+/// Local turns ignore it, so switching a chat's model re-applies it per turn.
+enum CloudToolPolicy: Sendable {
+    /// Not offered, and refused if called anyway.
+    case withhold
+    /// Each call pauses on the approval card before it runs.
+    case approve
 }
 
 /// Minimal JSON-Schema object description — enough for the built-in tools.
