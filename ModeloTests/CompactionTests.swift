@@ -94,4 +94,52 @@ final class CompactionTests: XCTestCase {
 
         XCTAssertNil(convo.summary)
     }
+
+    // MARK: skills across compaction
+
+    private func skillMsg(_ name: String, _ instructions: String, _ t: TimeInterval) -> Message {
+        let m = msg(.user, "", t)
+        m.skillName = name
+        m.skillInstructions = instructions
+        return m
+    }
+
+    func test_wireContext_carriesSkillsFromSummarizedPrefix() throws {
+        let ctx = try makeContext()
+        let convo = Conversation(modelID: "m", serverID: nil)
+        ctx.insert(convo)
+        let m1 = skillMsg("brainstorming", "Ask one question.", 1)
+        let m2 = msg(.assistant, "What's the moment?", 2)
+        let m3 = msg(.user, "recent", 3)
+        [m1, m2, m3].forEach(convo.appendToPath)
+        try ctx.save()   // summaryThrough resolves by persistent ID, so save first
+        convo.summary = "They started brainstorming."
+        convo.summaryThrough = m2
+        try ctx.save()
+
+        let wire = convo.wireContext()
+        XCTAssertTrue(wire.system.contains("Ask one question."))
+        XCTAssertEqual(wire.messages.map(\.content), ["recent"])
+    }
+
+    func test_wireContext_sameSkillTwice_carriedOnce() throws {
+        let ctx = try makeContext()
+        let convo = Conversation(modelID: "m", serverID: nil)
+        ctx.insert(convo)
+        let m1 = skillMsg("tdd", "OLD tdd", 1)
+        let m2 = msg(.assistant, "ok", 2)
+        let m3 = skillMsg("tdd", "NEW tdd", 3)
+        let m4 = msg(.assistant, "ok", 4)
+        let m5 = msg(.user, "recent", 5)
+        [m1, m2, m3, m4, m5].forEach(convo.appendToPath)
+        try ctx.save()
+        convo.summary = "Summary."
+        convo.summaryThrough = m4
+        try ctx.save()
+
+        let system = convo.wireContext().system
+        XCTAssertTrue(system.contains("NEW tdd"))
+        XCTAssertFalse(system.contains("OLD tdd"))
+        XCTAssertEqual(system.components(separatedBy: "### tdd").count, 2)   // exactly one block
+    }
 }

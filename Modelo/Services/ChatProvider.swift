@@ -5,6 +5,9 @@ enum StreamEvent: Equatable {
     case delta(String)
     case usage(promptTokens: Int, completionTokens: Int)
     case toolCalls([ToolCall])
+    /// A non-fatal, user-visible note about this turn (e.g. old messages trimmed
+    /// to fit a small context window). Consumers that don't show it can ignore it.
+    case notice(String)
 }
 
 /// One assembled tool call from the stream. Codable so it persists in

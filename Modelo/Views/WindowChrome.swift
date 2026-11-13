@@ -4,7 +4,7 @@ import AppKit
 /// Hands back the `NSWindow` hosting this view, once AppKit has attached it.
 ///
 /// The app styles its windows through AppKit (transparent titlebar, themed
-/// background, forced dark appearance), which SwiftUI has no equivalent for on
+/// background), which SwiftUI has no equivalent for on
 /// macOS 14. Reaching for `NSApp.keyWindow` to find the window works only while
 /// a single window exists — with the expanded-table window open it returns
 /// whichever window happens to be key, so chrome and screen-clamping land on the
@@ -27,8 +27,7 @@ struct WindowAccessor: NSViewRepresentable {
 }
 
 extension View {
-    /// Applies Modelo's window look — transparent titlebar, themed background,
-    /// dark appearance — to the window hosting this view, and reports it back so
+    /// Applies Modelo's window look — transparent titlebar, themed background — to the window hosting this view, and reports it back so
     /// the caller can keep operating on the right window.
     ///
     /// - Parameters:
@@ -40,7 +39,8 @@ extension View {
             WindowAccessor { window in
                 window.titlebarAppearsTransparent = true
                 window.backgroundColor = NSColor(Theme.windowBG)
-                window.appearance = NSAppearance(named: .darkAqua)
+                // No forced `.darkAqua`: each scene's `preferredColorScheme(palette.scheme)`
+                // sets light/dark, so light palettes get light system chrome.
                 if center { window.center() }
                 onResolve(window)
             }

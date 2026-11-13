@@ -88,6 +88,8 @@ final class LMStudioClient: ChatProvider {
         case .ollama:
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
+        case .appleIntelligence:
+            return AppleIntelligenceClient.models()
         }
     }
 
@@ -129,6 +131,7 @@ final class LMStudioClient: ChatProvider {
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
         case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .appleIntelligence: return AppleIntelligenceClient.isAvailable()
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
         var request = URLRequest(url: url)
@@ -181,6 +184,7 @@ final class LMStudioClient: ChatProvider {
         switch endpoint.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
         case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .appleIntelligence: return AppleIntelligenceClient.isAvailable() ? .reachable : .unreachable
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
         var request = URLRequest(url: url)
@@ -313,6 +317,10 @@ final class LMStudioClient: ChatProvider {
         // concurrency. `wire`/`body` are plain value types, so the Task below
         // captures only Sendable data.
         let wire = Self.wireMessages(messages, systemPrompt: systemPrompt)
+        // In-process on-device model: no HTTP, its own client.
+        if endpoint.kind == .appleIntelligence {
+            return AppleIntelligenceClient.streamChat(messages: wire, sampling: sampling)
+        }
 
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -331,7 +339,8 @@ final class LMStudioClient: ChatProvider {
                         presence_penalty: sampling.presencePenalty,
                         stop: sampling.stop,
                         stream: true,
-                        stream_options: includeUsage ? StreamOptions(include_usage: true) : nil
+                        stream_options: includeUsage ? StreamOptions(include_usage: true) : nil,
+                        user: Self.userTag(for: endpoint.kind)
                     )
                     let shouldRetry = await self.streamOnce(
                         body: body, endpoint: endpoint,
@@ -384,8 +393,9 @@ final class LMStudioClient: ChatProvider {
                 let imageAtts = allAtts.filter { $0.isImage }
                 let textAtts  = allAtts.filter { !$0.isImage }
 
+                let userText = m.wireContent
                 if allAtts.isEmpty {
-                    if !m.content.isEmpty { appendUser(WireMessage(role: "user", content: m.content)) }
+                    if !userText.isEmpty { appendUser(WireMessage(role: "user", content: userText)) }
                 } else {
                     var blocks: [WireContentBlock] = []
                     // Text file attachments come first, each as a labeled fenced block.
@@ -395,7 +405,7 @@ final class LMStudioClient: ChatProvider {
                         blocks.append(.text("<file name=\"\(safeName)\">\n\(text)\n</file>"))
                     }
                     // User's typed message (may be empty if they attached without typing).
-                    if !m.content.isEmpty { blocks.append(.text(m.content)) }
+                    if !userText.isEmpty { blocks.append(.text(userText)) }
                     // Image attachments last (vision models only).
                     for att in imageAtts { blocks.append(.imageURL(att.dataURL)) }
                     appendUser(WireMessage(role: "user", blocks: blocks))
@@ -435,6 +445,9 @@ final class LMStudioClient: ChatProvider {
             case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .exo: chatPath = "/v1/chat/completions"
             case .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
             case .ollama: chatPath = "/v1/chat/completions"
+            case .appleIntelligence:
+                // Unreachable: streamChat forwards this kind before any HTTP.
+                throw ClientError.unsupported
             }
             guard let url = URL(string: "\(endpoint.baseURL)\(chatPath)") else {
                 throw ClientError.invalidURL
@@ -469,6 +482,12 @@ final class LMStudioClient: ChatProvider {
                 let decoded = (try? JSONDecoder().decode(HTTPErrorBody.self, from: errorData))
                     ?? (try? JSONDecoder().decode([HTTPErrorBody].self, from: errorData))?.first
                 if let msg = decoded?.error?.message, !msg.isEmpty {
+                    throw ClientError.serverError(msg)
+                }
+                // Nous doesn't wrap its error in an "error" object — it's a flat
+                // {"status": 400, "message": "..."} body, so the decode above never
+                // matches and the real reason was getting dropped on the floor.
+                if let msg = (try? JSONDecoder().decode(FlatErrorBody.self, from: errorData))?.message, !msg.isEmpty {
                     throw ClientError.serverError(msg)
                 }
                 if http.statusCode == 429 {
@@ -535,6 +554,20 @@ final class LMStudioClient: ChatProvider {
         message.lowercased().contains("failed to resolve model metadata")
     }
 
+    /// Some cloud providers (e.g. Nous, on certain models) reject API-key-authed
+    /// requests with a 400 "missing tags" unless the standard OpenAI `user` field
+    /// is set — with OAuth their server infers identity from the token, but a raw
+    /// key gives it nothing to attribute the request to. Any non-empty value works,
+    /// so the bundle id is enough; local servers have no use for it.
+    private static func userTag(for kind: ServerKind) -> String? {
+        switch kind {
+        case .cloudAPI, .openRouter, .nous:
+            return Bundle.main.bundleIdentifier ?? "modelo-app"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo, .appleIntelligence:
+            return nil
+        }
+    }
+
     // MARK: Wire types
     private struct LoadModelBody: Encodable { let keep_in_ram: Bool }
     /// nil `context_length` is omitted from the JSON, leaving it to LM Studio.
@@ -555,6 +588,7 @@ final class LMStudioClient: ChatProvider {
         let stop: [String]?
         let stream: Bool
         let stream_options: StreamOptions?   // nil → omitted from JSON
+        let user: String?                    // nil → omitted from JSON
     }
     private struct StreamOptions: Encodable { let include_usage: Bool }
 
@@ -562,6 +596,7 @@ final class LMStudioClient: ChatProvider {
         let error: ErrorMsg?
         struct ErrorMsg: Decodable { let message: String? }
     }
+    private struct FlatErrorBody: Decodable { let message: String? }
 }
 
 /// How much context Modelo asks LM Studio for when it loads a model (Settings ▸ Endpoints).

@@ -1,8 +1,12 @@
 import SwiftUI
 import SwiftData
+import Sparkle
 
 @main
 struct ModeloApp: App {
+    private let updaterController: SPUStandardUpdaterController
+    // Sparkle holds its delegate weakly, so keep it for the app's lifetime.
+    private let updaterFeedOverride: UpdaterFeedOverride
     let container: ModelContainer
     // Set when the store couldn't be opened and was moved aside (see makeContainer);
     // drives a one-time launch alert telling the user where their data went.
@@ -32,6 +36,8 @@ struct ModeloApp: App {
     // Routes ⌘, / sidebar / "Manage models" to the in-app settings pane. Owned
     // here so the ⌘, command works even when no window is focused.
     @State private var settingsNavigator = SettingsNavigator()
+    // Menu-bar quick chat, shared by the dropdown and its popped-out window.
+    @State private var quickChatSession = QuickChatSession()
 
     /// `WindowGroup` id for the main window, so ⌘, can reopen it by id in
     /// menu-bar-only mode (and find it via its NSWindow identifier prefix).
@@ -40,11 +46,22 @@ struct ModeloApp: App {
     /// Scene id for the expanded-table window.
     static let tableWindowID = "table"
 
+    /// Scene id for the menu-bar quick chat popped out into its own window.
+    static let quickChatWindowID = "quickChat"
+
     /// Applies the stored theme to `Theme.active` and returns it. Called in each scene
     /// body (before its `.id(themeID)` subtree builds) so colors repaint on change.
     private var palette: ThemePalette { Theme.applyStored(themeID) }
 
     init() {
+        let feedOverride = UpdaterFeedOverride()
+        updaterFeedOverride = feedOverride
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: AppUpdater.shouldStart(environment: ProcessInfo.processInfo.environment),
+            updaterDelegate: feedOverride,
+            userDriverDelegate: nil
+        )
+
         let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Persona.self, Folder.self, Preset.self])
         // Pin to a dedicated subfolder so SwiftData doesn't land in the shared
         // ~/Library/Application Support/default.store.
@@ -78,6 +95,11 @@ struct ModeloApp: App {
         let ctx = ModelContext(container)
         let registry = ServerRegistry()
         registry.seedIfNeeded(in: ctx)
+        // Unit tests launch the app as their host against the real store and
+        // defaults; a test run must not add rows to the developer's own data.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            registry.seedAppleIntelligenceIfNeeded(in: ctx, isEligible: AppleIntelligenceClient.isEligible())
+        }
         Persona.seedDefaults(in: ctx)
         // Backfill the branching tree (§1.2) for pre-existing flat conversations.
         BranchingMigration.runIfNeeded(in: ctx)
@@ -122,6 +144,9 @@ struct ModeloApp: App {
                 .task { await startMonitoring() }
                 .task { mcpManager.startAll() }
                 .preferredColorScheme(palette.scheme)
+                // Inside the rebuild so a live theme switch repaints the window background;
+                // centering stays outside, or every switch would re-center the window.
+                .modeloWindowChrome()
                 .id(themeID)   // rebuild the tree so static Theme.* reads repaint (§3.5)
                 .modeloWindowChrome(center: true)
                 .alert("Chat database was reset", isPresented: $showStoreRecoveryAlert) {
@@ -134,6 +159,9 @@ struct ModeloApp: App {
         .defaultPosition(.center)
         .modelContainer(container)
         .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesCommand(updater: updaterController.updater)
+            }
             // App menu ▸ Settings… (⌘,) — routes in-app; there is no Settings scene.
             CommandGroup(replacing: .appSettings) {
                 SettingsCommand(navigator: settingsNavigator)
@@ -182,6 +210,29 @@ struct ModeloApp: App {
         .defaultSize(width: 1000, height: 640)
         .defaultPosition(.center)
 
+        // The menu-bar quick chat, popped out into a resizable window. A single
+        // `Window` (not a WindowGroup), so popping out again focuses it.
+        Window("Quick Chat", id: Self.quickChatWindowID) {
+            MenuBarChatView(isDetached: true)
+                .environment(registry)
+                .environment(serverMonitor)
+                .environment(mcpManager)
+                .environment(favoritesStore)
+                .environment(settingsNavigator)
+                .environment(rotationStore)
+                .environment(catalogCollapseStore)
+                .environment(quickChatSession)
+                .modelContainer(container)
+                .preferredColorScheme(palette.scheme)
+                .id(themeID)
+                .frame(minWidth: 320, minHeight: 300)
+                // Float above other apps' windows, like the dropdown it came from.
+                // Set via AppKit: SwiftUI's `.windowLevel` scene modifier is macOS 15+.
+                .modeloWindowChrome { $0.level = .floating }
+        }
+        .defaultSize(width: 380, height: 480)
+        .windowResizability(.contentMinSize)
+
         MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarChatView()
                 .environment(registry)
@@ -191,6 +242,7 @@ struct ModeloApp: App {
                 .environment(settingsNavigator)
                 .environment(rotationStore)
                 .environment(catalogCollapseStore)
+                .environment(quickChatSession)
                 .modelContainer(container)
                 .preferredColorScheme(palette.scheme)
                 .id(themeID)
@@ -336,7 +388,16 @@ private struct ConsoleMenuButton: View {
     @AppStorage("consoleInspectorOpen") private var open = false
 
     var body: some View {
-        Button(open ? "Hide Console" : "Show Console") { open.toggle() }
+        Button(open ? "Hide Console" : "Show Console") { toggleConsoleInstantly($open) }
             .keyboardShortcut("i", modifiers: .command)
     }
+}
+
+/// Shows/hides the console inspector without its slide animation. Each frame of the
+/// slide narrowed the chat column, re-wrapping every message in the transcript; while
+/// a reply streamed (~20 redraws/s) that made the panel visibly jitter as it opened.
+@MainActor func toggleConsoleInstantly(_ open: Binding<Bool>) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) { open.wrappedValue.toggle() }
 }

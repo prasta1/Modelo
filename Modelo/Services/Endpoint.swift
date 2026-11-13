@@ -11,6 +11,8 @@ import SwiftData
 /// - `cloudAPI`: any OpenAI-compatible cloud endpoint (user-supplied HTTPS base URL, bearer auth).
 /// - `openRouter`: hardcoded OpenRouter cloud endpoint — user supplies only the API key.
 /// - `nous`: hardcoded Nous Research inference endpoint — user supplies only the API key.
+/// - `appleIntelligence`: Apple's on-device model via the Foundation Models framework
+///   (macOS 26+). In-process, no URL or key; served by `AppleIntelligenceClient`.
 ///
 /// `lmStudio`, `llamaCpp`, `llamaSwap`, `oMLX`, `ollama`, and `exo` are *local* (self-hosted) —
 /// they run on hardware you control and can have a `modelo-tap` GPU agent next to them.
@@ -34,12 +36,15 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     case openRouter = "openRouterFixed"
     /// Dedicated Nous Research endpoint — fixed base URL, user supplies only the API key.
     case nous = "nousFixed"
+    /// Apple's on-device model (Foundation Models, macOS 26+). Auto-added on eligible Macs.
+    case appleIntelligence
 
     /// Self-hosted servers run on your own hardware (host:port, no auth) and may expose
     /// a `modelo-tap` GPU agent. Cloud APIs (`cloudAPI`, `openRouter`, `nous`) are managed endpoints that do not.
     var isLocal: Bool {
         switch self {
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: true
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo,
+             .appleIntelligence:                                    true
         case .cloudAPI, .openRouter, .nous:                         false
         }
     }
@@ -56,6 +61,7 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
         case .cloudAPI:   return "Cloud API"
         case .openRouter: return "OpenRouter"
         case .nous:       return "Nous Research"
+        case .appleIntelligence: return "Apple Intelligence"
         }
     }
 
@@ -70,7 +76,8 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
         case .oMLX:                           return 8000
         case .ollama:                         return 11434
         case .exo:                            return 52415
-        case .cloudAPI, .openRouter, .nous:   return 0
+        case .cloudAPI, .openRouter, .nous,
+             .appleIntelligence:              return 0
         }
     }
 
@@ -78,13 +85,20 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     /// The URL field in Settings is hidden for these kinds.
     var hasFixedURL: Bool {
         switch self {
-        case .openRouter, .nous: return true
+        case .openRouter, .nous, .appleIntelligence: return true
         default:                 return false
         }
     }
 
+    /// Whether a loaded model of this kind may be offered an eject/unload action.
+    /// Apple Intelligence reports its model as loaded (it always is) but Modelo
+    /// can't unload it, so the action would only ever fail.
+    var canEject: Bool { self != .appleIntelligence }
+
     /// The local runtimes, in declaration order — used to populate the runtime picker.
-    static var localCases: [ServerKind] { allCases.filter(\.isLocal) }
+    /// Excludes `appleIntelligence`: it's auto-added rather than picked, and these
+    /// cases also feed `NetworkScanner`'s port list, where its port 0 is meaningless.
+    static var localCases: [ServerKind] { allCases.filter { $0.isLocal && $0 != .appleIntelligence } }
 
     /// True if `port` is the canonical default for some local kind — i.e. the user
     /// hasn't hand-picked it, so switching runtimes may safely re-seed it.
@@ -107,6 +121,9 @@ extension Endpoint {
     static let openRouterBaseURL = "https://openrouter.ai/api/v1"
     /// Hardcoded base URL for the dedicated Nous Research endpoint.
     static let nousBaseURL = "https://inference-api.nousresearch.com/v1"
+    /// Sentinel base URL for Apple Intelligence, which has no network address. Keeps
+    /// `Endpoint.baseURL` non-optional; never fetched.
+    static let appleIntelligenceBaseURL = "apple-intelligence://on-device"
 
     /// Keychain account key for a server's bearer token (cloud APIs, the dedicated
     /// OpenRouter endpoint, or a local OpenAI-compatible server that requires auth, e.g. an MLX server).

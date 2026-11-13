@@ -83,6 +83,18 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// Not part of the LM Studio wire format.
     var toolUseSupported: Bool? = nil
 
+    /// USD per million tokens, from the provider's own model list (OpenRouter, Nous).
+    /// nil when the provider doesn't publish a price — never estimated or borrowed.
+    /// Not part of the LM Studio wire format.
+    var inputPricePerM: Double? = nil
+    var outputPricePerM: Double? = nil
+    /// Last day of a free promo (the list's `expiration_date`, UTC midnight); only set
+    /// on free models, since on paid ones that date means the model is retiring.
+    var freeUntil: Date? = nil
+    /// For a `:free` variant, the paid version's prices when the same list has it.
+    var normalInputPricePerM: Double? = nil
+    var normalOutputPricePerM: Double? = nil
+
     private enum CodingKeys: String, CodingKey {
         case id, object, type, arch, quantization, state, publisher
         case maxContextLength = "max_context_length"

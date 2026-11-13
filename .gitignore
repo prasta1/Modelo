@@ -1,5 +1,6 @@
 # Brainstorm visual-companion scratch files
 .superpowers/
+.firecrawl/
 
 # macOS
 .DS_Store
@@ -43,3 +44,8 @@ Modelo/DESIGN.md
 
 # Per-developer signing overrides (each dev keeps their own, uncommitted)
 Developer.xcconfig
+
+# Locally installed agent skills
+.claude/
+.hermes/
+skills-lock.json

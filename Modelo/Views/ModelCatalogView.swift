@@ -1,13 +1,14 @@
 import SwiftUI
 import SwiftData
 
-/// Root view for the Models page (.launcher route). Replaces LauncherView for
-/// the `.launcher` sidebar route. LauncherView.swift is preserved unchanged.
+/// Root view for the Models page (the `.launcher` sidebar route).
 struct ModelCatalogView: View {
     let discovered: [DiscoveredModel]
     let onLaunch: (DiscoveredModel) -> Void
     var onRefresh: (() async -> Void)? = nil
     var onEject: ((DiscoveredModel) async -> Void)? = nil
+    /// When the model lists (and the prices in them) were last fetched.
+    var pricesRefreshedAt: Date? = nil
 
     @Environment(RotationStore.self)         private var rotation
     @Environment(FavoritesStore.self)        private var favorites
@@ -89,6 +90,15 @@ struct ModelCatalogView: View {
             vm.allModels = new
             vm.onLaunch = onLaunch
             vm.onEject = onEject
+        }
+        .onChange(of: pricesRefreshedAt, initial: true) { _, new in
+            vm.pricesRefreshedAt = new
+        }
+        // Prices ride in the model lists; quietly refetch them when they're old.
+        .onAppear {
+            if let onRefresh, ModelPricing.needsRefresh(refreshedAt: pricesRefreshedAt, now: Date()) {
+                Task { await onRefresh() }
+            }
         }
         .onChange(of: collapse.toggled, initial: true) { _, new in
             vm.toggledGroups = new

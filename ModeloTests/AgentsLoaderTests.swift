@@ -41,6 +41,25 @@ final class AgentsLoaderTests: XCTestCase {
         XCTAssertEqual(skills.first?.instructions, "Just a body, no frontmatter.")
     }
 
+    func test_loadSkills_foldersMergesAndSorts() throws {
+        let a = try tempRoot(), b = try tempRoot()
+        try writeSkill(a, dir: "b", contents: "B body")
+        try writeSkill(b, dir: "a", contents: "A body")
+        let folderA = a.appending(path: "skills"), folderB = b.appending(path: "skills")
+        let skills = AgentsLoader.loadSkills(folders: [folderA, folderB])
+        XCTAssertEqual(skills.map(\.name), ["a", "b"])
+        XCTAssertEqual(skills.map(\.source), [folderB, folderA])
+    }
+
+    func test_loadSkills_firstFolderWinsOnNameClash() throws {
+        let a = try tempRoot(), b = try tempRoot()
+        try writeSkill(a, dir: "dup", contents: "from first")
+        try writeSkill(b, dir: "dup", contents: "from second")
+        let skills = AgentsLoader.loadSkills(folders: [a.appending(path: "skills"), b.appending(path: "skills")])
+        XCTAssertEqual(skills.count, 1)
+        XCTAssertEqual(skills.first?.instructions, "from first")
+    }
+
     func test_missingRootIsEmpty() {
         let skills = AgentsLoader.loadSkills(root: URL(fileURLWithPath: "/nonexistent-xyz"))
         XCTAssertTrue(skills.isEmpty)

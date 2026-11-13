@@ -16,11 +16,15 @@ struct ChatView: View {
     let onModelEject: ((DiscoveredModel) async -> Void)?
     /// Callback fired when the user double-clicks a model row to start a new chat.
     let onNewChat: (() -> Void)?
+    /// Age of the picker's prices and how to refetch them (see `ModelPricing`).
+    var pricesRefreshedAt: Date? = nil
+    var onRefreshModels: (() async -> Void)? = nil
     @Environment(ServerRegistry.self) private var registry
     @Environment(MCPServerManager.self) private var mcpManager
     @Environment(ChatSessionStore.self) private var sessionStore
     @Environment(ChatNotifier.self) private var notifier
     @Environment(\.modelContext) private var context
+    @Environment(SettingsNavigator.self) private var settingsNavigator
 
     @State private var draft = ""
     @State private var pendingAttachments: [MessageAttachment] = []
@@ -37,6 +41,9 @@ struct ChatView: View {
     @State private var pendingQueue: [String] = []
     /// Keyboard-highlighted row in the slash-command popup (§3.1).
     @State private var slashSelection = 0
+    /// Skills switched on in Settings ▸ Skills; refreshed when the user starts a `/`
+    /// command so newly installed or toggled skills show up (§3.7).
+    @State private var enabledSkills: [AgentSkill] = []
     /// The artifact currently open in the side panel (§2.4), by id.
     @State private var openArtifactID: String?
     /// Last-open artifact, so the header toggle can reopen what you were viewing.
@@ -49,9 +56,8 @@ struct ChatView: View {
     @AppStorage("consoleInspectorOpen") private var consoleOpen = false
     @State private var consoleWasOpen = false
     /// Live width of the chat detail area, so the artifact panel can't shrink the chat
-    /// below `minChatWidth`. Seeded wide to avoid a first-layout squeeze.
+    /// below `ArtifactPanelSizing.minChatWidth`. Seeded wide to avoid a first-layout squeeze.
     @State private var detailWidth: CGFloat = 1200
-    private let minChatWidth: Double = 360
     // Whether to teach the model the artifact syntax (opt-out in Settings ▸ Tools).
     @AppStorage("artifactsEnabled") private var artifactsEnabled = true
     // Adjustable chat text size, shared with MessageRow and the View menu (⌘+ / ⌘-).
@@ -68,9 +74,14 @@ struct ChatView: View {
     @AppStorage(FSToolSettings.shellKey)   private var shellToolEnabled = false
     @AppStorage(FSToolSettings.rootKey)    private var fsToolsRoot = ""
     @AppStorage(MemoryStore.enabledKey)    private var memoryEnabled = false
+    // Settings ▸ General: show the persona picker above the composer.
+    @AppStorage("showPersonaBar") private var showPersonaBar = true
     @Query(sort: \Preset.sortOrder) private var presets: [Preset]
     @Query(sort: \Persona.sortOrder) private var personas: [Persona]
     @State private var showSampling = false
+    /// Turning YOLO on from the header chip asks first: it's one click from letting the
+    /// model run shell commands unprompted.
+    @State private var confirmYolo = false
     @State private var showBenchmark = false
     /// Reference to the AppKit view behind the chat column, resolved at click time
     /// by the screenshot button to capture exactly what's on screen.
@@ -191,14 +202,9 @@ struct ChatView: View {
         openArtifactID.flatMap { id in artifactGroups.first { $0.id == id } }
     }
 
-    /// Artifact panel width clamped so the chat never shrinks below `minChatWidth`
-    /// and the panel never exceeds 40% of the available detail column width.
+    /// Artifact panel width as shown (see `ArtifactPanelSizing`).
     private var clampedArtifactWidth: Double {
-        let upper = min(
-            Double(detailWidth) * 0.40,
-            max(360, Double(detailWidth) - minChatWidth)
-        )
-        return min(max(artifactPanelWidth, 320), max(320, upper))
+        ArtifactPanelSizing.clamp(artifactPanelWidth, detailWidth: Double(detailWidth))
     }
 
     var body: some View {
@@ -292,21 +298,16 @@ struct ChatView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject, onNewChat: onNewChat)
-                if pickedModel?.model.supportsToolUse == true {
-                    Toggle("Tools", isOn: $conversation.toolsEnabled)
-                        .toggleStyle(ChipToggleStyle())
-                        .help("Allow this model to call tools")
-                }
-                workspaceButton
-                artifactsButton
-                settingsButton
-                moreMenu
-                Spacer(minLength: 8)
-                if let server = pickedModel?.server {
-                    statusPill(for: server)
-                }
+            // Every action gets its own button when the row has room; on a narrow chat
+            // column (artifact panel open, workspace chip showing) Benchmark and Screenshot
+            // fold back into the ⋯ menu instead of squeezing the row.
+            ViewThatFits(in: .horizontal) {
+                headerRow(compact: false)
+                headerRow(compact: true)
+            }
+            // On the stable container, not a row ViewThatFits may swap out.
+            .sheet(isPresented: $showBenchmark) {
+                BenchmarkView(discovered: discovered, initial: pickedModel)
             }
             if let model = pickedModel?.model {
                 HStack {
@@ -361,9 +362,9 @@ struct ChatView: View {
                 .onChanged { value in
                     let base = dragStartWidth ?? artifactPanelWidth
                     dragStartWidth = base
-                    // Cap so the chat keeps at least minChatWidth in view.
-                    let maxW = max(360, Double(detailWidth) - minChatWidth)
-                    artifactPanelWidth = min(max(base - value.translation.width, 320), maxW)
+                    artifactPanelWidth = ArtifactPanelSizing.dragged(
+                        storedWidth: base, translation: value.translation.width,
+                        detailWidth: Double(detailWidth))
                 }
                 .onEnded { _ in dragStartWidth = nil }
         )
@@ -396,19 +397,45 @@ struct ChatView: View {
         }
     }
 
+    /// Header chip for this chat's YOLO mode — red while tools run without asking.
+    /// Locked on when YOLO is enabled for every chat in Settings ▸ Tools.
+    private var yoloChip: some View {
+        Toggle("YOLO", isOn: Binding(
+            get: { effectiveYolo },
+            set: { on in
+                if on {
+                    confirmYolo = true
+                } else {
+                    conversation.yoloEnabled = false
+                    context.saveOrLog()
+                }
+            }))
+            .toggleStyle(ChipToggleStyle(tint: Theme.Palette.alert))
+            .disabled(globalYolo)
+            .help(globalYolo ? "YOLO is on for every chat (Settings ▸ Tools)"
+                  : effectiveYolo ? "Tools run without asking in this chat — click to turn off"
+                  : "Run writes, edits and shell commands without asking in this chat")
+            .confirmationDialog("Run tools without asking?", isPresented: $confirmYolo) {
+                Button("Turn On YOLO", role: .destructive) {
+                    conversation.yoloEnabled = true
+                    context.saveOrLog()
+                }
+            } message: {
+                Text("In this chat, writes, edits and shell commands will run without an approval card, and the tool-call limit is lifted.")
+            }
+    }
+
     /// True when this chat deviates from the global defaults in anything the
-    /// settings popover controls (sampling, agent limits, YOLO).
+    /// settings popover controls (sampling, agent limits). YOLO has its own chip.
     private var hasOverrides: Bool {
         conversation.samplingOverride != SamplingParams()
             || conversation.maxToolRoundsOverride != nil
-            || effectiveYolo
     }
 
-    /// One entry point for per-chat sampling, agent behavior and workspace. Shows a
-    /// dot when any override is active — red when YOLO is on, amber otherwise.
+    /// One entry point for per-chat sampling, agent behavior and workspace. Shows an
+    /// amber dot when any override is active.
     private var settingsButton: some View {
-        let tint: Color = effectiveYolo ? Theme.Palette.alert
-            : hasOverrides ? Theme.amber
+        let tint: Color = hasOverrides ? Theme.amber
             : Theme.Palette.inkDim
         return Button { showSampling.toggle() } label: {
             Image(systemName: "slider.horizontal.3")
@@ -459,8 +486,57 @@ struct ChatView: View {
         }
     }
 
-    /// Rarely-used actions, kept off the primary row: the load-test sheet (§2.5) and
-    /// a share-ready PNG card of what's on screen (saved to ~/Downloads and copied).
+    /// The header's control row. `compact` folds Benchmark and Screenshot into ⋯.
+    @ViewBuilder private func headerRow(compact: Bool) -> some View {
+        HStack(spacing: 12) {
+            ModelPickerView(discovered: discovered, selection: pickedModelBinding, onModelSelect: onModelSelect, onModelEject: onModelEject, onNewChat: onNewChat,
+                            pricesRefreshedAt: pricesRefreshedAt, onRefresh: onRefreshModels)
+            if pickedModel?.model.supportsToolUse == true {
+                Toggle("Tools", isOn: $conversation.toolsEnabled)
+                    .toggleStyle(ChipToggleStyle())
+                    .help("Allow this model to call tools")
+            }
+            // Also shown whenever YOLO is on, so it can always be switched off.
+            if pickedModel?.model.supportsToolUse == true || effectiveYolo {
+                yoloChip
+            }
+            workspaceButton
+            artifactsButton
+            settingsButton
+            if compact {
+                moreMenu
+            } else {
+                headerIconButton("Benchmark a model", systemImage: "gauge.with.dots.needle.67percent") {
+                    showBenchmark = true
+                }
+                .disabled(discovered.isEmpty)
+                headerIconButton("Screenshot this chat", systemImage: "camera.viewfinder", action: takeScreenshot)
+            }
+            Spacer(minLength: 8)
+            if let server = pickedModel?.server {
+                statusPill(for: server)
+            }
+        }
+    }
+
+    /// A square header button in the same chrome as the artifacts/settings buttons; the
+    /// title is hidden visually but kept for VoiceOver and the tooltip.
+    private func headerIconButton(_ title: String, systemImage: String,
+                                  action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.inkDim)
+                .frame(width: 30, height: 26)
+                .panel(Theme.Palette.panel, radius: 7)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
+    /// Narrow-header fallback: the load-test sheet (§2.5) and a share-ready PNG card of
+    /// what's on screen (saved to ~/Downloads and copied) when they don't fit as buttons.
     private var moreMenu: some View {
         Menu {
             Button("Benchmark a model…") { showBenchmark = true }
@@ -479,9 +555,6 @@ struct ChatView: View {
         .fixedSize()
         .help("More actions")
         .accessibilityLabel("More actions")
-        .sheet(isPresented: $showBenchmark) {
-            BenchmarkView(discovered: discovered, initial: pickedModel)
-        }
     }
     /// Sampling controls for the settings popover (§1.4b).
     private var samplingSection: some View {
@@ -526,38 +599,22 @@ struct ChatView: View {
         .onChange(of: conversation.autoCompact) { context.saveOrLog() }
     }
 
-    /// Per-chat agent behavior: the YOLO switch and the tool-call limit override.
+    /// Per-chat agent behavior: the tool-call limit override. (YOLO is the header chip.)
     private var agentSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Eyebrow("Agent · this chat")
                 Spacer()
                 Button("Reset") {
-                    conversation.yoloEnabled = false
                     conversation.maxToolRoundsOverride = nil
                     context.saveOrLog()
                 }
                 .font(Theme.metric(11))
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.textDim)
-                .help("Turn off YOLO and use the global tool-call limit")
-                .accessibilityLabel("Turn off YOLO mode")
+                .help("Use the global tool-call limit")
+                .accessibilityLabel("Reset the tool-call limit")
             }
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("YOLO mode").font(Theme.metric(12)).foregroundStyle(Theme.textMid)
-                    Text("Run writes, edits and shell commands without asking; no tool-call limit.")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
-                }
-                Spacer()
-                PillToggle(isOn: globalYolo ? .constant(true) : $conversation.yoloEnabled)
-                    .disabled(globalYolo)
-            }
-            if globalYolo {
-                Text("Enabled globally in Settings ▸ Tools.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.textDim)
-            }
-            Divider().overlay(Theme.line)
             Stepper(value: Binding(get: { conversation.maxToolRoundsOverride ?? maxToolRounds },
                                    set: { conversation.maxToolRoundsOverride = $0 == maxToolRounds ? nil : $0 }),
                     in: 1...20) {
@@ -675,7 +732,7 @@ struct ChatView: View {
                             .frame(maxWidth: .infinity, minHeight: geo.size.height)
                     } else {
                         let path = pathMessages
-                        LazyVStack(alignment: .leading, spacing: 10) {
+                        TranscriptStack {
                             ForEach(path) { msg in
                                 MessageRow(
                                     message: msg,
@@ -690,17 +747,26 @@ struct ChatView: View {
                                         && msg.id == path.last?.id,
                                     onOpenArtifact: { openArtifactID = $0 },
                                     openArtifactID: openArtifactID
-                                ).id(msg.id)
+                                )
+                                // Skip unchanged rows on the ~20fps streaming re-render.
+                                .equatable()
+                                .id(msg.id)
                             }
                             Color.clear.frame(height: 1).id(bottomAnchor)
-                                // Visibility of this sentinel = "user is at the bottom".
-                                // Scrolling back down re-arms auto-follow.
+                                // macOS 14 only: visibility of this sentinel = "user is at
+                                // the bottom". It's coarse (the lazy stack keeps it loaded
+                                // well past the viewport), so macOS 15+ measures the real
+                                // scroll position instead (`followsScrollPosition`).
                                 // Defer state mutation past the current layout pass —
                                 // onAppear/onDisappear inside LazyVStack can fire during
                                 // layout, and a synchronous write here can open a new CA
                                 // transaction mid-commit.
-                                .onAppear { Task { @MainActor in isNearBottom = true } }
-                                .onDisappear { Task { @MainActor in isNearBottom = false } }
+                                .onAppear {
+                                    if #unavailable(macOS 15) { Task { @MainActor in isNearBottom = true } }
+                                }
+                                .onDisappear {
+                                    if #unavailable(macOS 15) { Task { @MainActor in isNearBottom = false } }
+                                }
                         }
                         .padding(20)
                         // Bottom-align short conversations so the latest turn sits just
@@ -710,19 +776,45 @@ struct ChatView: View {
                 }
                 .scrollIndicators(.hidden)
                 .hideScrollIndicators()
+                .modifier(FollowsScrollPosition(isNearBottom: $isNearBottom, userScrolling: $userScrolling))
+                // Shown while the user reads history; returns to the latest turn and
+                // resumes following.
+                .overlay(alignment: .bottomTrailing) {
+                    if !isNearBottom && !conversation.messages.isEmpty {
+                        Button {
+                            isNearBottom = true
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { scrollToBottom(proxy) }
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.amber)
+                                .frame(width: 30, height: 30)
+                                .background(Theme.popoverBG, in: Circle())
+                                .overlay(Circle().stroke(Theme.line))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(16)
+                        .help("Jump to latest")
+                        .accessibilityLabel("Jump to latest message")
+                        .transition(.opacity)
+                    }
+                }
                 // Scroll to bottom when a new message is appended, but only if
                 // the user hasn't scrolled away to read history.
-                .onChange(of: conversation.messages.count) { if isNearBottom { scrollToBottom(proxy) } }
+                .onChange(of: conversation.messages.count) {
+                    if isNearBottom && !userScrolling { scrollToBottom(proxy) }
+                }
                 // Timer-based scroll during streaming: fires at ~20fps instead of once
                 // per token, avoiding layout-pass spam from per-character onChange.
+                // Never while the user's own scroll gesture (or its momentum) is running.
                 .task(id: session?.isStreaming) {
                     guard session?.isStreaming == true else { return }
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .milliseconds(50))
                         // Don't yank the view back down while the user reads scrollback.
-                        if isNearBottom { scrollToBottom(proxy) }
+                        if isNearBottom && !userScrolling { scrollToBottom(proxy) }
                     }
-                    if isNearBottom { scrollToBottom(proxy) }
+                    if isNearBottom && !userScrolling { scrollToBottom(proxy) }
                 }
             }
         }
@@ -813,6 +905,9 @@ struct ChatView: View {
 
     /// False while the user has scrolled away from the bottom; gates streaming auto-scroll.
     @State private var isNearBottom = true
+    /// True during the user's own scroll gesture and its momentum (macOS 15+); auto-scroll
+    /// waits it out so it never fights the user's hand.
+    @State private var userScrolling = false
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         proxy.scrollTo(bottomAnchor, anchor: .bottom)
@@ -925,13 +1020,19 @@ struct ChatView: View {
                 .background(Theme.amberFillLo)
             }
 
-            // Mutating tool call awaiting the user's go-ahead (file/shell tools).
-            if let pending = session?.pendingApproval {
-                ToolApprovalCard(pending: pending,
-                                 onDecision: { session?.respondToApproval($0) })
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
+            // Mutating tool call awaiting the user's go-ahead (file/shell tools). Slides up
+            // so a paused reply visibly asks for attention (a fade under Reduce Motion).
+            VStack(spacing: 0) {
+                if let pending = session?.pendingApproval {
+                    ToolApprovalCard(pending: pending,
+                                     onDecision: { session?.respondToApproval($0) })
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.3, bounce: 0.15),
+                       value: session?.pendingApproval?.preview.id)
 
             // Slash-command autocomplete (§3.1): appears when the draft starts with "/".
             slashSuggestions
@@ -963,12 +1064,46 @@ struct ChatView: View {
     /// takes no argument).
     @ViewBuilder private var slashSuggestions: some View {
         let specs = slashSpecs
-        if !specs.isEmpty {
+        let listMode = SlashParser.isSkillsListMode(draft)
+        if !specs.isEmpty || listMode {
             VStack(spacing: 0) {
-                ForEach(Array(specs.enumerated()), id: \.element.id) { index, spec in
-                    SlashSuggestionRow(spec: spec,
-                                       isHighlighted: index == clampedSlashSelection) {
-                        applySuggestion(spec)
+                if listMode { skillsListHeader }
+                if listMode && specs.isEmpty {
+                    Text(enabledSkills.isEmpty ? "No skills are on." : "No skills match.")
+                        .font(Theme.metric(11))
+                        .foregroundStyle(Theme.textDim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                }
+                // Up to ~8 rows tall; with dozens of skills the list scrolls and the
+                // keyboard highlight is kept in view.
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(Array(specs.enumerated()), id: \.element.id) { index, spec in
+                                if spec.isSkill, !listMode, index == 0 || !specs[index - 1].isSkill {
+                                    Text("Skills")
+                                        .font(Theme.metric(10))
+                                        .foregroundStyle(Theme.textFaint)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.top, 6)
+                                }
+                                SlashSuggestionRow(spec: spec,
+                                                   isHighlighted: index == clampedSlashSelection) {
+                                    applySuggestion(spec)
+                                }
+                                .id(spec.id)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 260)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onChange(of: clampedSlashSelection) {
+                        if specs.indices.contains(clampedSlashSelection) {
+                            proxy.scrollTo(specs[clampedSlashSelection].id)
+                        }
                     }
                 }
             }
@@ -980,8 +1115,24 @@ struct ChatView: View {
         }
     }
 
+    /// Header of the `/skills` list: how many skills are on, and a shortcut to manage them.
+    private var skillsListHeader: some View {
+        HStack {
+            Text("Skills · \(enabledSkills.count) on")
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.textDim)
+            Spacer(minLength: 8)
+            Button("Settings ▸ Skills…") { settingsNavigator.open(tab: "Skills") }
+                .buttonStyle(.plain)
+                .font(Theme.metric(10))
+                .foregroundStyle(Theme.amber)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
     /// Slash suggestions for the current draft, and the clamped keyboard highlight.
-    private var slashSpecs: [SlashParser.Spec] { SlashParser.suggestions(for: draft) }
+    private var slashSpecs: [SlashParser.Spec] { SlashParser.suggestions(for: draft, skills: enabledSkills) }
     private var clampedSlashSelection: Int {
         guard !slashSpecs.isEmpty else { return 0 }
         return min(max(0, slashSelection), slashSpecs.count - 1)
@@ -995,6 +1146,22 @@ struct ChatView: View {
         } else if canSend {
             send()
         }
+    }
+
+    /// Tab accepts the highlighted suggestion while the popup is open (`/skills` + Tab
+    /// opens the skill list); otherwise Tab behaves normally.
+    private func acceptSlashSuggestion() -> Bool {
+        guard !slashSpecs.isEmpty else { return false }
+        applySuggestion(slashSpecs[clampedSlashSelection])
+        return true
+    }
+
+    /// Esc closes the slash popup (including the `/skills` list) by clearing the
+    /// command; otherwise Esc behaves normally.
+    private func dismissSlashPopup() -> Bool {
+        guard !slashSpecs.isEmpty || SlashParser.isSkillsListMode(draft) else { return false }
+        draft = ""
+        return true
     }
 
     /// Up/Down within the slash popup. Returns true (consumes the key) only while the
@@ -1090,9 +1257,10 @@ struct ChatView: View {
 
     /// Persona control above the input. A chat's system prompt is set once, at
     /// the start, so the picker is editable only on an empty chat and becomes a
-    /// static label afterward. Hidden in project chats — those own their prompt.
+    /// static label afterward. Hidden in project chats — those own their prompt —
+    /// and when turned off in Settings.
     @ViewBuilder private var personaBar: some View {
-        if conversation.projectPath == nil {
+        if showPersonaBar && conversation.projectPath == nil {
             HStack(spacing: 8) {
                 if chatHasHistory {
                     HStack(spacing: 5) {
@@ -1175,9 +1343,18 @@ struct ChatView: View {
                               onSubmit: submitComposer,
                               onMoveUp: { moveSlashSelection(-1) },
                               onMoveDown: { moveSlashSelection(1) },
+                              onTab: acceptSlashSuggestion,
+                              onCancel: dismissSlashPopup,
                               onPasteImage: pasteImage)
                     .frame(height: composerHeight)
-                    .onChange(of: draft) { slashSelection = 0 }
+                    .onChange(of: draft) { old, new in
+                        slashSelection = 0
+                        // Rescan skills as a `/` command starts, so Settings changes and
+                        // newly installed skills apply without reopening the chat.
+                        if new.hasPrefix("/") && !old.hasPrefix("/") {
+                            enabledSkills = SkillSettings.enabledSkills()
+                        }
+                    }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
                     .panel(Theme.fill,
@@ -1208,7 +1385,7 @@ struct ChatView: View {
                     }
                     .frame(width: 36, height: 36)
                     .background(sendButtonBackground, in: Circle())
-                    .shadow(color: canSend || isStreaming ? Theme.amber.opacity(0.5) : .clear, radius: 6)
+                    .shadow(color: (canSend || isStreaming) && Theme.glows ? Theme.amber.opacity(0.5) : .clear, radius: 6)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend && !isStreaming)
@@ -1500,8 +1677,8 @@ struct ChatView: View {
         } else {
             tools += FSToolSettings.tools(enabled: fsToolsEnabled, shell: shellToolEnabled, root: fsToolsRoot)
         }
-        // Expose ~/.agents skills via a use_skill tool (§3.7).
-        let skills = AgentsLoader.loadSkills()
+        // Expose the skills switched on in Settings ▸ Skills via a use_skill tool (§3.7).
+        let skills = SkillSettings.enabledSkills()
         if !skills.isEmpty { tools.append(UseSkillTool(skills: skills)) }
         // Persistent memory (opt-in, Settings ▸ Memory). Project chats get both scopes.
         var memoryScopes: [MemoryScope] = [.global]
@@ -1579,7 +1756,12 @@ struct ChatView: View {
     /// and resent. Resending forks a new sibling branch from this message (§1.2).
     private func reuseDraft(_ message: Message) {
         editingSource = message
-        draft = message.content
+        // Re-prefix a skill turn so resending re-invokes the skill (and keeps its chip).
+        if let name = message.skillName {
+            draft = message.content.isEmpty ? "/\(name) " : "/\(name) \(message.content)"
+        } else {
+            draft = message.content
+        }
         composerFocused = true
     }
 
@@ -1617,11 +1799,8 @@ struct ChatView: View {
             } else {
                 flash("Couldn't export — check Downloads permissions.")
             }
-        case .skills:
-            let skills = AgentsLoader.loadSkills()
-            flash(skills.isEmpty
-                  ? "No skills found in ~/.agents/skills."
-                  : "\(skills.count) skills available: \(skills.map(\.name).joined(separator: ", "))")
+        case .skills, .skill:
+            break   // `/skills` opens the list via send(); `/<skill>` is sent as a message
         case .compact:
             guard let session, let server = boundServer else { flash("Pick a model first."); return }
             guard !isStreaming else { flash("Wait for the current reply to finish."); return }
@@ -1766,11 +1945,16 @@ struct ChatView: View {
         // the send.
         ensureSession()
         guard let session else { return }
-        // Slash commands (§3.1) are handled locally, never sent to the model.
-        if let command = SlashParser.parse(draft) {
-            handleSlash(command)
-            draft = ""
-            return
+        // Slash commands (§3.1) are handled locally, never sent to the model — except
+        // `/<skill>`, which is sent as a skill-tagged message below (§3.7).
+        let parsed = SlashParser.parse(draft, skillNames: enabledSkills.map(\.name))
+        if let command = parsed {
+            if case .skill = command {} else {
+                handleSlash(command)
+                // `/skills` reopens the pickable list rather than clearing the composer.
+                draft = command == .skills ? "/skills " : ""
+                return
+            }
         }
         // While a reply streams, queue the message instead of sending now (§3.3).
         if isStreaming {
@@ -1801,7 +1985,20 @@ struct ChatView: View {
         // Don't consume the draft for a send that can't happen: the session would
         // refuse an offline server only after `draft` was already cleared.
         if unavailableReason(for: server) != nil { return }
-        let text = draft
+        var text = draft
+        var skill: AgentSkill?
+        if case .skill(let name, let request)? = parsed,
+           let found = enabledSkills.first(where: { $0.name == name }) {
+            // A skill too big for the model's window would fail on every later turn
+            // too, so refuse up front and keep the draft (§3.7).
+            let wanted = found.instructions + "\n\n" + request
+            if !TokenEstimator.fits(wanted, contextWindow: contextWindow) {
+                flash("\"\(name)\" is ~\(TokenEstimator.estimate(wanted).formatted()) tokens — too big for this model's \(contextWindow.formatted())-token context.")
+                return
+            }
+            skill = found
+            text = request
+        }
         let attachments = pendingAttachments
         let edited = editingSource
         draft = ""
@@ -1817,7 +2014,7 @@ struct ChatView: View {
                                serverOnline: registry.isOnline(server),
                                modelSupportsTools: pickedModel?.model.supportsToolUse ?? false,
                                sampling: effectiveSampling, contextWindow: window,
-                               replacing: edited)
+                               skill: skill, replacing: edited)
             sessionStore.setTask(nil, for: id)
             drainQueue()
         }, for: id)
@@ -1910,37 +2107,167 @@ private struct ToolApprovalCard: View {
             .background(Theme.consoleBG, in: RoundedRectangle(cornerRadius: Theme.Radius.field))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.field).stroke(Theme.line))
 
+            // macOS dialog order: the alternate choice on the leading edge, Cancel
+            // directly left of the default button on the trailing edge.
             HStack(spacing: 8) {
-                Button("Deny", action: { onDecision(.deny) })
-                    .buttonStyle(.plain)
-                    .font(Theme.metric(12))
-                    .foregroundStyle(Theme.textLo)
-                    .padding(.horizontal, 12).padding(.vertical, 5)
-                    .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
-                Spacer(minLength: 0)
                 // Hidden where ChatSession wouldn't honor it, rather than silently
                 // downgrading the click to a one-off approval.
                 if pending.preview.allowsSessionGrant {
                     Button("Approve for session", action: { onDecision(.session) })
-                        .buttonStyle(.plain)
-                        .font(Theme.metric(12))
-                        .foregroundStyle(Theme.amber)
-                        .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.amberBorder))
-                        .help("Run \(pending.toolName) without asking again for the rest of this chat")
+                        .buttonStyle(ApprovalButtonStyle(kind: .secondary))
+                        .help(pending.preview.kind == .external
+                              ? "Let \(pending.toolName) run without asking for the rest of this chat — any arguments (for Fetch, any URL)"
+                              : "Run \(pending.toolName) without asking again for the rest of this chat")
                 }
+                Spacer(minLength: 0)
+                Button("Deny", action: { onDecision(.deny) })
+                    .buttonStyle(ApprovalButtonStyle(kind: .plain))
                 Button("Approve once", action: { onDecision(.once) })
-                    .buttonStyle(.plain)
-                    .font(Theme.metric(12).weight(.semibold))
-                    .foregroundStyle(Theme.windowBG)
-                    .padding(.horizontal, 14).padding(.vertical, 5)
-                    .background(Theme.sendGradient, in: RoundedRectangle(cornerRadius: 7))
+                    .buttonStyle(ApprovalButtonStyle(kind: .primary))
             }
         }
         .padding(11)
         .background(Theme.amberFillLo, in: RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.amberBorder))
+    }
+}
+
+/// One look for the approval card's buttons, with hover and press feedback (each was
+/// hand-styled on `.plain` before, so none of them reacted to the pointer).
+private struct ApprovalButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, plain }
+    let kind: Kind
+
+    func makeBody(configuration: Configuration) -> some View {
+        ApprovalButtonLabel(configuration: configuration, kind: kind)
+    }
+}
+
+/// Split out so it can hold hover state — a `ButtonStyle` itself can't.
+private struct ApprovalButtonLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let kind: ApprovalButtonStyle.Kind
+    @State private var hovering = false
+
+    private var foreground: Color {
+        switch kind {
+        case .primary:   Theme.windowBG
+        case .secondary: Theme.amber
+        case .plain:     Theme.textLo
+        }
+    }
+
+    private var fill: AnyShapeStyle {
+        switch kind {
+        case .primary:   AnyShapeStyle(Theme.sendGradient)
+        case .secondary: AnyShapeStyle(Theme.amberFillLo)
+        case .plain:     AnyShapeStyle(Theme.fill)
+        }
+    }
+
+    private var border: Color {
+        switch kind {
+        case .primary:   .clear
+        case .secondary: Theme.amberBorder
+        case .plain:     Theme.line
+        }
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 7)
+        configuration.label
+            .font(kind == .primary ? Theme.metric(12).weight(.semibold) : Theme.metric(12))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, kind == .primary ? 14 : 12)
+            .padding(.vertical, 5)
+            .background(fill, in: shape)
+            .overlay(shape.stroke(border))
+            .brightness(hovering && !configuration.isPressed ? 0.06 : 0)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .contentShape(shape)
+            .onHover { hovering = $0 }
+    }
+}
+
+/// Whether the chat keeps following new output, decided from the real scroll position.
+enum ScrollFollow {
+    /// Within this distance of the end counts as "at the bottom".
+    static let bottomSlack: CGFloat = 40
+
+    /// Any scroll up stops following; reaching the bottom resumes it. Content growing
+    /// below the viewport (a streaming reply) leaves the offset alone, so it doesn't count.
+    /// A user's scroll up pauses even inside `bottomSlack`: small nudges there used to
+    /// keep following on, and auto-scroll pulled the reader back between gestures.
+    static func isFollowing(was: Bool, oldOffsetY: CGFloat, newOffsetY: CGFloat,
+                            distanceFromBottom: CGFloat, userScrolling: Bool = false) -> Bool {
+        let movedUp = newOffsetY < oldOffsetY - 0.5
+        if userScrolling && movedUp { return false }
+        if distanceFromBottom <= bottomSlack { return true }
+        if movedUp { return false }
+        return was
+    }
+}
+
+/// The transcript's row stack. macOS 15+ lays every message out exactly: a lazy stack
+/// estimates unloaded rows, and a long reply estimated ~1,300pt off flipped the content
+/// height back and forth several times a second while streaming (logged 2026-10-28),
+/// making scrolling jumpy, the scroll thumb jump, and the end overscroll into blank space.
+/// macOS 14 keeps the lazy stack, whose bottom-sentinel visibility it needs for following.
+/// ponytail: eager layout of every turn; add a "show earlier messages" cutoff if very
+/// long chats get slow to open.
+private struct TranscriptStack<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(macOS 15, *) {
+            VStack(alignment: .leading, spacing: 10) { content }
+        } else {
+            LazyVStack(alignment: .leading, spacing: 10) { content }
+        }
+    }
+}
+
+/// Feeds the transcript's scroll position into `ScrollFollow` (macOS 15+; macOS 14
+/// keeps the bottom-sentinel fallback in `messageStream`).
+private struct FollowsScrollPosition: ViewModifier {
+    @Binding var isNearBottom: Bool
+    @Binding var userScrolling: Bool
+
+    private struct Sample: Equatable {
+        var offsetY: CGFloat
+        var distanceFromBottom: CGFloat
+    }
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.onScrollGeometryChange(for: Sample.self) { g in
+                Sample(offsetY: g.contentOffset.y,
+                       distanceFromBottom: g.contentSize.height - g.visibleRect.maxY)
+            } action: { old, new in
+                let following = ScrollFollow.isFollowing(was: isNearBottom, oldOffsetY: old.offsetY,
+                                                         newOffsetY: new.offsetY,
+                                                         distanceFromBottom: new.distanceFromBottom,
+                                                         userScrolling: userScrolling)
+                // Write only on a real change: this runs inside layout, and a write on every
+                // geometry tick fed a layout loop until AppKit threw ("more Update Constraints
+                // passes than there are views", 2026-10-28).
+                if following != isNearBottom { isNearBottom = following }
+            }
+            // The user's own gesture (and its momentum), as opposed to programmatic
+            // scrolls, which report `.idle` or `.animating`.
+            .onScrollPhaseChange { _, phase in
+                let byUser: Bool
+                switch phase {
+                case .tracking, .interacting, .decelerating: byUser = true
+                default: byUser = false
+                }
+                if byUser != userScrolling { userScrolling = byUser }
+            }
+        } else {
+            content
+        }
     }
 }
