@@ -30,4 +30,10 @@ final class CatalogCollapseStore {
         if toggled.contains(groupKey) { toggled.remove(groupKey) }
         else { toggled.insert(groupKey) }
     }
+
+    /// Puts every key in `groupKeys` in the same state at once — the ⌥-click
+    /// "fold all vendors" gesture. One assignment, so one UserDefaults write.
+    func set(_ groupKeys: [String], toggled on: Bool) {
+        toggled = on ? toggled.union(groupKeys) : toggled.subtracting(groupKeys)
+    }
 }

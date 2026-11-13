@@ -27,6 +27,15 @@ final class CatalogCollapseStoreTests: XCTestCase {
         XCTAssertFalse(store.toggled.contains("vendor/qwen"))
     }
 
+    func test_set_foldsAndUnfoldsAGroupWithoutTouchingOthers() {
+        let store = CatalogCollapseStore()
+        store.toggle("other")
+        store.set(["v/a", "v/b"], toggled: true)
+        XCTAssertEqual(store.toggled, ["other", "v/a", "v/b"])
+        store.set(["v/a", "v/b"], toggled: false)
+        XCTAssertEqual(store.toggled, ["other"])
+    }
+
     func test_toggle_multipleKeysAreIndependent() {
         let store = CatalogCollapseStore()
         store.toggle("vendor/a")
