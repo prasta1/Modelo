@@ -51,6 +51,7 @@ struct ModelTableView: View {
             item: item,
             isSelected: vm.selectedID == item.id,
             isFavorite: favorites.isFavorite(item.model.id),
+            isPinned: rotation.isPinned(item.model.id),
             speedLabel: vm.speedLabel(for: item.id),
             usedCount: vm.usageCount(for: item.id),
             showPrices: vm.pricesFresh,
@@ -114,25 +115,6 @@ struct ModelTableView: View {
                                 row(item)
                             }
                         } else {
-                            // LOADED ON <endpoint label(s)>
-                            if !vm.loadedModels.isEmpty {
-                                Section {
-                                    ForEach(vm.loadedModels) { item in
-                                        row(item)
-                                    }
-                                } header: {
-                                    // Loaded implies the server just answered, so
-                                    // the lamp is live rather than looked up.
-                                    CatalogGroupHeader(
-                                        label: "Loaded on \(vm.loadedEndpointLabels)".uppercased(),
-                                        count: vm.loadedModels.count,
-                                        isLocal: true,
-                                        status: .online,
-                                        showsRule: false
-                                    )
-                                }
-                            }
-
                             // Endpoint groups, each holding vendor sub-groups.
                             // Only the endpoint header is a Section header, so it
                             // is the one that stays pinned while scrolling; vendor
@@ -150,7 +132,7 @@ struct ModelTableView: View {
                                         count: endpoint.modelCount,
                                         isLocal: endpoint.isLocal,
                                         status: registry.status(for: endpoint.server),
-                                        showsRule: !vm.loadedModels.isEmpty || endpoint.id != vm.groupedRemote.first?.id,
+                                        showsRule: endpoint.id != vm.groupedRemote.first?.id,
                                         isCollapsed: vm.isEndpointCollapsed(endpoint.label),
                                         onToggle: { collapse.toggle(ModelCatalogViewModel.endpointKey(endpoint.label)) }
                                     )
@@ -404,6 +386,8 @@ struct ModelTableRow: View {
     let item: DiscoveredModel
     let isSelected: Bool
     let isFavorite: Bool
+    /// In the user's rotation (⌥1–4); marked on the row now there's no Rotation strip.
+    let isPinned: Bool
     let speedLabel: String
     let usedCount: Int?
     /// False once prices are over a day old; the cell then shows "—" rather than mislead.
@@ -461,11 +445,20 @@ struct ModelTableRow: View {
             .accessibilityLabel(isFavorite ? "Remove from favorites" : "Add to favorites")
 
             // Name — flexible up to Col.nameMax
-            Text(model.shortName)
-                .font(Theme.metric(13))
-                .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
-                .lineLimit(1)
-                .frame(maxWidth: Col.nameMax, alignment: .leading)
+            HStack(spacing: 5) {
+                Text(model.shortName)
+                    .font(Theme.metric(13))
+                    .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
+                    .lineLimit(1)
+                if isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.textFaint)
+                        .help("In your rotation (⌥1–4)")
+                        .accessibilityLabel("In your rotation")
+                }
+            }
+            .frame(maxWidth: Col.nameMax, alignment: .leading)
 
             // Capabilities
             HStack(spacing: 8) {

@@ -112,17 +112,6 @@ final class ModelCatalogViewModel {
         return allModels.first { $0.id == prev }
     }
 
-    /// Endpoint labels the loaded models live on, in first-seen order — the same
-    /// names the endpoint headers below use. Not the hostname: a model loaded on a
-    /// remote LM Studio is loaded there, and the hostname named this Mac a second way.
-    var loadedEndpointLabels: String {
-        var seen: [String] = []
-        for item in loadedModels where !seen.contains(item.server.label) {
-            seen.append(item.server.label)
-        }
-        return seen.joined(separator: " · ")
-    }
-
     var totalVisible: Int { filteredCount }
     var totalAll: Int { allModels.count }
     var maxSpeedMedian: Double { speedMedians.values.max() ?? 1 }
@@ -143,6 +132,9 @@ final class ModelCatalogViewModel {
         guard !flatVisible.isEmpty else { return }
         if let id = selectedID, let idx = flatVisible.firstIndex(where: { $0.id == id }) {
             selectedID = flatVisible[max(idx - 1, 0)].id
+        } else if selectedID != nil {
+            // Selection is a tile, not a row: enter the table at the top.
+            selectedID = flatVisible.first?.id
         } else {
             selectedID = flatVisible.last?.id
         }
@@ -245,6 +237,15 @@ final class ModelCatalogViewModel {
     // MARK: - Recompute filtered/sorted/grouped collections
 
     private func recompute() {
+        // Apple Intelligence reports "loaded" because it's always ready, but no server
+        // holds it in memory, so it gets no tile and stays in its own group.
+        let inMemory = { (m: DiscoveredModel) in m.model.isLoaded && m.server.kind != .appleIntelligence }
+        // The tile strip is status, not search results: every in-memory model, in
+        // every sort mode, whatever the filters say.
+        loadedModels = allModels.filter(inMemory).sorted {
+            ($0.server.label, $0.model.shortName) < ($1.server.label, $1.model.shortName)
+        }
+
         let filtered = applyFilters(allModels)
         filteredCount = filtered.count
         let sorted = applySort(filtered)
@@ -253,24 +254,17 @@ final class ModelCatalogViewModel {
         // buckets would answer "the fastest anthropic model" 59 times over
         // rather than "the fastest model", which is what sorting by Speed means.
         guard !isFlattened else {
-            loadedModels = []
             groupedRemote = []
             flatRows = sorted
             flatVisible = sorted
             return
         }
 
-        // Apple Intelligence reports "loaded" because it's always ready, but no server
-        // holds it in memory, so it keeps its own group rather than heading "Loaded on".
-        let inMemory = { (m: DiscoveredModel) in m.model.isLoaded && m.server.kind != .appleIntelligence }
-        let loaded = sorted.filter(inMemory)
-        let notLoaded = sorted.filter { !inMemory($0) }
-
-        let groups = buildGroups(notLoaded)
-        loadedModels = loaded
+        // Loaded models live in the tile strip, not the table.
+        let groups = buildGroups(sorted.filter { !inMemory($0) })
         groupedRemote = groups
         flatRows = []
-        flatVisible = loaded + visibleModels(in: groups)
+        flatVisible = visibleModels(in: groups)
     }
 
     /// Buckets models by endpoint, then by vendor within each endpoint.
@@ -406,7 +400,6 @@ final class ModelCatalogViewModel {
             if activeFilters.contains("tools")  && !m.supportsToolUse                     { return false }
             if activeFilters.contains("vision") && !m.supportsVision                      { return false }
             if activeFilters.contains("reason") && !m.supportsThinking                    { return false }
-            if activeFilters.contains("loaded") && !m.isLoaded                            { return false }
             if activeFilters.contains("favs")   && !favoriteIDs.contains(m.id)            { return false }
 
             // Query terms
@@ -429,7 +422,6 @@ final class ModelCatalogViewModel {
                     case "tools":  if !m.supportsToolUse  { return false }
                     case "vision": if !m.supportsVision   { return false }
                     case "reason": if !m.supportsThinking { return false }
-                    case "loaded": if !m.isLoaded         { return false }
                     default: break
                     }
                 case .nameMatch(let q):
@@ -493,7 +485,7 @@ final class ModelCatalogViewModel {
                 if t.hasPrefix("speed>"), let v = Double(t.dropFirst(6))           { return .speedGT(v) }
                 if t.hasPrefix("speed<"), let v = Double(t.dropFirst(6))           { return .speedLT(v) }
                 if t.hasPrefix("used>"),  let v = Int(t.dropFirst(5))              { return .usedGT(v) }
-                let caps = ["free", "tools", "vision", "reason", "loaded"]
+                let caps = ["free", "tools", "vision", "reason"]
                 if caps.contains(t) { return .cap(t) }
                 return .nameMatch(t)
             }

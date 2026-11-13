@@ -31,7 +31,7 @@ struct ModelCatalogView: View {
                 VStack(spacing: 0) {
                     ModelCatalogHeader(vm: vm, onRefresh: onRefresh, searchFocused: $searchFocused)
                     ModelFilterChipsView(vm: vm)
-                    RotationTierView(vm: vm, rotation: rotation)
+                    LoadedTilesView(vm: vm)
                     ModelTableView(vm: vm, rotation: rotation, favorites: favorites, collapse: collapse)
                 }
                 .frame(minWidth: 620, maxWidth: .infinity)
