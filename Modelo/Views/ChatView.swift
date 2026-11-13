@@ -44,8 +44,12 @@ struct ChatView: View {
     /// Skills switched on in Settings ▸ Skills; refreshed when the user starts a `/`
     /// command so newly installed or toggled skills show up (§3.7).
     @State private var enabledSkills: [AgentSkill] = []
-    /// The artifact currently open in the side panel (§2.4), by id.
-    @State private var openArtifactID: String?
+    /// The artifact currently open in the side panel (§2.4), by id. Lives on the
+    /// conversation because `ContentView` rebuilds this view per chat (`.id`).
+    private var openArtifactID: String? {
+        get { conversation.openArtifactID }
+        nonmutating set { conversation.openArtifactID = newValue }
+    }
     /// Last-open artifact, so the header toggle can reopen what you were viewing.
     @State private var lastArtifactID: String?
     /// Draggable artifact-panel width (persisted); `dragStartWidth` anchors a live drag.
@@ -502,7 +506,6 @@ struct ChatView: View {
                 yoloChip
             }
             workspaceButton
-            artifactsButton
             settingsButton
             if compact {
                 moreMenu
@@ -517,6 +520,8 @@ struct ChatView: View {
             if let server = pickedModel?.server {
                 statusPill(for: server)
             }
+            // Trailing edge, beside the panel it opens (macOS right-sidebar convention).
+            artifactsButton
         }
     }
 

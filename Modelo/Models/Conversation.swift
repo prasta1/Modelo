@@ -41,6 +41,9 @@ final class Conversation {
     /// Per-conversation cap on tool rounds per turn; nil inherits the global
     /// `globalMaxToolRounds` default (same override idiom as `samplingOverride`).
     var maxToolRoundsOverride: Int?
+    /// Artifact open in the side panel (`ArtifactGroup.id`); nil = panel closed.
+    /// Stored here, not as view state, so it survives switching chats.
+    var openArtifactID: String?
 
     /// Auto-compaction (§1.5): when on and the active path nears the model's context
     /// window, older turns are summarized into `summary` so the chat runs indefinitely.
