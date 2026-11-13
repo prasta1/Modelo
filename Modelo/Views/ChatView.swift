@@ -220,9 +220,6 @@ struct ChatView: View {
                 footer
             }
             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
-            // Invisible; spans the chat column so the screenshot button knows
-            // exactly which region of the window to capture.
-            .background(SnapshotProbeView(holder: snapshotProbe))
 
             if let group = openArtifactGroup {
                 artifactResizeHandle
@@ -234,6 +231,9 @@ struct ChatView: View {
                     .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
+        // Invisible; spans the chat column and the artifact panel (when open) so the
+        // screenshot button knows exactly which region of the window to capture.
+        .background(SnapshotProbeView(holder: snapshotProbe))
         // Measure width with a non-layout background reader. Wrapping the whole body in a
         // GeometryReader (as before) made it the layout container and collapsed the message
         // stream's own GeometryReader whenever the footer changed height — e.g. dismissing
@@ -658,10 +658,14 @@ struct ChatView: View {
 
     /// Snapshot → card → temp file → preview sheet with Share / Done.
     private func takeScreenshot() {
+        Task { await takeScreenshotAsync() }
+    }
+
+    private func takeScreenshotAsync() async {
         let stamp = Date()
         guard let probe = snapshotProbe.view,
               let scale = probe.window?.backingScaleFactor,
-              let shot = SessionSnapshot.capture(around: probe),
+              let shot = await SessionSnapshot.capture(around: probe),
               let card = SessionSnapshot.card(
                   from: shot,
                   caption: SessionSnapshot.caption(title: conversation.displayTitle,

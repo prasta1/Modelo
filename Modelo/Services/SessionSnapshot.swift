@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
+import WebKit
 
-/// Captures the chat column exactly as rendered on screen and wraps it in a clean,
+/// Captures the chat column (plus the artifact panel when it's open) exactly as rendered on screen and wraps it in a clean,
 /// share-ready card: themed backdrop, rounded corners with a soft shadow, and a
 /// caption strip (wordmark + chat title · model · timestamp). The PNG goes to
 /// ~/Downloads (same convention as `ConversationExporter`) and the clipboard.
@@ -19,15 +20,43 @@ enum SessionSnapshot {
     /// Snapshot the pixels inside `probe`'s bounds from the window's content view.
     /// Returns nil when the probe isn't in a window yet or has no size.
     @MainActor
-    static func capture(around probe: NSView) -> NSImage? {
+    static func capture(around probe: NSView) async -> NSImage? {
         guard let window = probe.window, let content = window.contentView else { return nil }
         let rect = probe.convert(probe.bounds, to: content)
         guard rect.width > 1, rect.height > 1,
               let rep = content.bitmapImageRepForCachingDisplay(in: rect) else { return nil }
         content.cacheDisplay(in: rect, to: rep)
+
+        // `cacheDisplay` can't see WKWebView content (WebKit composites it out of
+        // process), so the artifact preview would come out blank. Paint each visible
+        // web view's own snapshot over its spot in the capture.
+        if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+            let scale = CGFloat(rep.pixelsWide) / rect.width
+            for web in webViews(in: content) where !web.isHiddenOrHasHiddenAncestor {
+                let r = web.convert(web.bounds, to: content)
+                guard r.intersects(rect),
+                      let shot = try? await web.takeSnapshot(configuration: nil) else { continue }
+                // The bitmap's origin is bottom-left; SwiftUI's content view is flipped.
+                let y = content.isFlipped ? rect.maxY - r.maxY : r.minY - rect.minY
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = ctx
+                ctx.cgContext.saveGState()
+                ctx.cgContext.scaleBy(x: scale, y: scale)
+                shot.draw(in: NSRect(x: r.minX - rect.minX, y: y, width: r.width, height: r.height),
+                          from: .zero, operation: .sourceOver, fraction: 1)
+                ctx.cgContext.restoreGState()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+
         let image = NSImage(size: rect.size)
         image.addRepresentation(rep)
         return image
+    }
+
+    @MainActor
+    private static func webViews(in view: NSView) -> [WKWebView] {
+        view.subviews.flatMap { ($0 as? WKWebView).map { [$0] } ?? webViews(in: $0) }
     }
 
     /// Caption details: "<title> · <model> · <yyyy-MM-dd HH:mm>". Pure — the caller
