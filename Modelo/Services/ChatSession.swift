@@ -35,6 +35,8 @@ final class ChatSession {
     var yoloMode: Bool {
         didSet { if yoloMode && !oldValue { respondToApproval(.once) } }
     }
+    /// Identical tool-call rounds in a row before the turn is stopped as stuck.
+    static let maxRepeatedRounds = 3
     /// Above this many registered tools, switch to progressive disclosure.
     static let progressiveThreshold = 8
     /// How many relevant tools to pre-select for the model each turn (progressive mode).
@@ -301,6 +303,10 @@ final class ChatSession {
         var lastCompletionTokens = 0
         var totalCompletionTokens = 0
         var round = 0
+        // Consecutive rounds whose calls (names + arguments) were identical: a model
+        // stuck re-reading one file would otherwise loop until the round cap, or forever in YOLO.
+        var lastCallSignature = ""
+        var repeatedRounds = 0
         var lastAssistant: Message?
         var pendingAssistant = firstAssistant
 
@@ -420,6 +426,19 @@ final class ChatSession {
             }
             if toolCalls.isEmpty { break }   // model produced a final answer
 
+            let signature = toolCalls.map { "\($0.name)\u{1}\($0.arguments)" }.joined(separator: "\u{2}")
+            repeatedRounds = signature == lastCallSignature ? repeatedRounds + 1 : 1
+            lastCallSignature = signature
+            if repeatedRounds >= Self.maxRepeatedRounds {
+                // Stop before running it a third time; the calls aren't recorded, so the
+                // chat doesn't carry calls without results into the next send.
+                let names = Set(toolCalls.map(\.name)).sorted().joined(separator: ", ")
+                errorText = "The model called \(names) with the same arguments \(repeatedRounds) times in a row, so Modelo stopped the turn. "
+                    + "Tell it what to do differently, or start a new chat."
+                lastTurnFailed = true
+                break
+            }
+
             assistant.toolCallsJSON = toolCalls.json
             for call in toolCalls {
                 if Task.isCancelled { break }
@@ -471,6 +490,15 @@ final class ChatSession {
             }
             context.saveOrLog()
             return
+        }
+
+        // An empty final reply reads as a hang; say it ended. Thinking-only output is
+        // dropped (SSELineParser), so a model can spend its whole reply reasoning.
+        if errorText == nil, let last = lastAssistant, last.toolCallsJSON == nil,
+           last.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorText = "The model ended its turn without replying (it may have spent the whole reply thinking). "
+                + "Say \"continue\" to nudge it; if it keeps happening, start a new chat so it has more room."
+            lastTurnFailed = true
         }
 
         // Two speeds, because servers disagree on which one "tok/s" means and this
