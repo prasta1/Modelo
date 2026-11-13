@@ -54,7 +54,7 @@ enum ModelPricing {
         switch label {
         case .price(let input, let output)?: return "\(dollars(input)) · \(dollars(output))"
         case .free(let until, _, _)?:        return until.map { "FREE · " + endsFormatter.string(from: $0) } ?? "FREE"
-        case .local?:                        return "local"
+        case .local?:                        return ""
         case nil:                            return "—"
         }
     }
