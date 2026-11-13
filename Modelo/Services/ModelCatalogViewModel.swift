@@ -245,6 +245,15 @@ final class ModelCatalogViewModel {
     // MARK: - Recompute filtered/sorted/grouped collections
 
     private func recompute() {
+        // Apple Intelligence reports "loaded" because it's always ready, but no server
+        // holds it in memory, so it gets no tile and stays in its own group.
+        let inMemory = { (m: DiscoveredModel) in m.model.isLoaded && m.server.kind != .appleIntelligence }
+        // The tile strip is status, not search results: every in-memory model, in
+        // every sort mode, whatever the filters say.
+        loadedModels = allModels.filter(inMemory).sorted {
+            ($0.server.label, $0.model.shortName) < ($1.server.label, $1.model.shortName)
+        }
+
         let filtered = applyFilters(allModels)
         filteredCount = filtered.count
         let sorted = applySort(filtered)
@@ -253,24 +262,17 @@ final class ModelCatalogViewModel {
         // buckets would answer "the fastest anthropic model" 59 times over
         // rather than "the fastest model", which is what sorting by Speed means.
         guard !isFlattened else {
-            loadedModels = []
             groupedRemote = []
             flatRows = sorted
             flatVisible = sorted
             return
         }
 
-        // Apple Intelligence reports "loaded" because it's always ready, but no server
-        // holds it in memory, so it keeps its own group rather than heading "Loaded on".
-        let inMemory = { (m: DiscoveredModel) in m.model.isLoaded && m.server.kind != .appleIntelligence }
-        let loaded = sorted.filter(inMemory)
-        let notLoaded = sorted.filter { !inMemory($0) }
-
-        let groups = buildGroups(notLoaded)
-        loadedModels = loaded
+        // Loaded models live in the tile strip, not the table.
+        let groups = buildGroups(sorted.filter { !inMemory($0) })
         groupedRemote = groups
         flatRows = []
-        flatVisible = loaded + visibleModels(in: groups)
+        flatVisible = visibleModels(in: groups)
     }
 
     /// Buckets models by endpoint, then by vendor within each endpoint.
@@ -406,7 +408,6 @@ final class ModelCatalogViewModel {
             if activeFilters.contains("tools")  && !m.supportsToolUse                     { return false }
             if activeFilters.contains("vision") && !m.supportsVision                      { return false }
             if activeFilters.contains("reason") && !m.supportsThinking                    { return false }
-            if activeFilters.contains("loaded") && !m.isLoaded                            { return false }
             if activeFilters.contains("favs")   && !favoriteIDs.contains(m.id)            { return false }
 
             // Query terms
