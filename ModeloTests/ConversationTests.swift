@@ -33,4 +33,21 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(stored.count, 2)
         XCTAssertNotEqual(a.persistentModelID, b.persistentModelID)
     }
+
+    /// Archive files into the folder named "Archive" (any case), creating it only
+    /// when none exists — so a hand-made archive folder is reused, not duplicated.
+    func test_archiveFolder_reusesExistingOrCreates() throws {
+        let schema = Schema([Server.self, Conversation.self, Message.self, UsageRecord.self, Folder.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
+
+        let created = Folder.archive(among: [], in: context)
+        XCTAssertEqual(created.name, "Archive")
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Folder>()).count, 1)
+
+        let work = Folder(name: "Work", sortOrder: 0)
+        let existing = Folder(name: "archive", sortOrder: 1)
+        XCTAssertTrue(Folder.archive(among: [work, existing], in: context) === existing)
+        XCTAssertFalse(work.isArchive)
+    }
 }
