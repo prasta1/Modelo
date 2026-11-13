@@ -33,6 +33,16 @@ xcodebuild -project Modelo.xcodeproj -scheme Modelo \
 
 A green test run is the **minimum bar** for any contribution — if tests fail, your PR is not ready.
 
+For changes to update or release code, also run the release-script tests:
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_*.py'
+```
+
+The updater stays off under XCTest. For a real install/relaunch test, use the
+separate signed copies described in [Sparkle updates](docs/sparkle-updates.md#local-checks).
+Do not test updates against your normal installed app.
+
 ## Tests and new features
 
 **If you add or change behavior, you must add (or update) tests.**
@@ -54,7 +64,8 @@ Untested changes will be asked to be tested before merging.
 - **Source:** `Modelo/` — all app code (`Models/`, `Views/`, `Services/`, `Settings/`).
 - **Tests:** `ModeloTests/` — test suite, at the repo root alongside `Modelo/`.
 - **Manifest:** `project.yml` — XcodeGen project definition. Never edit the generated `.xcodeproj` directly.
-- **Dependencies:** Swift Package Manager (MarkdownUI, Highlightr) — add new deps in `project.yml`.
+- **Dependencies:** Swift Package Manager (MarkdownUI, Highlightr, Sparkle) — declare dependencies in `project.yml`. Keep Sparkle pinned to an exact version.
+- **Release tools:** `scripts/` — build-number guard and its Python tests; `.github/workflows/release.yml` builds, signs, notarizes, and publishes updates.
 
 ## Submitting a PR
 
@@ -62,6 +73,17 @@ Untested changes will be asked to be tested before merging.
 2. Ensure `xcodebuild test` passes locally.
 3. Describe the change in the PR body: what it does, why, and how to verify.
 4. Link any related issues.
+
+## Releases
+
+Release maintainers must increase both `MARKETING_VERSION` and the integer
+`CURRENT_PROJECT_VERSION` in `project.yml`, then push a tag that matches the
+marketing version. Sparkle compares build numbers, not marketing versions.
+
+The release workflow publishes the signed app zip and `appcast.xml` together.
+Private keys stay in GitHub secrets and the maintainer's Keychain, never in the
+repository. See [AGENTS.md](AGENTS.md#releasing) for required secrets and
+[Sparkle updates](docs/sparkle-updates.md) for backup and verification steps.
 
 ## Getting help
 

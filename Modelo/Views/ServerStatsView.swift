@@ -214,6 +214,7 @@ private struct ServerStatsDashboardPanel: View {
     private var hostSubtitle: String {
         switch server.kind {
         case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: return "\(server.host):\(server.port)"
+        case .appleIntelligence: return "On-device"
         case .cloudAPI:   return URL(string: server.host)?.host ?? server.host
         case .openRouter: return "openrouter.ai"
         case .nous:       return "inference-api.nousresearch.com"
@@ -246,7 +247,7 @@ private struct ServerStatsDashboardPanel: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .background(Theme.fgTint.opacity(0.018), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).stroke(Theme.line))
     }
 

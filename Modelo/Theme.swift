@@ -206,6 +206,9 @@ private struct ChipToggleLabel<Label: View>: View {
 
     var body: some View {
         label()
+            // A chip never wraps ("TO/OL/S" stacked vertically in a narrow header).
+            .lineLimit(1)
+            .fixedSize()
             .font(Theme.label(9))
             .tracking(0.8)
             .textCase(.uppercase)
@@ -274,7 +277,7 @@ struct StatusLED: View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
-            .shadow(color: color.opacity(status == .offline ? 0 : 0.9),
+            .shadow(color: Theme.glows ? color.opacity(status == .offline ? 0 : 0.9) : .clear,
                     radius: status == .offline ? 0 : 5)
             .opacity(isBreathing && pulsing ? 0.3 : 1)
             .animation(isBreathing
@@ -345,6 +348,9 @@ extension Theme {
     static var line: Color   { active.line }
     static var fill: Color   { active.fill }
     static var fillHi: Color { active.fillHi }
+    static var fgTint: Color { active.fgTint }
+    /// Colored glows read as a lit lamp on dark surfaces but a haze on light ones.
+    static var glows: Bool { active.scheme == .dark }
 
     // Accent tints reused for chips / active rows
     static var amberFill: Color   { active.amberFill }

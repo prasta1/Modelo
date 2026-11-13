@@ -99,7 +99,7 @@ private struct FilledRotationCard: View {
                     Circle()
                         .fill(dotColor)
                         .frame(width: 5, height: 5)
-                        .shadow(color: model.isLoaded ? dotColor.opacity(0.9) : .clear, radius: 4)
+                        .shadow(color: model.isLoaded && Theme.glows ? dotColor.opacity(0.9) : .clear, radius: 4)
                     Text(placementLabel.uppercased())
                         .font(Theme.label(8))
                         .tracking(0.6)

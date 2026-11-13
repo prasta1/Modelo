@@ -4,9 +4,12 @@ options:
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
-# First third-party dependencies (deliberate exception — see MERGE_PLAN §1.1):
-# Markdown (GFM) rendering for chat messages + syntax-highlighted code blocks.
+# Dependencies cover Markdown rendering, syntax highlighting, and secure in-app
+# updates. Sparkle is deliberate: use its installer instead of writing our own.
 packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: "2.10.1"
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     from: "2.4.1"
@@ -25,6 +28,8 @@ targets:
     sources:
       - Modelo
     dependencies:
+      - package: Sparkle
+        product: Sparkle
       - package: MarkdownUI
         product: MarkdownUI
       - package: Highlightr
@@ -39,6 +44,11 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        SUFeedURL: https://github.com/prasta1/Modelo/releases/latest/download/appcast.xml
+        SUPublicEDKey: "DrcyymYIWUzHjaxqZQRlnNhJxXkB6KN6SfrwUJpVAbY="
+        # Keep background checks opt-in and require a click for every install.
+        SUAllowsAutomaticUpdates: false
+        SUVerifyUpdateBeforeExtraction: true
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSHumanReadableCopyright: "© 2025 Patrick Ruster"
@@ -50,8 +60,8 @@ targets:
       base:
         PRODUCT_NAME: Modelo
         PRODUCT_MODULE_NAME: Modelo
-        MARKETING_VERSION: "0.3.1"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.5.0"
+        CURRENT_PROJECT_VERSION: "5"
         ENABLE_HARDENED_RUNTIME: YES
         # Keychain access group → forces an embedded provisioning profile with
         # com.apple.application-identifier, required for the data-protection

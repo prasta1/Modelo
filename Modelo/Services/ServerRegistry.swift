@@ -49,4 +49,28 @@ final class ServerRegistry {
         do { try context.save() }
         catch { Log.data.error("seedIfNeeded save failed: \(error.localizedDescription, privacy: .public)") }
     }
+
+    /// Adds the "Apple Intelligence" server once, on Macs that can run it. A
+    /// `UserDefaults` flag (not the row's presence) records that it happened, so a
+    /// row the user deleted stays deleted; hiding it is the per-server toggle.
+    /// The flag is only set when a row is actually added, so a Mac that becomes
+    /// eligible later (e.g. after an OS upgrade) still gets it.
+    /// - Parameters:
+    ///   - isEligible: `AppleIntelligenceClient.isEligible()` in the app; injected for tests.
+    ///   - defaults: Where the once-only flag lives.
+    func seedAppleIntelligenceIfNeeded(in context: ModelContext, isEligible: Bool,
+                                       defaults: UserDefaults = .standard) {
+        let key = "didSeedAppleIntelligence"
+        guard isEligible, !defaults.bool(forKey: key) else { return }
+        let existing = (try? context.fetch(FetchDescriptor<Server>())) ?? []
+        let nextOrder = (existing.map(\.sortOrder).max() ?? -1) + 1
+        context.insert(Server(label: "Apple Intelligence", host: "", port: 0,
+                              sortOrder: nextOrder, kind: .appleIntelligence))
+        do {
+            try context.save()
+            defaults.set(true, forKey: key)
+        } catch {
+            Log.data.error("seedAppleIntelligenceIfNeeded save failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }

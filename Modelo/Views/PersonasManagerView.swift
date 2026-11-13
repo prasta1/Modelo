@@ -239,7 +239,7 @@ private struct PersonaEditPane: View {
                             .background(Theme.windowBG, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                                    .strokeBorder(Theme.fgTint.opacity(0.10), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -275,7 +275,7 @@ private struct PersonaEditPane: View {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(focus == .prompt
                                           ? Theme.amber.opacity(0.85)
-                                          : Color.white.opacity(0.10),
+                                          : Theme.fgTint.opacity(0.10),
                                           lineWidth: 1)
                     )
                     .animation(.snappy(duration: 0.2), value: focus == .prompt)

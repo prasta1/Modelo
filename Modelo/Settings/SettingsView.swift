@@ -21,7 +21,7 @@ struct SettingsView: View {
     @State private var scanner = NetworkScanner()
 
     private static let tabTitles = ["Endpoints",
-                                    "Presets", "Appearance", "Tools", "Memory", "MCP Servers"]
+                                    "Presets", "Appearance", "Tools", "Memory", "Skills", "MCP Servers"]
 
     private struct CloudPreset: Identifiable {
         var id: String { name }
@@ -52,6 +52,7 @@ struct SettingsView: View {
                 case "Appearance":  AppearanceSettingsTab()
                 case "Tools":       toolsTab
                 case "Memory":      memoryTab
+                case "Skills":      SkillsSettingsTab()
                 case "MCP Servers": mcpServersTab
                 default:            endpointsTab
                 }
@@ -72,7 +73,13 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func endpointRow(for server: Server) -> some View {
-        if server.kind.isLocal {
+        // Checked before isLocal: it's local, but has no host:port or GPU agent to edit.
+        if server.kind == .appleIntelligence {
+            AppleIntelligenceSettingsRow(server: server, onDelete: {
+                context.delete(server)
+                context.saveOrLog()
+            })
+        } else if server.kind.isLocal {
             ServerSettingsRow(server: server,
                               onDelete: {
                 context.delete(server)
@@ -145,7 +152,7 @@ struct SettingsView: View {
                             .padding(.top, 12)
                     }
                 }
-                .padding(24)
+                .settingsColumn()
                 .hideScrollIndicators()
             }
             .scrollIndicators(.hidden)
@@ -172,7 +179,7 @@ struct SettingsView: View {
                         account: FirecrawlClient.keychainAccount,
                         keychain: keychain)
             }
-            .padding(24)
+            .settingsColumn()
             .hideScrollIndicators()
         }
         .scrollIndicators(.hidden)
@@ -187,8 +194,7 @@ struct SettingsView: View {
     private var memoryTab: some View {
         VStack(spacing: 0) {
             MemoryEnableCard()
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
+                .settingsColumn()
             Divider().overlay(Theme.line)
             MemoryManagerView(scope: .global)
         }
@@ -202,6 +208,8 @@ struct SettingsView: View {
                     MCPServerSettingsRow(
                         config: config,
                         error: mcpManager.connectionErrors[config.id],
+                        isConnecting: mcpManager.connecting.contains(config.id),
+                        toolCount: mcpManager.toolCounts[config.id],
                         onUpdate: { mcpManager.updateConfig($0) },
                         onDelete: { mcpManager.removeConfig(id: config.id) }
                     )
@@ -220,7 +228,7 @@ struct SettingsView: View {
                     mcpManager.addConfig(entry.makeConfig())
                 }
             }
-            .padding(24)
+            .settingsColumn()
             .hideScrollIndicators()
         }
         .scrollIndicators(.hidden)
@@ -247,10 +255,12 @@ struct SettingsView: View {
     }
 
     private func addMCPServer() {
+        // Starts blank and off: the old template was the filesystem server rooted at
+        // "/", one toggle away from handing a model the whole disk.
         mcpManager.addConfig(MCPServerConfig(
             name: "New MCP Server",
             command: "npx",
-            arguments: ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+            arguments: [],
             isEnabled: false
         ))
     }
@@ -288,6 +298,7 @@ struct SettingsView: View {
         case .oMLX:                        return "cpu"
         case .ollama:                      return "cylinder"
         case .exo:                         return "point.3.connected.trianglepath.dotted"
+        case .appleIntelligence:           return "apple.intelligence"
         case .cloudAPI, .openRouter, .nous: return "server.rack"
         }
     }
@@ -391,6 +402,7 @@ private struct PresetListRow: View {
     let isSelected: Bool
     let onTap: () -> Void
     let onDelete: () -> Void
+    @State private var confirmingDelete = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -408,7 +420,7 @@ private struct PresetListRow: View {
                 }
             }
             Spacer(minLength: 4)
-            Button(action: onDelete) {
+            Button { confirmingDelete = true } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.Palette.alert.opacity(0.65))
@@ -416,6 +428,11 @@ private struct PresetListRow: View {
             .buttonStyle(.plain)
             .help("Delete preset")
             .opacity(isSelected ? 1 : 0)
+            .confirmationDialog("Delete preset?", isPresented: $confirmingDelete) {
+                Button("Delete", role: .destructive, action: onDelete)
+            } message: {
+                Text("“\(preset.name.isEmpty ? "Unnamed" : preset.name)” will be deleted. This can't be undone.")
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -467,7 +484,7 @@ private struct PresetsSettingsTab: View {
                                 .fixedSize(horizontal: false, vertical: true)
                             SamplingControls(params: $params)
                         }
-                        .padding(20)
+                        .settingsColumn()
                     }
                     .scrollIndicators(.hidden)
                 }
@@ -596,7 +613,7 @@ private struct PresetEditPane: View {
                 Eyebrow("Sampling", size: 9)
                 SamplingControls(params: $preset.sampling)
             }
-            .padding(20)
+            .settingsColumn()
         }
         .scrollIndicators(.hidden)
     }
@@ -608,21 +625,23 @@ private struct PresetEditPane: View {
 /// updates open chats live (`ChatView` observes the same key).
 private struct ToolRoundsCard: View {
     @AppStorage("globalMaxToolRounds") private var maxRounds = ChatSession.defaultMaxToolRounds
+    @AppStorage("yoloModeEnabled") private var yolo = false
 
     var body: some View {
         SettingsSection("Tool-call limit") {
             VStack(alignment: .leading, spacing: 8) {
-                Stepper(value: $maxRounds, in: 1...20) {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Max tool calls per turn").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                            Text("How many tool rounds a model may run before the turn stops with a notice.")
-                                .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                        }
-                        Spacer(minLength: 8)
+                SettingRow(title: "Max tool calls per turn",
+                           caption: yolo ? "Lifted while YOLO mode is on for every chat."
+                                         : "How many tool rounds a model may run before the turn stops with a notice.") {
+                    HStack(spacing: 6) {
                         Text("\(maxRounds)").font(.mono(13)).foregroundStyle(Theme.amber).monospacedDigit()
+                        Stepper("Max tool calls per turn", value: $maxRounds, in: 1...20)
+                            .labelsHidden()
                     }
                 }
+                // YOLO ignores the cap; a live-looking stepper would suggest otherwise.
+                .disabled(yolo)
+                .opacity(yolo ? 0.5 : 1)
                 Text("Higher allows more complex multi-step tool use but can run longer. Applies to new chats immediately; open chats update live. Ignored while YOLO mode is on.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -639,13 +658,8 @@ private struct LMStudioLoadContextCard: View {
     var body: some View {
         SettingsSection("LM Studio load context") {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Context when Modelo loads a model").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Never more than the model itself supports.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                    Spacer(minLength: 8)
+                SettingRow(title: "Context when Modelo loads a model",
+                           caption: "Never more than the model itself supports.") {
                     Picker("Load context", selection: $cap) {
                         ForEach(LMStudioLoadContext.options, id: \.self) { n in
                             Text(n == 0 ? "LM Studio default" : "\(n / 1024)K").tag(n)
@@ -667,22 +681,29 @@ private struct LMStudioLoadContextCard: View {
 /// per-conversation switch to drive `ChatSession.yoloMode`.
 private struct YoloCard: View {
     @AppStorage("yoloModeEnabled") private var enabled = false
+    /// Turning YOLO on for every chat asks first; turning it off doesn't.
+    @State private var confirming = false
 
     var body: some View {
         SettingsSection("YOLO mode") {
             VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto-approve all tool calls").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Writes, edits and shell commands run without asking, and the tool-call limit is removed.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
+                SettingToggle(title: "Auto-approve all tool calls",
+                              caption: "Writes, edits and shell commands run without asking, and the tool-call limit is removed. Can also be enabled per chat.",
+                              isOn: Binding(get: { enabled },
+                                            set: { on in if on { confirming = true } else { enabled = false } }))
+                // Only while it's on: an always-visible warning became wallpaper.
+                if enabled {
+                    Label("On for every chat. The model can modify files and run commands unattended until it finishes or you press Stop.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(Theme.metric(10)).foregroundStyle(Theme.Palette.alert)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .toggleStyle(.switch)
-                Text("The model can modify files and run commands unattended until it finishes or you press Stop. Only use in workspaces you trust. Can also be enabled per chat.")
-                    .font(Theme.metric(10)).foregroundStyle(Theme.Palette.alert)
-                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .confirmationDialog("Run tools without asking in every chat?", isPresented: $confirming) {
+            Button("Turn On YOLO for All Chats", role: .destructive) { enabled = true }
+        } message: {
+            Text("Writes, edits and shell commands will run without an approval card in every chat, and the tool-call limit is lifted. Only use in workspaces you trust.")
         }
     }
 }
@@ -694,14 +715,9 @@ private struct GlobalToolsCard: View {
 
     var body: some View {
         SettingsSection("Tools") {
-            Toggle(isOn: $enabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Enable tools").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                    Text("Allow models to call tools (file access, web search, MCP). Can also be toggled per conversation.")
-                        .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                }
-            }
-            .toggleStyle(.switch)
+            SettingToggle(title: "Enable tools",
+                          caption: "Allow models to call tools (file access, web search, MCP). Can also be toggled per conversation.",
+                          isOn: $enabled)
         }
     }
 }
@@ -715,14 +731,9 @@ private struct MemoryEnableCard: View {
     var body: some View {
         SettingsSection("Memory") {
             VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Remember facts across conversations").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Models can save durable facts with save_memory and see a compact index of them in every chat. Project chats also get project-scoped memories.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Remember facts across conversations",
+                              caption: "Models can save durable facts with save_memory and see a compact index of them in every chat. Project chats also get project-scoped memories.",
+                              isOn: $enabled)
                 Text("Off by default — one-off conversations stay one-off. Costs a line of context per memory. Open chats pick the change up from their next message.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                 Toggle(isOn: $shareWithCloud) {
@@ -746,14 +757,9 @@ private struct ArtifactsCard: View {
     var body: some View {
         SettingsSection("Artifacts") {
             VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Render artifacts in a side panel").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Substantial HTML / SVG / Mermaid / code / documents open in a viewer beside the chat, with live preview and versions.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Render artifacts in a side panel",
+                              caption: "Substantial HTML / SVG / Mermaid / code / documents open in a viewer beside the chat, with live preview and versions.",
+                              isOn: $enabled)
                 Text("Adds a short instruction to the system prompt teaching the model the artifact syntax. Turn off to save context on small models. Re-open a chat after changing.")
                     .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -772,14 +778,9 @@ private struct FilesystemToolsCard: View {
     var body: some View {
         SettingsSection("Filesystem & shell tools") {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle(isOn: $enabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Let models read & edit files").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("read_file · write_file · edit_file · grep · glob — confined to the workspace folder below.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Let models read & edit files",
+                              caption: "read_file · write_file · edit_file · grep · glob — confined to the workspace folder below.",
+                              isOn: $enabled)
 
                 HStack(spacing: 10) {
                     Image(systemName: "folder")
@@ -799,18 +800,15 @@ private struct FilesystemToolsCard: View {
                 }
                 .opacity(enabled ? 1 : 0.5)
 
-                Toggle(isOn: $shell) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Allow the bash tool").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                        Text("Runs shell commands in the workspace. Highest risk — every command asks for approval.")
-                            .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .toggleStyle(.switch)
+                SettingToggle(title: "Allow the bash tool",
+                              caption: "Runs shell commands in the workspace. Highest risk — every command asks for approval unless YOLO mode is on.",
+                              isOn: $shell)
                 .disabled(!enabled)
                 .opacity(enabled ? 1 : 0.5)
 
-                Text("Off by default. Writes, edits, and shell commands always ask for approval in the chat. The model must support tools and the chat's Tools toggle must be on. Re-open a chat after changing these.")
+                // Was "always ask for approval" — untrue once YOLO mode and per-chat session
+                // approvals existed. Safety copy has to match what actually happens.
+                Text("Off by default. Writes and edits ask for approval in the chat (you can approve one for the rest of that chat); every shell command asks. YOLO mode — here or per chat — skips all of these prompts. The model must support tools and the chat's Tools toggle must be on. Re-open a chat after changing these.")
                     .font(Theme.metric(10))
                     .foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -836,41 +834,26 @@ private struct AppearanceSettingsTab: View {
     @AppStorage("themeID") private var themeID = ThemeID.dark.rawValue
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage("showPersonasInSidebar") private var showPersonasInSidebar = true
+    @AppStorage("showPersonaBar") private var showPersonaBar = true
     @AppStorage("toolCallsExpandedByDefault") private var toolCallsExpandedByDefault = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 SettingsSection("General") {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Show menu bar icon").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                                Text("Adds a menu bar item with a quick ephemeral chat popover.")
-                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Show Personas in sidebar").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                                Text("Displays the Personas nav item in the sidebar.")
-                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Expand tool call details by default").font(Theme.metric(12)).foregroundStyle(Theme.textHi)
-                                Text("Show tool call arguments and results expanded in new messages.")
-                                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
-                            }
-                        }
-                        VStack(spacing: 10) {
-                            Toggle("", isOn: $showMenuBarIcon)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                            Toggle("", isOn: $showPersonasInSidebar)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                            Toggle("", isOn: $toolCallsExpandedByDefault)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                        }
+                    VStack(alignment: .leading, spacing: 10) {
+                        SettingToggle(title: "Show menu bar icon",
+                                      caption: "Adds a menu bar item with a quick ephemeral chat popover.",
+                                      isOn: $showMenuBarIcon)
+                        SettingToggle(title: "Show Personas in sidebar",
+                                      caption: "Displays the Personas nav item in the sidebar.",
+                                      isOn: $showPersonasInSidebar)
+                        SettingToggle(title: "Show persona picker in chat",
+                                      caption: "Displays the persona selector above the message box.",
+                                      isOn: $showPersonaBar)
+                        SettingToggle(title: "Expand tool call details by default",
+                                      caption: "Show tool call arguments and results expanded in new messages.",
+                                      isOn: $toolCallsExpandedByDefault)
                     }
                 }
                 SettingsSection("Theme") {
@@ -887,7 +870,7 @@ private struct AppearanceSettingsTab: View {
                     .foregroundStyle(Theme.textFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
+            .settingsColumn()
             .hideScrollIndicators()
         }
         .scrollIndicators(.hidden)
@@ -935,8 +918,8 @@ private struct ThemeRow: View {
 // MARK: - Section
 
 /// An eyebrow caption above a block of related controls — the recurring
-/// settings-group unit.
-private struct SettingsSection<Content: View>: View {
+/// settings-group unit. Internal (not private) so tabs in their own files can use it.
+struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
 
@@ -954,6 +937,70 @@ private struct SettingsSection<Content: View>: View {
         // toggle) doesn't size-to-fit and float toward the center while wider sections
         // (those with a Spacer) sit flush left.
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Setting rows
+//
+// Every setting is a label on the leading side and its control in one trailing column,
+// so a tab's controls line up and "what's on?" reads straight down the edge. (Switches
+// used to sit wherever their own text ended — a different x on every row.)
+
+/// The text side of a setting: a title and an optional one-line-or-so caption.
+struct SettingLabel: View {
+    let title: String
+    var caption: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(Theme.metric(12)).foregroundStyle(Theme.textHi)
+            if let caption {
+                // No vertical fixedSize: pinned to its full height, the caption wrapped a
+                // word per line at the window's minimum width and pushed the main window's
+                // minimum height to ~1,600pt on the (unscrolled) Memory tab.
+                Text(caption)
+                    .font(Theme.metric(10)).foregroundStyle(Theme.textFaint)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// An on/off setting: a real labelled switch (so VoiceOver names it) whose label fills
+/// the row, pinning the switch to the trailing column.
+struct SettingToggle: View {
+    let title: String
+    var caption: String? = nil
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) { SettingLabel(title: title, caption: caption) }
+            .toggleStyle(.switch)
+    }
+}
+
+/// A setting whose control isn't a switch (a stepper, a picker, buttons) — same layout.
+struct SettingRow<Control: View>: View {
+    let title: String
+    var caption: String? = nil
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            SettingLabel(title: title, caption: caption)
+            control
+        }
+    }
+}
+
+extension View {
+    /// A Settings tab's content column: capped so rows don't stretch label-to-control
+    /// across a wide window (a 1,000pt gap on a full-screen window), centred in the pane,
+    /// inset by the shared gutter.
+    func settingsColumn() -> some View {
+        frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(Theme.gutter)
     }
 }
 
@@ -1034,7 +1081,7 @@ private struct ServerSettingsRow: View {
                     // Local runtimes (LM Studio, llama.cpp/llama-swap, oMLX) are all addressed by host:port.
                     HStack(alignment: .bottom, spacing: 12) {
                         FieldGroup(caption: "Host") {
-                            TextField("hostname or IP", text: $server.host)
+                            TextField("hostname, IP, or https://host", text: $server.host)
                                 .textFieldStyle(.plain)
                                 .focused($focus, equals: .host)
                                 .fieldChrome(focused: focus == .host)
@@ -1381,7 +1428,7 @@ private struct LocalSetupHint: View {
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
         case .exo:
             return "Run exo (exolabs.net) on this or another Mac. Add its host and port (default 52415). Models must be launched in exo's dashboard before you can chat with them."
-        case .cloudAPI, .openRouter, .nous:
+        case .cloudAPI, .openRouter, .nous, .appleIntelligence:
             return ""
         }
     }
@@ -1436,7 +1483,8 @@ private struct ServerProbeRow: View {
             Label("Connected · \(n) model\(n == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
                 .font(Theme.metric(11)).foregroundStyle(Theme.green)
         case .needsKey:
-            Label("Connected — needs an API key", systemImage: "key.fill")
+            Label(keyHint.isEmpty ? "Connected — needs an API key" : "Key rejected — check it and test again",
+                  systemImage: "key.fill")
                 .font(Theme.metric(11)).foregroundStyle(Theme.amber)
         case .failed(let why):
             Label(why, systemImage: "exclamationmark.triangle.fill")
@@ -1449,7 +1497,7 @@ private struct ServerProbeRow: View {
         // Debounce typing so we don't probe on every keystroke; manual Test skips it.
         if debounce { try? await Task.sleep(for: .milliseconds(500)) }
         if Task.isCancelled { return }
-        guard !server.host.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard server.kind.hasFixedURL || !server.host.trimmingCharacters(in: .whitespaces).isEmpty else {
             state = .idle
             onNeedsAuth(false)   // clear a stale "needs key" reveal when the host is emptied
             return
@@ -1479,6 +1527,52 @@ private struct ServerProbeRow: View {
 
 /// One cloud API endpoint: a user-supplied base URL + a bearer token from Keychain.
 /// The `host` field on the `Server` model stores the full base URL for cloud kind.
+/// Settings row for the auto-added Apple Intelligence server: the endpoint header
+/// (status, show/hide toggle, delete) with no editable fields, plus why the model
+/// is unavailable when it is.
+private struct AppleIntelligenceSettingsRow: View {
+    @Bindable var server: Server
+    let onDelete: () -> Void
+
+    @State private var showDeleteConfirm = false
+    @Environment(ServerRegistry.self) private var registry
+
+    var body: some View {
+        HStack(spacing: 8) {
+            StatusLED(status: server.isPaused ? .offline : registry.status(for: server))
+                .help(server.isPaused ? "Paused — hidden from the picker" : registry.status(for: server).displayLabel)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(server.label.isEmpty ? "Apple Intelligence" : server.label)
+                    .font(Theme.mono(13, weight: .semibold))
+                    .foregroundStyle(Theme.textHi)
+                Text(AppleIntelligenceClient.statusMessage() ?? "On-device · private · free")
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.textFaint)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Chip(text: server.kind.displayName.lowercased(), tint: Theme.amber)
+            PillToggle(isOn: Binding(get: { !server.isPaused }, set: { server.isPaused = !$0 }))
+                .help(server.isPaused ? "Resume: show Apple Intelligence in the picker" : "Pause: hide Apple Intelligence from the picker")
+            Button(action: { showDeleteConfirm = true }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.alert.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+            .help("Remove Apple Intelligence")
+            .confirmationDialog("Remove endpoint?", isPresented: $showDeleteConfirm) {
+                Button("Remove", role: .destructive) { onDelete() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes Apple Intelligence from Modelo and it won't be added back. To hide it for now, use the toggle instead.")
+            }
+        }
+        .padding(16)
+        .panel(Theme.popoverBG)
+    }
+}
+
 private struct CloudServerSettingsRow: View {
     @Bindable var server: Server
     let keychain: KeychainStore
@@ -1595,6 +1689,9 @@ private struct CloudServerSettingsRow: View {
                         .font(Theme.metric(10))
                         .foregroundStyle(Theme.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    // A pasted key used to sit unverified until the picker came up empty.
+                    ServerProbeRow(server: server, keyHint: apiKey)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -1709,7 +1806,7 @@ private struct FieldChrome: ViewModifier {
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(focused ? Theme.amber.opacity(0.85)
-                                          : Color.white.opacity(0.10),
+                                          : Theme.fgTint.opacity(0.10),
                                   lineWidth: 1)
             )
             .animation(.snappy(duration: 0.2), value: focused)
@@ -1723,29 +1820,35 @@ private struct FieldChrome: ViewModifier {
 private struct MCPServerSettingsRow: View {
     var config: MCPServerConfig
     let error: String?
+    let isConnecting: Bool
+    /// Set only once the server is connected.
+    let toolCount: Int?
     let onUpdate: (MCPServerConfig) -> Void
     let onDelete: () -> Void
 
     @State private var name: String
     @State private var command: String
-    @State private var argsString: String  // space-joined arguments
+    @State private var argsString: String  // shell-quoted arguments (`MCPArguments`)
     @State private var envValues: [String: String]
     @State private var isEnabled: Bool
+    @State private var confirmingDelete = false
     @FocusState private var focus: Field?
     @FocusState private var envFocused: String?
 
     private enum Field { case name, command, args }
 
-    init(config: MCPServerConfig, error: String?,
+    init(config: MCPServerConfig, error: String?, isConnecting: Bool, toolCount: Int?,
          onUpdate: @escaping (MCPServerConfig) -> Void,
          onDelete: @escaping () -> Void) {
         self.config   = config
         self.error    = error
+        self.isConnecting = isConnecting
+        self.toolCount    = toolCount
         self.onUpdate = onUpdate
         self.onDelete = onDelete
         _name       = State(initialValue: config.name)
         _command    = State(initialValue: config.command)
-        _argsString = State(initialValue: config.arguments.joined(separator: " "))
+        _argsString = State(initialValue: MCPArguments.join(config.arguments))
         _envValues  = State(initialValue: config.env)
         _isEnabled  = State(initialValue: config.isEnabled)
     }
@@ -1764,18 +1867,24 @@ private struct MCPServerSettingsRow: View {
                     .focused($focus, equals: .name)
                     .onSubmit { commit() }
                 Spacer(minLength: 8)
-                // Connection status dot
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 6, height: 6)
-                    .help(statusHelp)
-                Button(action: onDelete) {
+                // Real connection state — it used to show "Connected" whenever there was no error.
+                StatusLED(status: ledStatus)
+                    .help(error.map { "Error: \($0)" } ?? statusText)
+                Text(statusText)
+                    .font(Theme.metric(10))
+                    .foregroundStyle(Theme.textFaint)
+                Button { confirmingDelete = true } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.Palette.alert.opacity(0.7))
                 }
                 .buttonStyle(.plain)
                 .help("Remove MCP server")
+                .confirmationDialog("Remove MCP server?", isPresented: $confirmingDelete) {
+                    Button("Remove", role: .destructive, action: onDelete)
+                } message: {
+                    Text("This stops \(name.isEmpty ? "this server" : name) and removes its command and settings from Modelo.")
+                }
             }
 
             HStack(alignment: .bottom, spacing: 12) {
@@ -1836,24 +1945,26 @@ private struct MCPServerSettingsRow: View {
         }
     }
 
-    private var statusColor: Color {
-        guard isEnabled else { return Theme.textFaint }
-        return error == nil ? Theme.green : Theme.Palette.alert
+    private var ledStatus: ServerStatus {
+        guard isEnabled, error == nil else { return .offline }
+        if isConnecting { return .unknown }
+        return toolCount == nil ? .offline : .online
     }
 
-    private var statusHelp: String {
+    private var statusText: String {
         guard isEnabled else { return "Disabled" }
-        if let error { return "Error: \(error)" }
-        return "Connected"
+        if error != nil { return "Failed" }
+        if isConnecting { return "Connecting…" }
+        guard let toolCount else { return "Not connected" }
+        return "\(toolCount) tool\(toolCount == 1 ? "" : "s")"
     }
 
     private func commit(enabled: Bool? = nil) {
         var updated = config
         updated.name      = name.trimmingCharacters(in: .whitespaces).isEmpty ? config.name : name
         updated.command   = command.trimmingCharacters(in: .whitespaces).isEmpty ? config.command : command
-        updated.arguments = argsString
-            .split(separator: " ", omittingEmptySubsequences: true)
-            .map(String.init)
+        // Shell-style quoting, so a path with a space stays one argument.
+        updated.arguments = MCPArguments.split(argsString)
         updated.env       = envValues
         updated.isEnabled = enabled ?? isEnabled
         onUpdate(updated)

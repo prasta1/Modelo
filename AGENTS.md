@@ -20,7 +20,7 @@ it before building if `project.yml` changed or the project is missing.
 - **Project:** `Modelo.xcodeproj` · **Scheme:** `Modelo` · **Product:** `Modelo.app`
   (Swift module is named `Modelo`, so tests `@testable import Modelo`).
 - **Tooling:** `xcodegen` (Homebrew) + `xcodebuild` (Xcode 26+). Deps (MarkdownUI,
-  Highlightr) resolve via SPM on first build.
+  Highlightr, Sparkle) resolve via SPM on first build.
 
 ```bash
 # Regenerate the project from project.yml (run after editing project.yml or adding files)
@@ -82,7 +82,11 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
 `.github/workflows/release.yml` builds a Developer ID-signed, notarized
 `Modelo.app` and attaches it to a GitHub release. Bump `MARKETING_VERSION` in
 `project.yml`, merge, then push a matching tag (`v0.3.1` ↔ `"0.3.1"`); the job
-fails fast if they disagree. Tags pushed before the workflow existed don't run it.
+fails fast if they disagree. Also increase `CURRENT_PROJECT_VERSION` (a positive
+integer) on every release. Sparkle uses this number to compare updates; the
+workflow rejects numbers at or below the latest appcast. Only an HTTP 404 permits
+the first release without an existing feed; other feed errors stop the release.
+Tags pushed before the workflow existed don't run it.
 
 Needs a Developer ID Application certificate on the team (create it in Xcode →
 Settings → Accounts → Manage Certificates) and these repo secrets:
@@ -94,3 +98,10 @@ Settings → Accounts → Manage Certificates) and these repo secrets:
 | `DEVID_PROFILE` | Developer ID provisioning profile named exactly `Modelo Developer ID` (developer portal → Profiles → Developer ID, macOS), base64. Manual export signing uses it — automatic export needs cloud signing, which API keys can't do for Developer ID |
 | `ASC_KEY_P8` | App Store Connect Team API key (`.p8`, Admin role), base64 — signs the archive and notarizes |
 | `ASC_KEY_ID`, `ASC_ISSUER_ID` | The IDs shown beside that key in App Store Connect → Users & Access → Integrations |
+| `SPARKLE_ED_PRIVATE_KEY` | Private EdDSA key exported by Sparkle `generate_keys`; raw exported text, not an extra base64 encoding |
+
+The release job uses the pinned Sparkle SPM tools to sign the final stapled zip
+and generate `appcast.xml`. It verifies the archive signature before publishing
+both files. Keep `SUFeedURL` and `SUPublicEDKey` in `project.yml`; never put the
+private key in source control. See [Sparkle setup and checks](docs/sparkle-updates.md)
+for key backup, local update tests, and the first-install requirement.

@@ -11,6 +11,7 @@ final class FakeProvider: ChatProvider {
     private(set) var callCount = 0
     private(set) var lastTools: [ToolSpec]?
     private(set) var systemPrompts: [String] = []
+    private(set) var lastMessages: [Message] = []
     init(scripts: [[StreamEvent]], deltaDelay: TimeInterval = 0) {
         self.scripts = scripts; self.deltaDelay = deltaDelay
     }
@@ -25,6 +26,7 @@ final class FakeProvider: ChatProvider {
         let events = scripts[min(callCount, scripts.count - 1)]
         callCount += 1
         lastTools = tools
+        lastMessages = messages
         systemPrompts.append(systemPrompt)
         let delay = deltaDelay
         return AsyncThrowingStream { continuation in
@@ -64,6 +66,29 @@ private struct MutatingEchoTool: Tool {
         ToolApprovalPreview(kind: .write, title: "Write test", detail: "content")
     }
     func execute(argumentsJSON: String) async throws -> String { "MUTATED" }
+}
+
+/// A provider whose stream fails immediately, like a server erroring mid-turn.
+private final class ThrowingProvider: ChatProvider {
+    struct Boom: Error {}
+    func fetchModels(endpoint: Endpoint) async throws -> [LMStudioModel] { [] }
+    func streamChat(endpoint: Endpoint, modelID: String, messages: [Message],
+                    systemPrompt: String, sampling: SamplingParams,
+                    tools: [ToolSpec]?) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { $0.finish(throwing: Boom()) }
+    }
+}
+
+/// Stands in for the Fetch MCP server's tool: approval-gated, granted per server+tool.
+private struct FetchLikeTool: Tool {
+    let name = "fetch"
+    let description = "Fetches a URL"
+    let parameters = JSONSchema(properties: [:], required: [])
+    func approvalPreview(argumentsJSON: String) -> ToolApprovalPreview? {
+        ToolApprovalPreview(kind: .external, title: "Call Fetch server", detail: argumentsJSON,
+                            grantKey: "mcp:Fetch/fetch")
+    }
+    func execute(argumentsJSON: String) async throws -> String { "PAGE" }
 }
 
 @MainActor
@@ -152,6 +177,24 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertEqual(ChatSession.provisionalTitle(from: "  \n "), "")
     }
 
+    /// A chat opened with a bare `/skill` has an empty first user message; the
+    /// provisional title comes from the first one with text, so that's the opener.
+    func test_needsModelTitle_skipsEmptySkillOpener() throws {
+        let context = try makeContext()
+        let convo = Conversation(modelID: "m", serverID: UUID())
+        context.insert(convo)
+        let bare = Message(role: .user, content: "")
+        bare.skillName = "brainstorming"
+        bare.skillInstructions = "Ask one question."
+        bare.createdAt = Date(timeIntervalSince1970: 1)
+        let next = Message(role: .user, content: "A settings page for skills")
+        next.createdAt = Date(timeIntervalSince1970: 2)
+        convo.appendToPath(bare)
+        convo.appendToPath(next)
+        convo.title = ChatSession.provisionalTitle(from: "A settings page for skills")
+        XCTAssertTrue(ChatSession.needsModelTitle(convo))
+    }
+
     func test_needsModelTitle_trueOnlyForMissingOrProvisional() throws {
         let context = try makeContext()
         let convo = Conversation(modelID: "qwen3", serverID: UUID())
@@ -199,6 +242,44 @@ final class ChatSessionTests: XCTestCase {
         }
 
         XCTAssertEqual(convo.title, "Swift Concurrency Basics")
+    }
+
+    // MARK: lastTurnFailed (sidebar's red "problem" light)
+
+    func test_lastTurnFailed_whenServerOffline() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: FakeProvider(events: []), context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server, serverOnline: false)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    func test_lastTurnFailed_whenTheStreamThrows() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: ThrowingProvider(), context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server)
+        XCTAssertTrue(session.lastTurnFailed)
+    }
+
+    /// A notice reuses the error banner ("earlier messages dropped") but isn't a failure.
+    func test_lastTurnFailed_notForANotice_andClearsOnTheNextTurn() async throws {
+        let context = try makeContext()
+        let session = ChatSession(client: FakeProvider(events: [.notice("Earlier messages were dropped."),
+                                                                .delta("ok"),
+                                                                .usage(promptTokens: 1, completionTokens: 1)]),
+                                  context: context, recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+        await session.send("Hi", in: convo, server: server, serverOnline: false)
+        XCTAssertTrue(session.lastTurnFailed)
+        await session.send("Hi again", in: convo, server: server)
+        XCTAssertNotNil(session.errorText)          // the notice still shows in the banner…
+        XCTAssertFalse(session.lastTurnFailed)      // …but the turn didn't fail
     }
 
     func test_send_setsErrorMessage_whenServerOffline() async throws {
@@ -527,6 +608,32 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertLessThan(e2e, try XCTUnwrap(assistant.tokensPerSecond))
     }
 
+    /// Long research: approving an MCP tool (Fetch) for the session lets its later calls
+    /// in the same chat run without another click.
+    func test_sessionGrant_forMCPTool_skipsLaterPrompts() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: "fetch", arguments: #"{"url":"https://a.example"}"#)])],
+            [.toolCalls([ToolCall(id: "c2", name: "fetch", arguments: #"{"url":"https://b.example"}"#)])],
+            [.delta("Done"), .usage(promptTokens: 20, completionTokens: 1)]
+        ])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry([FetchLikeTool()]))
+        let server = Server(label: "Studio", host: "studio"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        let turn = Task { await session.send("research", in: convo, server: server, modelSupportsTools: true) }
+        try await waitForPendingApproval(in: session)
+        session.respondToApproval(.session)
+        await turn.value
+
+        XCTAssertNil(session.pendingApproval)                       // never asked a second time
+        XCTAssertEqual(convo.messages.filter { $0.role == .tool }.count, 2)
+        // `messages` isn't stored in time order, so look for the final reply directly.
+        XCTAssertTrue(convo.messages.contains { $0.role == .assistant && $0.content == "Done" })
+    }
+
     func test_withoutYolo_mutatingToolStillPrompts() async throws {
         let context = try makeContext()
         let provider = FakeProvider(scripts: [
@@ -547,5 +654,24 @@ final class ChatSessionTests: XCTestCase {
 
         XCTAssertEqual(convo.messages.first { $0.role == .tool }?.content,
                        "The user declined to run mutate.")
+    }
+
+    /// A bare `/skill` has no typed text but must still be saved and sent.
+    func test_send_bareSkill_isSentAndKept() async throws {
+        let context = try makeContext()
+        let provider = FakeProvider(events: [.delta("ok"), .usage(promptTokens: 1, completionTokens: 1)])
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context))
+        let server = Server(label: "S", host: "s"); context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("", in: convo, server: server,
+                           skill: AgentSkill(name: "s", description: "", instructions: "Do X."))
+
+        let user = try XCTUnwrap(convo.messages.first { $0.role == .user })
+        XCTAssertEqual(user.skillName, "s")
+        XCTAssertEqual(user.skillInstructions, "Do X.")
+        let wire = LMStudioClient.wireMessages(provider.lastMessages, systemPrompt: "")
+        XCTAssertTrue(wire.contains { if case .text(let t)? = $0.content { t.contains("Do X.") } else { false } })
     }
 }

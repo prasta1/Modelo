@@ -6,14 +6,12 @@ A native macOS client for running inference against local and cloud LLMs.
 
 Connects to **LM Studio**, **Ollama**, **llama.cpp**, **llama-swap**, **oMLX**, and **exo** over your local network or **Tailscale**, and to the cloud via **Nous Research**, **OpenRouter**, **OpenAI**, **Groq**, **Together.ai**, **DeepSeek**, **Mistral**, or any OpenAI-compatible base URL — all in one picker. See [Endpoints](#endpoints). Built with SwiftUI and SwiftData.
 
-> The name is a play on words: the app runs inference against large language **models**, and Modelo is a favorite beer. The brand mark is a 🍋‍🟩 lime.
-
 ## Features
 
 - **Chat** — streaming responses, Markdown rendering with syntax-highlighted and copyable code blocks, per-message token metrics, slash commands (`/model`, `/temp`, `/system`, `/export`, `/skills`, …) with an autocomplete popup, queue messages while a reply streams, branch & regenerate any turn, adjustable text size
 - **Artifacts** — substantial model output (HTML, SVG, Mermaid, code, documents) opens in a Claude-style side panel with live preview — see [below](#artifacts)
 - **Tools & agents** — opt-in first-party filesystem + shell tools, MCP servers, `~/.agents` skills, with reliability tuned for local models — see [below](#tools--agents)
-- **Multi-backend model picker** — per-server tabs in the launcher; grouped by server across every runtime (LM Studio, Ollama, llama.cpp, llama-swap, oMLX, exo) and cloud provider; per-model load state (selected / loaded / idle / cloud); Models page shows every server Status-style for a full fleet overview
+- **Multi-backend model picker** — per-server tabs in the launcher; grouped by server across every runtime (LM Studio, Ollama, llama.cpp, llama-swap, oMLX, exo) and cloud provider; per-model load state (selected / loaded / idle / cloud); OpenRouter and Nous models show their input/output price per million tokens and free promos with end dates, straight from the provider's own list (no borrowed or day-old prices); Models page shows every server Status-style for a full fleet overview
 - **Endpoints** — six local runtimes plus dedicated Nous Research / OpenRouter endpoints and one-click presets for OpenAI, Groq, Together.ai, DeepSeek, and Mistral — see [below](#endpoints). Quick-setup hints guide you through adding a new server, **Scan Network…** finds local ones for you, workspace binding scopes file-tool access per endpoint, a connectivity LED on each row shows reachability at a glance, and an Advanced section collapses rarely-touched options
 - **Memory** — opt-in persistent memory across conversations: the model saves and recalls named notes (`save_memory` / `read_memory`) stored as hand-editable Markdown under `~/.modelo/memory`, with global and per-project scopes; manage entries in **Settings ▸ Memory** or per project — off by default
 - **Projects** — attach local directories as sidebar projects with project-scoped chats, filesystem tools, and memory
@@ -25,6 +23,7 @@ Connects to **LM Studio**, **Ollama**, **llama.cpp**, **llama-swap**, **oMLX**, 
 - **Personas** — system prompt presets with icons and taglines, managed from their own sidebar section and applied per-chat from the composer
 - **MCP Servers** — built-in discovery and management of Model Context Protocol tool servers
 - **Menu bar mini chat** — quick-access popover from the menu bar
+- **In-app updates** — Sparkle checks for new releases with your consent; each install needs confirmation
 
 ## Tools & agents
 
@@ -33,7 +32,7 @@ Modelo gives models a layered tool stack, designed so that even small/quantized 
 - **First-party filesystem & shell tools** — `read_file`, `write_file`, `edit_file`, `grep`, `glob`, `bash`. **Opt-in and off by default**: enable them in **Settings ▸ Tools** and pick a workspace folder (defaults to an auto-created `~/.modelo` sandbox) that all file access is confined to — path traversal is blocked. `bash` is behind its own separate toggle. Read-only tools run automatically; **writes, edits, and shell commands pause for an in-chat approval card** (Deny / Approve once / Approve for session) showing the content, diff, or command first.
 - **Approvals & limits** — a configurable max tool rounds per turn, and an opt-in **YOLO mode** (global or per-chat) that auto-approves mutating tool calls and lifts the round cap.
 - **MCP servers** — the standard way to add external/custom tools; managed in Settings.
-- **`~/.agents` skills** — the portable, cross-tool `~/.agents/skills/<name>/SKILL.md` convention (shared with other agents on the machine), surfaced via a `use_skill` tool.
+- **Skills** — the portable, cross-tool `<name>/SKILL.md` convention, read from `~/.agents/skills` by default (shared with other agents on the machine). Type `/<skill>` (or `/skills` + Tab to pick from a list) to run one directly, even with tools off; models can also load them through a `use_skill` tool. **Settings ▸ Skills** adds more folders (e.g. `~/.claude/skills`) and switches individual skills on or off.
 - **Local-model reliability** — a tolerant parser recovers tool calls a model emits as text (`<tool_call>…</tool_call>`, fenced JSON) when the server doesn't produce native `tool_calls`, and **progressive disclosure** shows only the most relevant tools per request plus a `find_tools` meta-tool, so a large tool set doesn't overwhelm the model.
 
 Tools are also gated by each chat's **Tools** toggle and the model's tool-use capability.
@@ -95,6 +94,20 @@ Install and run instructions: **[`modelo-tap/README.md`](modelo-tap/README.md)**
 
 Download `Modelo-vX.Y.Z.zip` from the **[latest release](https://github.com/prasta1/Modelo/releases/latest)**, unzip it, and drag `Modelo.app` to `/Applications`. Builds are signed with Developer ID and notarized by Apple, so they open without Gatekeeper warnings. Universal binary (Apple Silicon + Intel). To build from source instead, see [Building](#building).
 
+### Updates
+
+Choose **Modelo → Check for Updates…** to check manually. On the second launch,
+Modelo asks whether it can check in the background. Each install needs your
+confirmation; updates are signature-checked before extraction.
+
+The published v0.4.0 release and earlier versions have no in-app updater. Download
+the first release that includes Sparkle once, then use the app menu for later
+updates. Use the official signed release for ongoing updates. Moving from a
+personally signed build can require you to enter API keys again.
+
+For signing-key setup, release checks, and troubleshooting, see
+[Sparkle updates](docs/sparkle-updates.md).
+
 ## Requirements
 
 - macOS 14.0+
@@ -109,6 +122,12 @@ open Modelo.xcodeproj
 ```
 
 Build the **Modelo** scheme. Swift Package Manager resolves dependencies automatically on first build.
+
+For a locally signed install, copy `Developer.xcconfig.example` to
+`Developer.xcconfig`, set your Apple team and bundle ID, then run
+`./scripts/install.sh`. Keep the same identity across local builds to retain
+keychain access. Free-team profiles expire after seven days; Sparkle does not
+renew them. See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands.
 
 ## Layout
 
@@ -132,7 +151,7 @@ Modelo/
 │   ├── ArtifactParser, SlashParser, TokenEstimator
 │   ├── ConversationExporter, ConversationGrouping, BranchingMigration
 │   ├── UsageRecorder, UsageMath, UsageRetention, ReportCalculator, MetricsRollup
-│   ├── Benchmark, CrashReporter, Log
+│   ├── AppUpdater, Benchmark, CrashReporter, Log
 │   ├── GPUMonitor, PrometheusMonitor, PrometheusScrape
 │   ├── OpenRouterCatalog, KeychainStore, Macmon
 ├── Resources/                   # bundled assets (e.g. mermaid.min.js for diagram previews)
@@ -153,7 +172,7 @@ modelo-tap/                      # remote GPU-metrics agent (Rust, runs on the N
 
 ## Target
 
-macOS 14+, SwiftUI + Swift Charts + Observation framework. Dependencies (SPM): [swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui), [Highlightr](https://github.com/raspu/Highlightr).
+macOS 14+, SwiftUI + Swift Charts + Observation framework. Dependencies (SPM): [swift-markdown-ui](https://github.com/gonzalezreal/swift-markdown-ui), [Highlightr](https://github.com/raspu/Highlightr), [Sparkle](https://sparkle-project.org/).
 
 ## License
 

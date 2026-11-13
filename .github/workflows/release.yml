@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# Serialize releases so the build-number check cannot race publication.
+concurrency:
+  group: modelo-release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-26
@@ -28,6 +33,13 @@ jobs:
 
       - name: Generate project
         run: brew install xcodegen && xcodegen generate
+
+      - name: Check update build number
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          BUILD=$(ruby -ryaml -e 'puts YAML.load_file("project.yml").dig("targets", "Modelo", "settings", "base", "CURRENT_PROJECT_VERSION")')
+          python3 scripts/check_update_version.py "$BUILD" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml"
 
       # The runner is a fresh Mac, so the cert goes into a temporary keychain that
       # codesign can use without a password prompt.
@@ -71,11 +83,20 @@ jobs:
                 -authenticationKeyIssuerID "$ASC_ISSUER_ID")
           xcodebuild -project Modelo.xcodeproj -scheme Modelo -configuration Release \
             -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath build-release/spm \
             -archivePath build-release/Modelo.xcarchive archive "${AUTH[@]}"
           # Export signs manually with the installed profile — no API key, so no cloud signing.
           xcodebuild -exportArchive -archivePath build-release/Modelo.xcarchive \
             -exportOptionsPlist scripts/ExportOptions.plist \
             -exportPath build-release/export
+
+      - name: Verify signing and keychain access
+        run: |
+          APP=build-release/export/Modelo.app
+          codesign --verify --deep --strict --verbose "$APP"
+          test -f "$APP/Contents/embedded.provisionprofile"
+          codesign -d --entitlements - --xml "$APP" > "$RUNNER_TEMP/entitlements.plist"
+          python3 -c 'import plistlib, sys; e = plistlib.load(open(sys.argv[1], "rb")); app = "QVYZN4MJ67.com.peregrine.modelo"; assert e["com.apple.application-identifier"] == app; assert app in e["keychain-access-groups"]' "$RUNNER_TEMP/entitlements.plist"
 
       # Notarize the zip, staple the ticket onto the app, then re-zip so the
       # shipped copy carries the ticket for offline Gatekeeper checks.
@@ -90,14 +111,32 @@ jobs:
 
       # GitHub's generated notes list oldest change first; reverse each run of
       # "* " bullets so the newest is on top, leaving section headings in place.
-      - name: Publish release
+      - name: Sign update and publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
+          test -n "$SPARKLE_ED_PRIVATE_KEY"
+          ZIP="Modelo-$GITHUB_REF_NAME.zip"
+          UPDATES="$RUNNER_TEMP/sparkle-updates"
+          TOOLS=build-release/spm/artifacts/sparkle/Sparkle/bin
+          mkdir -p "$UPDATES"
+          cp "$ZIP" "$UPDATES/"
           gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body \
             | awk '/^\* /{b[n++]=$0; next} {while(n) print b[--n]; print} END{while(n) print b[--n]}' \
             > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" "Modelo-$GITHUB_REF_NAME.zip" --notes-file "$RUNNER_TEMP/notes.md"
+          printf '\nTo move from a version without in-app updates, download this release once. Future updates are available in Modelo → Check for Updates….\n' >> "$RUNNER_TEMP/notes.md"
+          cp "$RUNNER_TEMP/notes.md" "$UPDATES/Modelo-$GITHUB_REF_NAME.md"
+          # GitHub also records each asset's digest, but it's easy to miss; surface it in the notes.
+          printf '\n**SHA-256** `%s`: `%s` — verify with `shasum -a 256 %s`\n' \
+            "$ZIP" "$(shasum -a 256 "$ZIP" | cut -d' ' -f1)" "$ZIP" >> "$RUNNER_TEMP/notes.md"
+          # Sparkle reads versions and the public key from the final signed app.
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$TOOLS/generate_appcast" --ed-key-file - \
+            --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
+            --embed-release-notes --maximum-deltas 0 "$UPDATES"
+          SIG=$(python3 -c 'import sys, xml.etree.ElementTree as ET; print(ET.parse(sys.argv[1]).find("./channel/item/enclosure").attrib["{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature"])' "$UPDATES/appcast.xml")
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$TOOLS/sign_update" --ed-key-file - --verify "$ZIP" "$SIG"
+          gh release create "$GITHUB_REF_NAME" "$ZIP" "$UPDATES/appcast.xml" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Clean up keychain
         if: always()

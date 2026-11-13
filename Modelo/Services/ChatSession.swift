@@ -9,6 +9,10 @@ import SwiftData
 final class ChatSession {
     private(set) var isStreaming = false
     var errorText: String?
+    /// True when the last turn failed (server offline, a stream error, the tool-call
+    /// limit) — unlike `errorText`, which also carries harmless notices such as dropped
+    /// history. Drives the sidebar's red "problem" light.
+    private(set) var lastTurnFailed = false
     /// Called on the main actor when a turn finishes replying normally (not after a
     /// user stop or a transport error). The owning view uses it to post a completion
     /// notification when the user isn't watching this chat.
@@ -72,7 +76,8 @@ final class ChatSession {
     /// proceed, and remembers session-wide approvals so we don't ask again.
     private func requestApproval(toolName: String, preview: ToolApprovalPreview) async -> Bool {
         if yoloMode { return true }
-        if sessionApprovedTools.contains(toolName) { return true }
+        let key = Self.grantKey(toolName: toolName, preview: preview)
+        if sessionApprovedTools.contains(key) { return true }
         let decision = await withTaskCancellationHandler {
             await withCheckedContinuation { (cont: CheckedContinuation<ApprovalDecision, Never>) in
                 pendingApproval = PendingApproval(toolName: toolName, preview: preview) { cont.resume(returning: $0) }
@@ -83,11 +88,17 @@ final class ChatSession {
             Task { @MainActor in self.cancelPendingApproval() }
         }
         // "Approve for session" is deliberately NOT honored for the shell tool: one grant
-        // must never authorize every later command. Writes/edits stay workspace-scoped,
-        // so a session grant for those is acceptable. MCP tools aren't workspace-scoped
-        // (a Filesystem server rooted at ~, Fetch to any URL), so they're excluded too.
-        if decision == .session && preview.allowsSessionGrant { sessionApprovedTools.insert(toolName) }
+        // must never authorize every later command. Writes/edits stay workspace-scoped;
+        // an MCP grant is keyed to its server + tool, so it can't leak to a same-named
+        // built-in (or vice versa).
+        if decision == .session && preview.allowsSessionGrant { sessionApprovedTools.insert(key) }
         return decision != .deny
+    }
+
+    /// What a session grant is remembered under: the preview's server-qualified key for
+    /// MCP tools, else the tool name.
+    nonisolated static func grantKey(toolName: String, preview: ToolApprovalPreview) -> String {
+        preview.grantKey ?? toolName
     }
 
     private let client: any ChatProvider
@@ -141,17 +152,25 @@ final class ChatSession {
               serverOnline: Bool = true, modelSupportsTools: Bool = false,
               sampling: SamplingParams = SamplingParams(),
               contextWindow: Int = 0,
+              skill: AgentSkill? = nil,
               replacing edited: Message? = nil) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't send right now."
+            lastTurnFailed = true
             return
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        // A bare `/skill` has no typed text but is still a real turn.
+        guard !trimmed.isEmpty || !attachments.isEmpty || skill != nil else { return }
 
         let userMsg = Message(role: .user, content: trimmed)
         if !attachments.isEmpty { userMsg.attachmentsJSON = attachments.json }
+        if let skill {
+            userMsg.skillName = skill.name
+            userMsg.skillInstructions = skill.instructions
+        }
         if let edited, edited.parent != nil {
             conversation.branch(userMsg, asSiblingOf: edited)
         } else {
@@ -180,8 +199,10 @@ final class ChatSession {
                     sampling: SamplingParams = SamplingParams(),
                     contextWindow: Int = 0) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't regenerate right now."
+            lastTurnFailed = true
             return
         }
         guard target.role == .assistant else { return }
@@ -206,8 +227,10 @@ final class ChatSession {
                sampling: SamplingParams = SamplingParams(),
                contextWindow: Int = 0) async {
         errorText = nil
+        lastTurnFailed = false
         guard serverOnline else {
             errorText = "\(server.label) is offline — can't retry right now."
+            lastTurnFailed = true
             return
         }
         guard conversation.activePath().last?.role == .user else { return }
@@ -318,6 +341,9 @@ final class ChatSession {
                         lastPromptTokens = p; roundCompletion = c
                     case .toolCalls(let cs):
                         toolCalls = cs
+                    case .notice(let text):
+                        // Reuses the chat banner; it's cleared at the start of each turn.
+                        errorText = text
                     }
                 }
                 // Flush any tokens buffered since the last 50ms window.
@@ -334,6 +360,7 @@ final class ChatSession {
                     \(error.localizedDescription, privacy: .public)
                     """)
                 errorText = (error as? ClientError)?.errorDescription ?? error.localizedDescription
+                lastTurnFailed = true
                 if assistant.content.isEmpty && assistant.toolCallsJSON == nil {
                     conversation.dropLeaf(assistant)
                     context.delete(assistant)
@@ -396,6 +423,7 @@ final class ChatSession {
             round += 1
             if !yoloMode && round >= maxToolRounds {
                 errorText = "Reached the tool-call limit (\(maxToolRounds)) for this turn."
+                lastTurnFailed = true
                 break
             }
         }
@@ -580,9 +608,10 @@ final class ChatSession {
     /// then writes it to `conversation.title`. Silent on failure — the sidebar
     /// falls back to "New Chat" until (and unless) this succeeds.
     private func generateTitle(for conversation: Conversation, server: Server) async {
+        // First user turn with text: a bare `/skill` opener has none (§3.7).
         let opener = conversation.messages
             .sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         guard !opener.isEmpty else { return }
 
         // A transient (un-inserted) prompt — never persisted, just fed to the model.
@@ -639,7 +668,7 @@ final class ChatSession {
     static func needsModelTitle(_ conversation: Conversation) -> Bool {
         guard let title = conversation.title, !title.isEmpty else { return true }
         let opener = conversation.messages.sorted { $0.createdAt < $1.createdAt }
-            .first { $0.role == .user }?.content ?? ""
+            .first { $0.role == .user && !$0.content.isEmpty }?.content ?? ""
         return title == provisionalTitle(from: opener)
     }
 
@@ -664,6 +693,6 @@ final class ChatSession {
     private func wireKeep(_ m: Message) -> Bool {
         if m.role == .tool { return true }
         if m.role == .assistant && m.toolCallsJSON != nil { return true }
-        return !m.content.isEmpty
+        return !m.wireContent.isEmpty
     }
 }

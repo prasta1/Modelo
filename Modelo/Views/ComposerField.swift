@@ -16,6 +16,10 @@ struct ComposerField: NSViewRepresentable {
     /// consume the key (the cursor doesn't move); nil/false lets the text view handle it.
     var onMoveUp: (() -> Bool)? = nil
     var onMoveDown: (() -> Bool)? = nil
+    /// Tab hook for the same popup: return true to consume it (e.g. accept a suggestion).
+    var onTab: (() -> Bool)? = nil
+    /// Esc hook for the same popup: return true to consume it (e.g. close the popup).
+    var onCancel: (() -> Bool)? = nil
     /// Called when the user pastes (⌘V) an image (e.g. a screenshot). Return true to
     /// consume the paste so the image becomes a chat attachment instead of an inline
     /// text character; nil/false lets the text view paste normally.
@@ -97,6 +101,12 @@ struct ComposerField: NSViewRepresentable {
                 return true
             }
             if commandSelector == #selector(NSResponder.moveDown(_:)), parent.onMoveDown?() == true {
+                return true
+            }
+            if commandSelector == #selector(NSResponder.insertTab(_:)), parent.onTab?() == true {
+                return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)), parent.onCancel?() == true {
                 return true
             }
             return false
