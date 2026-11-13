@@ -32,6 +32,9 @@ struct VendorGroup: Identifiable {
 struct EndpointGroup: Identifiable {
     let label: String
     let isLocal: Bool
+    /// The server behind this label, for the header's reachability LED. Labels are
+    /// one-per-server in practice; if two ever collide, the first one seen wins.
+    let server: Server
     /// Total across all vendors, shown on the header while collapsed.
     let modelCount: Int
     let vendors: [VendorGroup]
@@ -109,10 +112,15 @@ final class ModelCatalogViewModel {
         return allModels.first { $0.id == prev }
     }
 
-    var localHostname: String {
-        var h = ProcessInfo.processInfo.hostName
-        if h.hasSuffix(".local") { h = String(h.dropLast(6)) }
-        return h
+    /// Endpoint labels the loaded models live on, in first-seen order — the same
+    /// names the endpoint headers below use. Not the hostname: a model loaded on a
+    /// remote LM Studio is loaded there, and the hostname named this Mac a second way.
+    var loadedEndpointLabels: String {
+        var seen: [String] = []
+        for item in loadedModels where !seen.contains(item.server.label) {
+            seen.append(item.server.label)
+        }
+        return seen.joined(separator: " · ")
     }
 
     var totalVisible: Int { filteredCount }
@@ -271,21 +279,21 @@ final class ModelCatalogViewModel {
     private func buildGroups(_ items: [DiscoveredModel]) -> [EndpointGroup] {
         var order: [String] = []
         var byEndpoint: [String: [DiscoveredModel]] = [:]
-        var localFlags: [String: Bool] = [:]
+        var servers: [String: Server] = [:]
 
         for item in items {
             let key = item.server.label
             if byEndpoint[key] == nil {
                 byEndpoint[key] = []
                 order.append(key)
-                localFlags[key] = item.server.kind.isLocal
+                servers[key] = item.server
             }
             byEndpoint[key]!.append(item)
         }
 
         let groups: [EndpointGroup] = order.compactMap { label in
-            guard let models = byEndpoint[label], !models.isEmpty else { return nil }
-            let isLocal = localFlags[label] ?? false
+            guard let models = byEndpoint[label], !models.isEmpty, let server = servers[label] else { return nil }
+            let isLocal = server.kind.isLocal
             // Local endpoints never sub-group. Their IDs can carry a slash too
             // (`mlx-community/Qwen2.5-7B-Instruct`), so bucketing on the prefix
             // would file the models you actually run behind a vendor group that
@@ -293,6 +301,7 @@ final class ModelCatalogViewModel {
             return EndpointGroup(
                 label: label,
                 isLocal: isLocal,
+                server: server,
                 modelCount: models.count,
                 vendors: isLocal ? [VendorGroup(name: nil, models: models)] : bucketByVendor(models)
             )

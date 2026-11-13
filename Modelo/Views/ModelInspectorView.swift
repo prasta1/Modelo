@@ -48,7 +48,7 @@ private struct DetailPanel: View {
     private var m: LMStudioModel { model.model }
 
     private var placementLine: String {
-        if m.isLoaded                { return "LOADED · \(vm.localHostname.uppercased())" }
+        if m.isLoaded                { return "LOADED · \(model.server.label.uppercased())" }
         if model.server.kind.isLocal { return "NOT LOADED" }
         return "REMOTE · \(model.server.label.uppercased())"
     }

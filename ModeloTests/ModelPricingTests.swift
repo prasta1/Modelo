@@ -65,7 +65,7 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(ModelPricing.tableText(.price(input: 0.25, output: 1)), "$0.25 · $1.00")
         XCTAssertEqual(ModelPricing.tableText(.free(until: oct31, normalInput: 0.4, normalOutput: 1.6)), "FREE · Oct 31")
         XCTAssertEqual(ModelPricing.tableText(.free(until: nil, normalInput: nil, normalOutput: nil)), "FREE")
-        XCTAssertEqual(ModelPricing.tableText(.local), "local")
+        XCTAssertEqual(ModelPricing.tableText(.local), "")
         XCTAssertEqual(ModelPricing.tableText(nil), "—")
     }
 

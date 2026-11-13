@@ -41,6 +41,7 @@ struct ModelTableView: View {
     let rotation: RotationStore
     let favorites: FavoritesStore
     let collapse: CatalogCollapseStore
+    @Environment(ServerRegistry.self) private var registry
 
     /// One model row. Extracted because it is emitted from three places
     /// (flattened, loaded, and inside a vendor group) with identical wiring.
@@ -106,17 +107,21 @@ struct ModelTableView: View {
                                 row(item)
                             }
                         } else {
-                            // LOADED ON <hostname>
+                            // LOADED ON <endpoint label(s)>
                             if !vm.loadedModels.isEmpty {
                                 Section {
                                     ForEach(vm.loadedModels) { item in
                                         row(item)
                                     }
                                 } header: {
+                                    // Loaded implies the server just answered, so
+                                    // the lamp is live rather than looked up.
                                     CatalogGroupHeader(
-                                        label: "Loaded on \(vm.localHostname)".uppercased(),
+                                        label: "Loaded on \(vm.loadedEndpointLabels)".uppercased(),
                                         count: vm.loadedModels.count,
-                                        isLocal: true
+                                        isLocal: true,
+                                        status: .online,
+                                        showsRule: false
                                     )
                                 }
                             }
@@ -137,6 +142,8 @@ struct ModelTableView: View {
                                         label: endpoint.label.uppercased(),
                                         count: endpoint.modelCount,
                                         isLocal: endpoint.isLocal,
+                                        status: registry.status(for: endpoint.server),
+                                        showsRule: !vm.loadedModels.isEmpty || endpoint.id != vm.groupedRemote.first?.id,
                                         isCollapsed: vm.isEndpointCollapsed(endpoint.label),
                                         onToggle: { collapse.toggle(ModelCatalogViewModel.endpointKey(endpoint.label)) }
                                     )
@@ -252,12 +259,17 @@ private struct CatalogGroupHeader: View {
     let label: String
     let count: Int
     let isLocal: Bool
+    /// Drives the header LED, so a dead box is visible without opening Status.
+    let status: ServerStatus
+    /// A hairline above the header, splitting it from the endpoint before it.
+    /// Off for the topmost section, which already sits under the column rule.
+    let showsRule: Bool
     /// nil for the LOADED section, which has no vendor tree and never collapses.
     var isCollapsed: Bool? = nil
     var onToggle: (() -> Void)? = nil
 
     private var content: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             // Reserve the gutter whether or not a chevron is drawn — the LOADED
             // section passes no chevron, and without this its label lands 13pt
             // left of every other endpoint header.
@@ -271,31 +283,36 @@ private struct CatalogGroupHeader: View {
             }
             .frame(width: 8)
 
-            Circle()
-                .fill(Theme.textFaint)
-                .frame(width: 4, height: 4)
+            StatusLED(status: status, size: 6)
+                .help(status.displayLabel.capitalized)
 
-            // Small-caps section label, same treatment as the picker's server
-            // headers. Rank comes from caps + tracking + position, not size — at
-            // 13pt it competed with the model names it was meant to label.
+            // Small caps outrank the 13pt model names through contrast and
+            // weight, not size: 13pt competed with the rows, and 11pt in
+            // textFaint (~2.4:1) disappeared. 12pt semibold textMid sits between.
             Text(label)
-                .font(Theme.label(11))
+                .font(Theme.label(12))
                 .tracking(1)
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textMid)
+                .lineLimit(1)
 
             if isLocal {
-                Chip(text: "local", tint: Theme.textFaint)
+                Chip(text: "local", tint: Theme.textLo)
             }
 
             Spacer()
 
             Text("\(count) model\(count == 1 ? "" : "s")")
                 .font(Theme.metric(10))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(Theme.textLo)
         }
         .padding(.vertical, 7)
-        .padding(.top, 4)
+        .padding(.top, showsRule ? 10 : 4)
         .background(Theme.windowBG)
+        .overlay(alignment: .top) {
+            if showsRule {
+                Rectangle().fill(Theme.line).frame(height: 1)
+            }
+        }
     }
 
     var body: some View {
@@ -305,7 +322,7 @@ private struct CatalogGroupHeader: View {
         if let isCollapsed, let onToggle {
             Button(action: onToggle) { content }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(label), \(count) models")
+                .accessibilityLabel("\(label), \(status.displayLabel.lowercased()), \(count) models")
                 .accessibilityHint(isCollapsed ? "Expand" : "Collapse")
                 .accessibilityAddTraits(isCollapsed ? [] : .isSelected)
         } else {
@@ -432,7 +449,9 @@ struct ModelTableRow: View {
             // Capabilities
             HStack(spacing: 8) {
                 if model.isFree           { capIcon("gift",                    "Free",      Theme.green) }
-                if model.supportsToolUse  { capIcon("wrench.and.screwdriver", "Tool use",  Theme.amber) }
+                // Neutral, not accent: nearly every model has tools, and a column
+                // of accent glyphs read as 30 controls (One Signal Rule).
+                if model.supportsToolUse  { capIcon("wrench.and.screwdriver", "Tool use",  Theme.textLo) }
                 if model.supportsVision   { capIcon("eye",                     "Vision",    Theme.blue) }
                 if model.supportsThinking { capIcon("brain",                   "Reasoning", Theme.purple) }
                 if model.isLoaded         { capIcon("memorychip",              "Loaded",    Theme.green) }
