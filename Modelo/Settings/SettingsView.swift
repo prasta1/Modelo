@@ -315,9 +315,9 @@ struct SettingsView: View {
     private var scanResultsPanel: some View {
         VStack(spacing: 6) {
             switch scanner.state {
-            case .scanning(let progress):
+            case .scanning:
                 HStack(spacing: 10) {
-                    ProgressView(value: progress)
+                    ProgressView(value: scanner.progress)
                         .tint(Theme.amber)
                         .frame(maxWidth: .infinity)
                     Button("Cancel") { scanner.cancel() }
