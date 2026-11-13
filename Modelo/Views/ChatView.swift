@@ -865,7 +865,19 @@ struct ChatView: View {
                     }
                     starterRow("sidebar.right", "Build something to preview",
                                "Code the model writes can open in the artifacts panel") {
-                        draft = "Make a small HTML page with a working counter button."
+                        // A fresh idea per tap; tapping again re-rolls.
+                        draft = [
+                            "Make a small HTML page with a working counter button.",
+                            "Build a single-page pomodoro timer with start, pause and reset.",
+                            "Make an HTML color palette generator that copies hex codes on click.",
+                            "Build a tiny to-do list in one HTML file that survives a reload.",
+                            "Make a playable tic-tac-toe game in a single HTML page.",
+                            "Build an SVG analog clock that ticks in real time.",
+                            "Make a tip calculator page that splits the bill between friends.",
+                            "Build a bouncing-balls canvas animation you can click to add balls.",
+                            "Make a markdown previewer: text on the left, rendered on the right.",
+                            "Build a dice roller page for 1–6 dice with a running total.",
+                        ].randomElement()!
                     }
                 }
                 .frame(maxWidth: 360)
