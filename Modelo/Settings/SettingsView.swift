@@ -382,7 +382,7 @@ struct SettingsView: View {
                 .foregroundStyle(Theme.amber)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(host.host):\(host.port)")
+                Text(verbatim: "\(host.host):\(host.port)")
                     .font(Theme.mono(12))
                     .foregroundStyle(.primary)
                 Text(host.kind.displayName)
