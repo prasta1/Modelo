@@ -64,6 +64,37 @@ final class LMStudioModelActionsTests: XCTestCase {
         XCTAssertNil(try model(#"{"id":"d"}"#).contextDisplay())
     }
 
+    /// Server-declared capabilities beat the id heuristics, in both wire shapes;
+    /// silence (or an unknown shape) falls back to the guess and says so.
+    func test_declaredCapabilities_overrideHeuristics() throws {
+        func model(_ json: String) throws -> LMStudioModel {
+            try JSONDecoder().decode(LMStudioModel.self, from: Data(json.utf8))
+        }
+        // llama-swap: an embedder whose id has no "embed" in it.
+        let bge = try model(#"{"id":"bge-m3-1024","capabilities":{"embeddings":true}}"#)
+        XCTAssertTrue(bge.isEmbeddingModel)
+        XCTAssertFalse(bge.supportsToolUse)
+        XCTAssertTrue(bge.toolUseVerified)
+
+        // llama-swap: vision declared on an id the heuristic doesn't recognise.
+        let arete = try model(#"{"id":"arete-27b","capabilities":{"function_calling":true,"vision":true}}"#)
+        XCTAssertTrue(arete.supportsToolUse)
+        XCTAssertTrue(arete.toolUseVerified)
+        XCTAssertTrue(arete.supportsVision)
+
+        // LM Studio: a list naming what the model has; absence is a "no".
+        XCTAssertTrue(try model(#"{"id":"m","capabilities":["tool_use"]}"#).supportsToolUse)
+        XCTAssertFalse(try model(#"{"id":"m","capabilities":[]}"#).supportsToolUse)
+
+        // Silent server, or a shape we don't know: guessed yes, flagged unverified,
+        // and the model still decodes.
+        for json in [#"{"id":"devstral-24b"}"#, #"{"id":"devstral-24b","capabilities":"tools"}"#] {
+            let m = try model(json)
+            XCTAssertTrue(m.supportsToolUse)
+            XCTAssertFalse(m.toolUseVerified)
+        }
+    }
+
     func test_contextLength_capsAtModelMaxAndHonorsLMStudioDefault() {
         XCTAssertEqual(LMStudioLoadContext.contextLength(cap: 65_536, modelMax: 393_216), 65_536)
         XCTAssertEqual(LMStudioLoadContext.contextLength(cap: 65_536, modelMax: 32_768), 32_768)

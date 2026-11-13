@@ -100,7 +100,10 @@ private struct DetailPanel: View {
                     // Capability chips
                     HStack(spacing: 4) {
                         if m.isFree           { Chip(text: "free",   tint: Theme.green) }
-                        if m.supportsToolUse  { Chip(text: "tools",  tint: Theme.amber) }
+                        if m.supportsToolUse {
+                            Chip(text: m.toolUseVerified ? "tools" : "tools?", tint: Theme.amber)
+                                .help(m.toolUseVerified ? "" : "Unverified: the server doesn't declare tool support, so this is guessed from the name")
+                        }
                         if m.supportsVision   { Chip(text: "vision", tint: Theme.blue) }
                         if m.supportsThinking { Chip(text: "reason", tint: Theme.purple) }
                         if m.isLoaded         { Chip(text: "local",  tint: Theme.amber) }

@@ -83,6 +83,10 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// Not part of the LM Studio wire format.
     var toolUseSupported: Bool? = nil
 
+    /// What the server itself says the model can do, when it says anything. nil means
+    /// the server is silent and the capability getters fall back to id heuristics.
+    var capabilities: DeclaredCapabilities? = nil
+
     /// USD per million tokens, from the provider's own model list (OpenRouter, Nous).
     /// nil when the provider doesn't publish a price — never estimated or borrowed.
     /// Not part of the LM Studio wire format.
@@ -102,11 +106,15 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
         case sizeBytes = "size_bytes"
         case sizeBytesAlt = "size"
         case keepInRam = "keep_in_ram"
+        case capabilities
     }
 
     // MARK: Derived
 
     var isEmbeddingModel: Bool {
+        // A server-declared embedder (llama-swap `bge-m3-1024`) carries no "embed"
+        // in its id, so the name heuristic below would miss it.
+        if capabilities?.embeddings == true { return true }
         // When the v0 API provides a type, trust it exclusively — name heuristics
         // produce false positives (e.g. qwen3-embedding-4b-dwq has type "llm").
         if let type { return type.hasPrefix("embed") }
@@ -119,6 +127,7 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// Authoritative when `type` is known; falls back to heuristic for /v1/models.
     var supportsVision: Bool {
         if let type { return type == "vlm" }
+        if let declared = capabilities?.vision { return declared }
         return Self.supportsVision(modelID: id)
     }
 
@@ -327,11 +336,14 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     }
 
     /// Tool-use support. Authoritative when a provider reports it (`toolUseSupported`,
-    /// e.g. OpenRouter). For LM Studio models, we default to `true` for most modern
-    /// models because LM Studio's OpenAI-compatible API enables tool use across the
-    /// board; we only return `false` for embeddings and base/pretrained variants.
+    /// e.g. OpenRouter) or the server declares capabilities (llama-swap, LM Studio).
+    /// Otherwise we default to `true` — the OpenAI-compatible API accepts `tools`
+    /// for any model — and only return `false` for embeddings and base/pretrained
+    /// variants. `toolUseVerified` tells the UI which of those two it got.
     var supportsToolUse: Bool {
         if let toolUseSupported { return toolUseSupported }
+        // A declaration that omits tools is a "no": bge-m3 declares only embeddings.
+        if let capabilities, !capabilities.isEmpty { return capabilities.tools ?? false }
 
         let lower = id.lowercased()
 
@@ -346,6 +358,10 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
 
         return true
     }
+
+    /// True when `supportsToolUse` came from the provider or server rather than the
+    /// id heuristic, so the catalog can tell a declared "yes" from a guessed one.
+    var toolUseVerified: Bool { toolUseSupported != nil || capabilities?.isEmpty == false }
 
     /// Heuristic vision detection — used when `type` is absent (/v1/models fallback).
     static func supportsVision(modelID: String) -> Bool {
@@ -372,4 +388,38 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
 
 struct ModelsResponse: Decodable {
     let data: [LMStudioModel]
+}
+
+/// A server's own capability declaration for one model. Two wire shapes exist:
+/// llama-swap sends `{"function_calling": true, "vision": true, "embeddings": true}`,
+/// LM Studio's `/api/v0` sends `["tool_use"]`. A key the server leaves out stays nil.
+struct DeclaredCapabilities: Decodable, Hashable {
+    var tools: Bool?
+    var vision: Bool?
+    var embeddings: Bool?
+
+    init(tools: Bool? = nil, vision: Bool? = nil, embeddings: Bool? = nil) {
+        self.tools = tools
+        self.vision = vision
+        self.embeddings = embeddings
+    }
+
+    /// Nothing recognisable was declared; treat the server as silent.
+    var isEmpty: Bool { tools == nil && vision == nil && embeddings == nil }
+
+    /// Never throws: an unrecognised shape decodes as an empty declaration rather
+    /// than failing the whole model list over one optional field.
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if let flags = try? single.decode([String: Bool].self) {
+            tools = flags["function_calling"]
+            vision = flags["vision"]
+            embeddings = flags["embeddings"]
+        } else if let names = try? single.decode([String].self) {
+            // The list names what the model has, so absence is a "no", not unknown.
+            tools = names.contains("tool_use")
+            vision = names.contains("vision")
+            embeddings = names.contains("embeddings")
+        }
+    }
 }
