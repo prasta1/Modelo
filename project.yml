@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.peregrine
   deploymentTarget:
     macOS: "14.0"
-    iOS: "17.0"
+    iOS: "26.0"
   createIntermediateGroups: true
 # First third-party dependencies (deliberate exception — see MERGE_PLAN §1.1):
 # Markdown (GFM) rendering for chat messages + syntax-highlighted code blocks.
