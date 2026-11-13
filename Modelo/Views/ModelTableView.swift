@@ -114,25 +114,6 @@ struct ModelTableView: View {
                                 row(item)
                             }
                         } else {
-                            // LOADED ON <endpoint label(s)>
-                            if !vm.loadedModels.isEmpty {
-                                Section {
-                                    ForEach(vm.loadedModels) { item in
-                                        row(item)
-                                    }
-                                } header: {
-                                    // Loaded implies the server just answered, so
-                                    // the lamp is live rather than looked up.
-                                    CatalogGroupHeader(
-                                        label: "Loaded on \(vm.loadedEndpointLabels)".uppercased(),
-                                        count: vm.loadedModels.count,
-                                        isLocal: true,
-                                        status: .online,
-                                        showsRule: false
-                                    )
-                                }
-                            }
-
                             // Endpoint groups, each holding vendor sub-groups.
                             // Only the endpoint header is a Section header, so it
                             // is the one that stays pinned while scrolling; vendor
@@ -150,7 +131,7 @@ struct ModelTableView: View {
                                         count: endpoint.modelCount,
                                         isLocal: endpoint.isLocal,
                                         status: registry.status(for: endpoint.server),
-                                        showsRule: !vm.loadedModels.isEmpty || endpoint.id != vm.groupedRemote.first?.id,
+                                        showsRule: endpoint.id != vm.groupedRemote.first?.id,
                                         isCollapsed: vm.isEndpointCollapsed(endpoint.label),
                                         onToggle: { collapse.toggle(ModelCatalogViewModel.endpointKey(endpoint.label)) }
                                     )

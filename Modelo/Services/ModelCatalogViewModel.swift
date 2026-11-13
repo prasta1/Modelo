@@ -112,17 +112,6 @@ final class ModelCatalogViewModel {
         return allModels.first { $0.id == prev }
     }
 
-    /// Endpoint labels the loaded models live on, in first-seen order — the same
-    /// names the endpoint headers below use. Not the hostname: a model loaded on a
-    /// remote LM Studio is loaded there, and the hostname named this Mac a second way.
-    var loadedEndpointLabels: String {
-        var seen: [String] = []
-        for item in loadedModels where !seen.contains(item.server.label) {
-            seen.append(item.server.label)
-        }
-        return seen.joined(separator: " · ")
-    }
-
     var totalVisible: Int { filteredCount }
     var totalAll: Int { allModels.count }
     var maxSpeedMedian: Double { speedMedians.values.max() ?? 1 }

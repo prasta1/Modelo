@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Band 2: ALL / FREE / TOOLS / VISION / REASON / LOADED / FAVS chip row.
+/// Band 2: ALL / FREE / TOOLS / VISION / REASON / FAVS chip row.
 struct ModelFilterChipsView: View {
     let vm: ModelCatalogViewModel
 
@@ -19,7 +19,6 @@ struct ModelFilterChipsView: View {
         ChipDef(id: "tools",  label: "Tools",  tint: Theme.amber,  symbol: "wrench.and.screwdriver"),
         ChipDef(id: "vision", label: "Vision", tint: Theme.blue,   symbol: "eye"),
         ChipDef(id: "reason", label: "Reason", tint: Theme.purple, symbol: "brain"),
-        ChipDef(id: "loaded", label: "Loaded", tint: Theme.green,  symbol: "memorychip"),
         ChipDef(id: "favs",   label: "Favs",   tint: Theme.amber,  symbol: "star.fill"),
     ]
 
