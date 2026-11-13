@@ -58,14 +58,33 @@ final class Server {
     var baseURL: String {
         switch kind {
         // Local runtimes are addressed by host:port.
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo:
-            let h = Server.normalizedHost(host)
-            return h.hasPrefix("https://") ? "\(h):\(port)" : "http://\(h):\(port)"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo:
+            return Server.hostPortURL(host: host, port: port)
+        case .custom:
+            var url = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            while url.hasSuffix("/") { url.removeLast() }
+            return url
         case .cloudAPI:   return host
         case .openRouter: return Endpoint.openRouterBaseURL
         case .nous:       return Endpoint.nousBaseURL
         case .appleIntelligence: return Endpoint.appleIntelligenceBaseURL
         }
+    }
+
+    /// `http://host:port`, or `https://host:port` when the host was entered with `https://`.
+    static func hostPortURL(host: String, port: Int) -> String {
+        let h = normalizedHost(host)
+        return h.hasPrefix("https://") ? "\(h):\(port)" : "http://\(h):\(port)"
+    }
+
+    /// Splits a full base URL back into the host field + port used by host:port kinds,
+    /// keeping `https://` on the host (see `normalizedHost`). Any path is dropped.
+    /// Returns nil when the string isn't a parseable http(s) URL with a host.
+    static func hostPort(fromURL raw: String) -> (host: String, port: Int?)? {
+        guard let c = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = c.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let h = c.host, !h.isEmpty else { return nil }
+        return (scheme == "https" ? "https://\(h)" : h, c.port)
     }
 
     /// Cleans a user-entered LM Studio host so it can be safely interpolated into

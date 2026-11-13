@@ -43,8 +43,16 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(s.baseURL, "https://inference-api.nousresearch.com/v1")
     }
 
+    func test_serverKind_mlxServe_defaults() {
+        XCTAssertEqual(ServerKind.mlxServe.rawValue, "mlxServe")
+        XCTAssertEqual(ServerKind.mlxServe.displayName, "mlx-serve")
+        XCTAssertEqual(ServerKind.mlxServe.defaultPort, 11234)
+        XCTAssertTrue(ServerKind.mlxServe.isLocal)
+        XCTAssertTrue(ServerKind.isDefaultLocalPort(11234))
+    }
+
     func test_serverKind_localCases_areTheLocalRuntimes() {
-        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo])
+        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo, .custom])
         XCTAssertTrue(ServerKind.oMLX.isLocal)
         XCTAssertTrue(ServerKind.exo.isLocal)
         XCTAssertFalse(ServerKind.cloudAPI.isLocal)
@@ -185,6 +193,36 @@ final class EndpointTests: XCTestCase {
         for kind in ServerKind.allCases where kind != .appleIntelligence {
             XCTAssertTrue(kind.canEject, "\(kind)")
         }
+    }
+
+    // MARK: - Custom local endpoint
+
+    func test_custom_kindProperties() {
+        let k = ServerKind.custom
+        XCTAssertEqual(k.rawValue, "custom")
+        XCTAssertEqual(k.displayName, "Custom")
+        XCTAssertTrue(k.isLocal)
+        XCTAssertFalse(k.hasFixedURL)
+        XCTAssertEqual(k.defaultPort, 0)
+    }
+
+    /// The user's URL is used as-is (path prefix kept), minus whitespace and trailing slashes.
+    func test_baseURL_custom_usesHostFieldAsURL() {
+        let s = Server(label: "mlx-serve", host: " http://localhost:11234/v1/ ", port: 0, kind: .custom)
+        XCTAssertEqual(s.baseURL, "http://localhost:11234/v1")
+    }
+
+    func test_hostPortFromURL_roundTripsWithHostPortURL() {
+        let plain = Server.hostPort(fromURL: "http://studio:9292/v1")
+        XCTAssertEqual(plain?.host, "studio")
+        XCTAssertEqual(plain?.port, 9292)
+        XCTAssertEqual(Server.hostPortURL(host: plain!.host, port: plain!.port!), "http://studio:9292")
+
+        let tls = Server.hostPort(fromURL: "https://box.ts.net/v1")
+        XCTAssertEqual(tls?.host, "https://box.ts.net")
+        XCTAssertNil(tls?.port)
+
+        XCTAssertNil(Server.hostPort(fromURL: "localhost:8080"))
     }
 
     func test_appleIntelligence_baseURLIsSentinel() {

@@ -76,8 +76,8 @@ final class LMStudioClient: ChatProvider {
             }
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
-        case .llamaCpp, .llamaSwap, .oMLX:
-            // Generic local OpenAI-compatible servers (llama.cpp, llama-swap, oMLX): no /api/v0.
+        case .llamaCpp, .llamaSwap, .oMLX, .mlxServe:
+            // Generic local OpenAI-compatible servers (llama.cpp, llama-swap, oMLX, mlx-serve): no /api/v0.
             return try await fetch(path: "/v1/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
         case .exo:
@@ -87,6 +87,10 @@ final class LMStudioClient: ChatProvider {
                 .filter { !$0.isEmbeddingModel }
         case .ollama:
             return try await fetch(path: "/v1/models", endpoint: endpoint)
+                .filter { !$0.isEmbeddingModel }
+        case .custom:
+            // The user's base URL already carries its path prefix (e.g. /v1).
+            return try await fetch(path: "/models", endpoint: endpoint)
                 .filter { !$0.isEmbeddingModel }
         case .appleIntelligence:
             return AppleIntelligenceClient.models()
@@ -129,8 +133,8 @@ final class LMStudioClient: ChatProvider {
     func probeReachable(endpoint: Endpoint, timeout: TimeInterval = 4) async -> Bool {
         let path: String
         switch endpoint.kind {
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
-        case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo: path = "/v1/models"
+        case .custom, .cloudAPI, .openRouter, .nous: path = "/models"
         case .appleIntelligence: return AppleIntelligenceClient.isAvailable()
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return false }
@@ -144,9 +148,9 @@ final class LMStudioClient: ChatProvider {
 
     /// Best-effort server-kind fingerprint for a live local host.
     ///
-    /// Assumes the host already answered GET /v1/models with a 2xx. Probes two
-    /// distinguishing endpoints (LM Studio's `/api/v0/models`, exo's `/state`);
-    /// falls back to port heuristics. llama.cpp and llama-swap are wire-identical —
+    /// Assumes the host already answered GET /v1/models with a 2xx. Probes LM Studio's
+    /// `/api/v0/models`, then mlx-serve's `owned_by` tag in `/v1/models`, then exo's
+    /// `/state`; falls back to port heuristics. llama.cpp and llama-swap are wire-identical —
     /// port 8080 is reported as `.llamaSwap`; users can override it in the row.
     func classifyKind(baseURL: String, port: Int) async -> ServerKind {
         if let url = URL(string: "\(baseURL)/api/v0/models") {
@@ -156,6 +160,15 @@ final class LMStudioClient: ChatProvider {
                let http = resp as? HTTPURLResponse,
                (200..<400).contains(http.statusCode) {
                 return .lmStudio
+            }
+        }
+        if let url = URL(string: "\(baseURL)/v1/models") {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 1.5
+            if let (data, _) = try? await session.data(for: req),
+               let list = try? JSONDecoder().decode(OwnedByList.self, from: data),
+               list.data.contains(where: { $0.owned_by == "mlx-serve" }) {
+                return .mlxServe
             }
         }
         if let url = URL(string: "\(baseURL)/state") {
@@ -171,9 +184,16 @@ final class LMStudioClient: ChatProvider {
         case 11434: return .ollama
         case 52415: return .exo
         case 8000:  return .oMLX
+        case 11234: return .mlxServe
         case 8080:  return .llamaSwap
         default:    return .lmStudio
         }
+    }
+
+    /// Just enough of a `/v1/models` body to read each entry's `owned_by` tag.
+    private struct OwnedByList: Decodable {
+        struct Entry: Decodable { let owned_by: String? }
+        let data: [Entry]
     }
 
     /// Like `probeReachable` but returns a `ProbeResult` identifying the failure
@@ -182,8 +202,8 @@ final class LMStudioClient: ChatProvider {
     func probeDetailed(endpoint: Endpoint, timeout: TimeInterval = 4) async -> ProbeResult {
         let path: String
         switch endpoint.kind {
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: path = "/v1/models"
-        case .cloudAPI, .openRouter, .nous: path = "/models"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo: path = "/v1/models"
+        case .custom, .cloudAPI, .openRouter, .nous: path = "/models"
         case .appleIntelligence: return AppleIntelligenceClient.isAvailable() ? .reachable : .unreachable
         }
         guard let url = URL(string: "\(endpoint.baseURL)\(path)") else { return .invalidURL }
@@ -439,11 +459,11 @@ final class LMStudioClient: ChatProvider {
     ) async -> Bool {
         do {
             // LM Studio's base is host:port (needs /v1); llama.cpp/llama-swap and oMLX also need /v1.
-            // Cloud API bases already end in /v1.
+            // Cloud API and custom bases already end in /v1 (or whatever prefix the user typed).
             let chatPath: String
             switch endpoint.kind {
-            case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .exo: chatPath = "/v1/chat/completions"
-            case .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
+            case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .exo: chatPath = "/v1/chat/completions"
+            case .custom, .cloudAPI, .openRouter, .nous: chatPath = "/chat/completions"
             case .ollama: chatPath = "/v1/chat/completions"
             case .appleIntelligence:
                 // Unreachable: streamChat forwards this kind before any HTTP.
@@ -563,7 +583,7 @@ final class LMStudioClient: ChatProvider {
         switch kind {
         case .cloudAPI, .openRouter, .nous:
             return Bundle.main.bundleIdentifier ?? "modelo-app"
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo, .appleIntelligence:
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo, .custom, .appleIntelligence:
             return nil
         }
     }

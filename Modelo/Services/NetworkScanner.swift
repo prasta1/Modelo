@@ -57,7 +57,8 @@ final class NetworkScanner {
 
         // Cross-product of hosts × all known local default ports.
         subnets = localSubnetPrefixes()
-        let ports = Array(Set(ServerKind.localCases.map(\.defaultPort))).sorted()
+        // `custom` has no default port (0), so it's filtered out here.
+        let ports = Array(Set(ServerKind.localCases.map(\.defaultPort).filter { $0 > 0 })).sorted()
         self.ports = ports
         let hosts = ["localhost"] + subnets.flatMap { p in (1...254).map { "\(p).\($0)" } }
         let candidates: [(String, Int)] = hosts.flatMap { h in ports.map { (h, $0) } }
