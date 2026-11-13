@@ -394,7 +394,7 @@ final class ChatSession {
                 // become callable next round, and return their briefs (handled here, not
                 // via the registry).
                 if call.name == FindToolsTool.toolName {
-                    appendToolResult(revealTools(matching: call.arguments), call: call, in: conversation)
+                    appendToolResult(revealTools(matching: call.arguments, withheld: withheld), call: call, in: conversation)
                     continue
                 }
                 if withheld.contains(call.name) {
@@ -511,14 +511,16 @@ final class ChatSession {
     }
 
     /// Handle a find_tools call: record the matching tools as revealed (so they become
-    /// callable next round) and return their briefs for the model.
-    private func revealTools(matching argumentsJSON: String) -> String {
+    /// callable next round) and return their briefs for the model. `withheld` tools
+    /// (cloud policy) are left out, since calling them would only fail.
+    private func revealTools(matching argumentsJSON: String, withheld: Set<String>) -> String {
         struct Q: Decodable { let query: String }
         let query = (try? JSONDecoder().decode(Q.self, from: Data(argumentsJSON.utf8)))?.query ?? ""
-        let matches = ToolSelector.select(catalog: registry.catalog(), query: query, limit: 8)
+        let catalog = registry.catalog().filter { !withheld.contains($0.name) }
+        let matches = ToolSelector.select(catalog: catalog, query: query, limit: 8)
             .filter { $0 != FindToolsTool.toolName }
         revealedTools.formUnion(matches)
-        let briefs = registry.catalog()
+        let briefs = catalog
             .filter { matches.contains($0.name) }
             .map { "- \($0.name): \($0.description)" }
             .joined(separator: "\n")

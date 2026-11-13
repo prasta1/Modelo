@@ -56,6 +56,14 @@ private struct EchoTool: Tool {
     func execute(argumentsJSON: String) async throws -> String { reply }
 }
 
+/// A do-nothing tool for padding a registry past the progressive-disclosure threshold.
+private struct FillerTool: Tool {
+    let name: String
+    let description = "Does nothing"
+    let parameters = JSONSchema(properties: [:], required: [])
+    func execute(argumentsJSON: String) async throws -> String { "" }
+}
+
 /// A mutating tool that pauses for approval like write/edit/bash do.
 private struct MutatingEchoTool: Tool {
     let name = "mutate"
@@ -382,6 +390,33 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertNil(provider.lastTools)
         XCTAssertFalse(provider.systemPrompts.contains { $0.contains("pet-name") })
         XCTAssertEqual(convo.messages.first { $0.role == .tool }?.content, #"Error: unknown tool "read_memory"."#)
+    }
+
+    /// Memory sharing off: find_tools on a cloud turn doesn't advertise the withheld
+    /// memory tools, which would only answer "unknown tool" when called.
+    func test_send_cloudTurn_findToolsSkipsWithheldTools() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "memory-cloud-\(UUID().uuidString)")
+        let context = try makeContext()
+        let provider = FakeProvider(scripts: [
+            [.toolCalls([ToolCall(id: "c1", name: FindToolsTool.toolName, arguments: #"{"query":"memory"}"#)])],
+            [.delta("Ok"), .usage(promptTokens: 20, completionTokens: 1)]
+        ])
+        // Enough tools to switch on progressive disclosure, which is what offers find_tools.
+        let fillers: [any Tool] = (0...ChatSession.progressiveThreshold).map { FillerTool(name: "filler_\($0)") }
+        let session = ChatSession(client: provider, context: context,
+                                  recorder: UsageRecorder(context: context),
+                                  registry: ToolRegistry(fillers + [SaveMemoryTool(scopes: [.global], root: root),
+                                                                    ReadMemoryTool(scopes: [.global], root: root)]),
+                                  cloudPolicy: ["read_memory": .withhold, "save_memory": .withhold])
+        let server = Server(label: "OpenRouter", host: "https://openrouter.ai/api/v1")
+        server.kind = .openRouter; context.insert(server)
+        let convo = Conversation(modelID: "m", serverID: server.id); context.insert(convo)
+
+        await session.send("Remember this", in: convo, server: server, modelSupportsTools: true)
+
+        let result = try XCTUnwrap(convo.messages.first { $0.role == .tool }?.content)
+        XCTAssertFalse(result.contains("read_memory"))
+        XCTAssertFalse(result.contains("save_memory"))
     }
 
     /// Memory sharing on: read_memory pauses for approval on a cloud turn only.
