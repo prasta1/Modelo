@@ -63,6 +63,9 @@ enum SessionSnapshot {
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = ctx
+        // The context's units are raw pixels whatever `rep.size` says; without this
+        // the card lands in the bottom-left 1/scale of the buffer on Retina.
+        ctx.cgContext.scaleBy(x: scale, y: scale)
 
         // Backdrop in the active theme's window color so the card matches the app.
         NSColor(Theme.Palette.bg).setFill()

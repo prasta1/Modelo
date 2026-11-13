@@ -31,4 +31,18 @@ final class SessionSnapshotTests: XCTestCase {
         XCTAssertEqual(card.pixelsWide, Int(card.size.width) * 2)
         XCTAssertNotNil(card.representation(using: .png, properties: [:]))
     }
+
+    /// At 2× the drawing must fill the whole buffer, not the bottom-left quarter.
+    @MainActor
+    func test_card_drawsShotAtBackingScale() throws {
+        let shot = NSImage(size: NSSize(width: 200, height: 100))
+        shot.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 200, height: 100).fill(); shot.unlockFocus()
+
+        let card = try XCTUnwrap(SessionSnapshot.card(from: shot, caption: "t", scale: 2))
+        // A point near the shot's top-right corner, in top-left-origin pixel coordinates.
+        let x = Int((SessionSnapshot.margin + 190) * 2)
+        let y = Int((card.size.height - SessionSnapshot.captionBand - 90) * 2)
+        let px = try XCTUnwrap(card.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+        XCTAssertGreaterThan(px.redComponent, 0.9)
+    }
 }
