@@ -81,7 +81,14 @@ struct ModelTableView: View {
                 count: vendor.models.count,
                 isCollapsed: isCollapsed,
                 onToggle: {
-                    collapse.toggle(ModelCatalogViewModel.vendorKey(endpoint.label, vendor.id))
+                    // ⌥-click folds or unfolds every vendor in this endpoint, the
+                    // Finder disclosure convention — 59 vendors shouldn't take 59 clicks.
+                    if NSEvent.modifierFlags.contains(.option) {
+                        let keys = endpoint.vendors.map { ModelCatalogViewModel.vendorKey(endpoint.label, $0.id) }
+                        collapse.set(keys, toggled: !isCollapsed)
+                    } else {
+                        collapse.toggle(ModelCatalogViewModel.vendorKey(endpoint.label, vendor.id))
+                    }
                 }
             )
             if !isCollapsed {
@@ -358,18 +365,26 @@ private struct VendorGroupHeader: View {
                     .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                     .frame(width: Col.star)
 
+                // textLo, not the rows' textMid: at one point smaller and the same
+                // colour, this read as a model row missing its star.
                 Text(name)
                     .font(Theme.metric(12))
-                    .foregroundStyle(isCollapsed ? Theme.textFaint : Theme.textMid)
+                    .foregroundStyle(isCollapsed ? Theme.textFaint : Theme.textLo)
 
                 Text("\(count)")
                     .font(Theme.mono(10))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textFaint)
 
-                Spacer()
+                // The trailing rule is what makes this a divider rather than a row.
+                Rectangle()
+                    .fill(Theme.line)
+                    .frame(height: 1)
+                    .padding(.leading, 4)
             }
-            .padding(.vertical, 5)
+            // More air above than below, so the header binds to the rows it heads.
+            .padding(.top, 10)
+            .padding(.bottom, 4)
             .background(hovering ? Theme.fillHi : .clear)
             .contentShape(Rectangle())
         }
@@ -377,6 +392,7 @@ private struct VendorGroupHeader: View {
         .accessibilityLabel("\(name), \(count) models")
         .accessibilityHint(isCollapsed ? "Expand" : "Collapse")
         .accessibilityAddTraits(isCollapsed ? [] : .isSelected)
+        .help("Option-click to \(isCollapsed ? "expand" : "collapse") every vendor")
         .onHover { hovering = $0 }
     }
 }
@@ -412,16 +428,21 @@ struct ModelTableRow: View {
 
     private var priceColor: Color {
         switch priceLabel {
-        case .price?: Theme.amber
+        // Prices are readouts, not controls: accent on every cloud row broke the
+        // One Signal Rule and drowned out the green that marks free.
+        case .price?: Theme.textMid
         case .free?:  Theme.green
         default:      Theme.textFaint
         }
     }
 
     /// size · speed t/s · count×, omitting whichever values are unavailable.
+    /// Cloud models rarely publish a size, so the context window stands in
+    /// rather than leaving the column "—" on hundreds of rows.
     private var metricsLabel: String {
         var parts: [String] = []
         if let sz = model.parameterSize { parts.append(sz) }
+        else if let ctx = model.maxContextLength { parts.append(LMStudioModel.tokenLabel(ctx) + " ctx") }
         if speedLabel != "—" { parts.append(speedLabel + " t/s") }
         if let count = usedCount { parts.append("\(count)×") }
         return parts.isEmpty ? "—" : parts.joined(separator: " · ")
