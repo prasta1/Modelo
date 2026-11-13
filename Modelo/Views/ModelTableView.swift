@@ -43,8 +43,8 @@ struct ModelTableView: View {
     let collapse: CatalogCollapseStore
     @Environment(ServerRegistry.self) private var registry
 
-    /// One model row. Extracted because it is emitted from three places
-    /// (flattened, loaded, and inside a vendor group) with identical wiring.
+    /// One model row. Extracted because it is emitted from two places
+    /// (flattened, and inside a vendor group) with identical wiring.
     @ViewBuilder
     private func row(_ item: DiscoveredModel) -> some View {
         ModelTableRow(

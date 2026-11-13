@@ -91,4 +91,18 @@ final class ModelCatalogLoadedTests: XCTestCase {
 
         XCTAssertEqual(vm.selectedID, vm.flatVisible.first?.id)
     }
+
+    /// The "N models" count matches the table: in name sort loaded models are
+    /// tiles, not rows; a metric sort ranks them as rows again.
+    @MainActor
+    func test_modelCountExcludesTilesOnlyInGroupedMode() {
+        let studio = Server(label: "Studio", host: "studio")
+        let vm = ModelCatalogViewModel()
+        vm.allModels = [DiscoveredModel(server: studio, model: loaded("sushi")),
+                        DiscoveredModel(server: studio, model: notLoaded("qwen"))]
+
+        XCTAssertEqual(vm.totalVisible, 1)
+        vm.sortKey = .speed
+        XCTAssertEqual(vm.totalVisible, 2)
+    }
 }

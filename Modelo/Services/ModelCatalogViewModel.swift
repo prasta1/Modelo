@@ -247,7 +247,8 @@ final class ModelCatalogViewModel {
         }
 
         let filtered = applyFilters(allModels)
-        filteredCount = filtered.count
+        // Counts the table's rows: in grouped mode loaded models are tiles instead.
+        filteredCount = isFlattened ? filtered.count : filtered.filter { !inMemory($0) }.count
         let sorted = applySort(filtered)
 
         // Metric sorts dissolve the grouping entirely. Ranking inside 59 vendor

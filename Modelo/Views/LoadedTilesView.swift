@@ -5,6 +5,7 @@ import SwiftUI
 /// Renders nothing when no model is loaded.
 struct LoadedTilesView: View {
     let vm: ModelCatalogViewModel
+    let rotation: RotationStore
 
     var body: some View {
         if !vm.loadedModels.isEmpty {
@@ -17,6 +18,7 @@ struct LoadedTilesView: View {
                         ForEach(vm.loadedModels) { item in
                             LoadedTile(item: item,
                                        isSelected: vm.selectedID == item.id,
+                                       isPinned: rotation.isPinned(item.model.id),
                                        onSelect: { vm.selectedID = item.id },
                                        onEject: item.server.kind.canEject
                                            ? vm.onEject.map { eject in { await eject(item) } }
@@ -35,6 +37,8 @@ struct LoadedTilesView: View {
 private struct LoadedTile: View {
     let item: DiscoveredModel
     let isSelected: Bool
+    /// In the user's rotation (⌥1–4); same mark as on table rows.
+    let isPinned: Bool
     let onSelect: () -> Void
     /// nil where the endpoint can't unload models; the tile then has no eject.
     let onEject: (() async -> Void)?
@@ -56,6 +60,12 @@ private struct LoadedTile: View {
                         .font(Theme.metric(13))
                         .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
                         .lineLimit(1)
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(Theme.textFaint)
+                            .help("In your rotation (⌥1–4)")
+                    }
                 }
                 Text(item.server.label)
                     .font(Theme.metric(10))
@@ -101,7 +111,7 @@ private struct LoadedTile: View {
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name) loaded on \(item.server.label)")
+        .accessibilityLabel("\(name) loaded on \(item.server.label)\(isPinned ? ", in your rotation" : "")")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: "Unload") {
             guard let onEject, !ejecting else { return }
