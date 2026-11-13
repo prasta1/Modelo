@@ -132,6 +132,9 @@ final class ModelCatalogViewModel {
         guard !flatVisible.isEmpty else { return }
         if let id = selectedID, let idx = flatVisible.firstIndex(where: { $0.id == id }) {
             selectedID = flatVisible[max(idx - 1, 0)].id
+        } else if selectedID != nil {
+            // Selection is a tile, not a row: enter the table at the top.
+            selectedID = flatVisible.first?.id
         } else {
             selectedID = flatVisible.last?.id
         }
@@ -419,7 +422,6 @@ final class ModelCatalogViewModel {
                     case "tools":  if !m.supportsToolUse  { return false }
                     case "vision": if !m.supportsVision   { return false }
                     case "reason": if !m.supportsThinking { return false }
-                    case "loaded": if !m.isLoaded         { return false }
                     default: break
                     }
                 case .nameMatch(let q):
@@ -483,7 +485,7 @@ final class ModelCatalogViewModel {
                 if t.hasPrefix("speed>"), let v = Double(t.dropFirst(6))           { return .speedGT(v) }
                 if t.hasPrefix("speed<"), let v = Double(t.dropFirst(6))           { return .speedLT(v) }
                 if t.hasPrefix("used>"),  let v = Int(t.dropFirst(5))              { return .usedGT(v) }
-                let caps = ["free", "tools", "vision", "reason", "loaded"]
+                let caps = ["free", "tools", "vision", "reason"]
                 if caps.contains(t) { return .cap(t) }
                 return .nameMatch(t)
             }

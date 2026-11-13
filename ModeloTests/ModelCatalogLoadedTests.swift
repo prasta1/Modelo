@@ -62,4 +62,33 @@ final class ModelCatalogLoadedTests: XCTestCase {
 
         XCTAssertEqual(vm.loadedModels.map(\.server.label), ["MacBook", "Studio"])
     }
+
+    /// "loaded" is no longer a filter term: typing it must not report loaded
+    /// models as matches the table can't show.
+    @MainActor
+    func test_loadedSearchTermIsPlainNameMatch() {
+        let studio = Server(label: "Studio", host: "studio")
+        let vm = ModelCatalogViewModel()
+        vm.allModels = [DiscoveredModel(server: studio, model: loaded("sushi")),
+                        DiscoveredModel(server: studio, model: notLoaded("qwen"))]
+        vm.searchQuery = "loaded"
+
+        XCTAssertEqual(vm.filteredCount, 0)
+    }
+
+    /// ↑ from a tile selection starts at the top of the table, not its last row.
+    @MainActor
+    func test_selectPreviousFromTileGoesToFirstRow() {
+        let studio = Server(label: "Studio", host: "studio")
+        let vm = ModelCatalogViewModel()
+        let tile = DiscoveredModel(server: studio, model: loaded("sushi"))
+        vm.allModels = [tile,
+                        DiscoveredModel(server: studio, model: notLoaded("alpha")),
+                        DiscoveredModel(server: studio, model: notLoaded("zeta"))]
+        vm.selectedID = tile.id
+
+        vm.selectPrevious()
+
+        XCTAssertEqual(vm.selectedID, vm.flatVisible.first?.id)
+    }
 }
