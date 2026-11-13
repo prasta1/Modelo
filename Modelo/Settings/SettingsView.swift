@@ -305,8 +305,8 @@ struct SettingsView: View {
 
     // MARK: Scan UI
 
-    /// True while scanning or once a scan has finished; Cancel returns to idle and hides it.
-    private var isScanActive: Bool { scanner.state != .idle }
+    /// True while scanning, once a scan has finished, or after a cancel that left results.
+    private var isScanActive: Bool { scanner.state != .idle || !scanner.found.isEmpty }
 
     @ViewBuilder
     private var scanResultsPanel: some View {
@@ -358,7 +358,21 @@ struct SettingsView: View {
                 .padding(.vertical, 9)
                 .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
             case .idle:
-                EmptyView()
+                // Reached only after Cancel (or Add mid-scan) with hosts already found.
+                Button { scanner.scan() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Scan Again")
+                            .font(Theme.label(11))
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity)
+                    .panel(Theme.popoverBG, radius: 9, stroke: Theme.line)
+                }
+                .buttonStyle(.plain)
             }
             ForEach(scanner.found) { host in
                 discoveredHostRow(host)
@@ -404,6 +418,8 @@ struct SettingsView: View {
     }
 
     private func addDiscoveredServer(_ host: DiscoveredHost) {
+        // Adding means the user found what they were scanning for.
+        if scanner.state == .scanning { scanner.cancel() }
         let nextOrder = (servers.map(\.sortOrder).max() ?? 0) + 1
         let server = Server(label: host.kind.displayName, host: host.host,
                             port: host.port, sortOrder: nextOrder, kind: host.kind)
