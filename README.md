@@ -8,6 +8,8 @@
 
 **A native macOS client for local and cloud LLMs — one model picker for your own hardware and every OpenAI-compatible API.**
 
+**iOS app coming soon.** A native iPhone and iPad version is in development. For now, Modelo runs on macOS only.
+
 <!-- SCREENSHOT PLACEHOLDER: hero — main window mid-conversation, sidebar + chat + artifact panel open.
      Save as docs/screenshots/hero.png (~2400px wide, retina), then uncomment:
 <img src="docs/screenshots/hero.png" alt="Modelo chatting with a local model, artifact panel open">
@@ -25,12 +27,12 @@ Choose **Modelo → Check for Updates…**, or allow background checks when Mode
 
 ## Features
 
-- **Chat** — streaming Markdown with highlighted code, branch & regenerate any turn, queue messages mid-reply, slash commands (`/model`, `/temp`, `/system`, `/export`, …), and decode + end-to-end tok/s on every reply
+- **Chat** — streaming Markdown with highlighted code, branch & regenerate any turn, queue messages mid-reply, slash commands (`/model`, `/temp`, `/system`, `/export`, …), and decode + end-to-end tok/s on every reply. Archive finished chats from the sidebar (and unarchive them) with one click
 - **Vision** — paste or drag images into the composer for vision-capable models
 - **[Artifacts](#artifacts)** — HTML, SVG, Mermaid, code, and documents open in a side panel with live preview, versions, and export
 - **[Tools & agents](#tools--agents)** — opt-in filesystem + shell tools with approval cards, MCP servers, and skills you run with `/<skill>`, tuned so small local models can use them
-- **[Endpoints](#endpoints)** — six local runtimes, Apple Intelligence on-device, and seven cloud providers in one picker; **Scan Network…** finds local servers for you
-- **Model picker** — endpoint sidebar with Free / Loaded filters, per-model load state, unload for LM Studio and llama-swap, and OpenRouter / Nous prices per million tokens (plus free-promo end dates) straight from the provider's list
+- **[Endpoints](#endpoints)** — seven local runtimes plus a Custom option for any other OpenAI-compatible server, Apple Intelligence on-device, and seven cloud providers in one picker; **Scan Network…** finds local servers for you, shows which ports it checks, and reports what it found
+- **Models catalog** — every model grouped by endpoint, each with a live reachability light; big cloud catalogs (OpenRouter, Nous) are sub-grouped by vendor, and <kbd>⌥</kbd>-click folds or unfolds every vendor at once. Free / Tools / Vision / Reasoning / Loaded / Favorites filters, per-model load state, unload for LM Studio and llama-swap, size or context window, and OpenRouter / Nous prices per million tokens (plus free-promo end dates) straight from the provider's list
 - **Memory & Projects** — opt-in persistent memory as hand-editable Markdown, kept out of cloud requests unless you turn on sharing; attach local folders as projects with scoped chats, tools, and memory
 - **Status & Reports** — live latency/throughput sparklines, a streaming console, and per-model / per-server usage charts
 - **Personas** — system-prompt presets with icons, applied per chat
@@ -59,8 +61,12 @@ Self-hosted backends addressed by `host:port` — no API key, no data leaving yo
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | 8080 | `llama-server -m model.gguf --port 8080` |
 | [llama-swap](https://github.com/mostlygeek/llama-swap) | 8080 | Reverse proxy that hot-swaps between several llama.cpp backends behind one address. |
 | [oMLX](https://omlx.ai) | 8000 | Apple-silicon MLX runtime — load a model in the app and tap Start Server. |
+| mlx-serve | 11234 | Launch MLX-Serve on this or another Mac. Scan Network recognises it by the `mlx-serve` tag on its models. |
 | [exo](https://exolabs.net) | 52415 | Clusters several Macs into one runtime. Launch models from exo's dashboard first. |
 | Apple Intelligence | — | Apple's on-device model via Foundation Models. Added automatically on eligible Macs running macOS 26+ with Apple Intelligence turned on. Free; 4K context; no tool use. |
+| **Custom…** | — | Any other OpenAI-compatible local server (vLLM, a proxy, …). Enter the full base URL, usually `http://host:port/v1`, and an API key only if the server asks for one. |
+
+**What each model can do.** When a server declares a model's capabilities — LM Studio, llama-swap, and mlx-serve all do — Modelo uses that for tool use, vision, and embedding-only models. Otherwise it guesses from the model's name, and the catalog shows a dimmed tools icon to mark the guess as unverified.
 
 The machine doesn't have to be on your LAN: a box on your **[Tailscale](https://tailscale.com)** tailnet works identically — enter its tailnet IP or MagicDNS name (`gpu-box.tailnet-name.ts.net`) as the host, with no ports exposed to the internet.
 
