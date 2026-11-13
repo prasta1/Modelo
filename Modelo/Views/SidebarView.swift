@@ -308,7 +308,8 @@ struct SidebarView: View {
         ForEach(visibleFolders, id: \.persistentModelID) { folder in
             let convos = conversations(in: folder)
             let sectionID = "folder:" + folder.id.uuidString
-            sectionHeader(id: sectionID, title: folder.name, icon: "folder", count: convos.count)
+            sectionHeader(id: sectionID, title: folder.name,
+                          icon: folder.isArchive ? "archivebox" : "folder", count: convos.count)
                 .contextMenu { folderMenu(folder) }
             if sectionExpanded(sectionID) {
                 if convos.isEmpty {
@@ -542,6 +543,21 @@ struct SidebarView: View {
             }
         } label: {
             Label("Move to Folder", systemImage: "folder")
+        }
+
+        if convo.folder?.isArchive == true {
+            Button {
+                convo.folder = nil
+                context.saveOrLog()
+            } label: { Label("Unarchive", systemImage: "tray.and.arrow.up") }
+        } else {
+            Button {
+                convo.folder = Folder.archive(among: folders, in: context)
+                // Pinned chats show in Pinned wherever they're filed, so unpin or
+                // the archived chat would stay at the top of the sidebar.
+                convo.isPinned = false
+                context.saveOrLog()
+            } label: { Label("Archive", systemImage: "archivebox") }
         }
 
         Divider()

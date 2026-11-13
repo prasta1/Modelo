@@ -30,4 +30,24 @@ final class Folder {
         self.name = name
         self.sortOrder = sortOrder
     }
+
+    /// Whether this is the sidebar's archive folder (named "Archive", any case).
+    // ponytail: identified by name, so renaming it means the next Archive action
+    // creates a fresh "Archive"; add a stored `isArchive` flag if renaming matters.
+    var isArchive: Bool {
+        name.localizedCaseInsensitiveCompare("Archive") == .orderedSame
+    }
+
+    /// The sidebar's archive folder: the existing folder named "Archive"
+    /// (case-insensitive), or a new one inserted at the end of the folder order.
+    /// - Parameters:
+    ///   - folders: All folders, as the sidebar's `@Query` returns them.
+    ///   - context: Where a newly created folder is inserted.
+    /// - Returns: The folder to file archived conversations in.
+    static func archive(among folders: [Folder], in context: ModelContext) -> Folder {
+        if let existing = folders.first(where: \.isArchive) { return existing }
+        let folder = Folder(name: "Archive", sortOrder: folders.count)
+        context.insert(folder)
+        return folder
+    }
 }
