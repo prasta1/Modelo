@@ -74,6 +74,29 @@ final class LMStudioClientTests: XCTestCase {
         XCTAssertFalse(ok)
     }
 
+    func test_classifyKind_mlxServe_byOwnedBy() async {
+        StubURLProtocol.handler = { req in
+            req.url!.path == "/v1/models"
+                ? (.stub(200), Data(#"{"data":[{"id":"m","owned_by":"mlx-serve"}]}"#.utf8))
+                : (.stub(404), Data())
+        }
+        let kind = await makeClient().classifyKind(baseURL: "http://studio:9999", port: 9999)
+        XCTAssertEqual(kind, .mlxServe)
+    }
+
+    func test_classifyKind_portFallback_11234() async {
+        StubURLProtocol.handler = { _ in (.stub(404), Data()) }
+        let kind = await makeClient().classifyKind(baseURL: "http://studio:11234", port: 11234)
+        XCTAssertEqual(kind, .mlxServe)
+    }
+
+    /// LM Studio's /api/v0 check runs before the mlx-serve check, so it still wins.
+    func test_classifyKind_lmStudio_stillWins() async {
+        StubURLProtocol.handler = { _ in (.stub(200), Data(#"{"data":[]}"#.utf8)) }
+        let kind = await makeClient().classifyKind(baseURL: "http://studio:1234", port: 1234)
+        XCTAssertEqual(kind, .lmStudio)
+    }
+
     func test_probeReachable_falseOnInvalidURL() async {
         let ok = await makeClient().probeReachable(endpoint: Endpoint(baseURL: "not a url", kind: .lmStudio, apiKey: nil))
         XCTAssertFalse(ok)

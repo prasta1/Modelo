@@ -213,7 +213,7 @@ private struct ServerStatsDashboardPanel: View {
 
     private var hostSubtitle: String {
         switch server.kind {
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo: return "\(server.host):\(server.port)"
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo: return "\(server.host):\(server.port)"
         case .custom: return server.baseURL.replacingOccurrences(of: "^https?://", with: "", options: .regularExpression)
         case .appleIntelligence: return "On-device"
         case .cloudAPI:   return URL(string: server.host)?.host ?? server.host

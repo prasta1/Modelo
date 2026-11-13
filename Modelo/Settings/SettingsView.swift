@@ -298,6 +298,7 @@ struct SettingsView: View {
         case .llamaCpp:                    return "terminal"
         case .llamaSwap:                   return "shuffle"
         case .oMLX:                        return "cpu"
+        case .mlxServe:                    return "memorychip"
         case .ollama:                      return "cylinder"
         case .exo:                         return "point.3.connected.trianglepath.dotted"
         case .custom:                      return "slider.horizontal.3"
@@ -1455,6 +1456,8 @@ private struct LocalSetupHint: View {
             return "llama-swap is a reverse proxy that manages multiple llama.cpp backends. Point to your llama-swap host and port (default 8080). See github.com/mostlygeek/llama-swap for setup."
         case .oMLX:
             return "Install oMLX (Apple Silicon) from omlx.ai. Load a model in the app and tap Start Server. Default port: 8000."
+        case .mlxServe:
+            return "Launch MLX-Serve — it listens on port 11234. Start it with --metrics to see request stats on the Status dashboard."
         case .exo:
             return "Run exo (exolabs.net) on this or another Mac. Add its host and port (default 52415). Models must be launched in exo's dashboard before you can chat with them."
         case .custom:

@@ -58,7 +58,7 @@ final class Server {
     var baseURL: String {
         switch kind {
         // Local runtimes are addressed by host:port.
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo:
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo:
             return Server.hostPortURL(host: host, port: port)
         case .custom:
             var url = host.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -43,8 +43,16 @@ final class EndpointTests: XCTestCase {
         XCTAssertEqual(s.baseURL, "https://inference-api.nousresearch.com/v1")
     }
 
+    func test_serverKind_mlxServe_defaults() {
+        XCTAssertEqual(ServerKind.mlxServe.rawValue, "mlxServe")
+        XCTAssertEqual(ServerKind.mlxServe.displayName, "mlx-serve")
+        XCTAssertEqual(ServerKind.mlxServe.defaultPort, 11234)
+        XCTAssertTrue(ServerKind.mlxServe.isLocal)
+        XCTAssertTrue(ServerKind.isDefaultLocalPort(11234))
+    }
+
     func test_serverKind_localCases_areTheLocalRuntimes() {
-        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo, .custom])
+        XCTAssertEqual(ServerKind.localCases, [.lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo, .custom])
         XCTAssertTrue(ServerKind.oMLX.isLocal)
         XCTAssertTrue(ServerKind.exo.isLocal)
         XCTAssertFalse(ServerKind.cloudAPI.isLocal)

@@ -8,6 +8,8 @@ import SwiftData
 ///   backends. Same wire shape as `llamaCpp`; distinct in label, icon, and setup guidance.
 /// - `oMLX`: a local oMLX server (omlx.ai) — an Apple-silicon MLX runtime. Same wire
 ///   shape as `llamaCpp` (host:port, OpenAI-compatible `/v1`); distinct only in label/port.
+/// - `mlxServe`: a local mlx-serve server (MLX-Serve.app). Same wire shape as `llamaCpp`;
+///   always serves Prometheus at `/metrics`, so its metrics URL is derived (see `Server`).
 /// - `custom`: any other local OpenAI-compatible server (mlx-serve, vLLM, a proxy…). The user
 ///   types the full base URL, path prefix included (e.g. `http://localhost:11234/v1`), so it
 ///   matches whatever the server exposes. Same wire shape as `cloudAPI`, but local.
@@ -17,7 +19,7 @@ import SwiftData
 /// - `appleIntelligence`: Apple's on-device model via the Foundation Models framework
 ///   (macOS 26+). In-process, no URL or key; served by `AppleIntelligenceClient`.
 ///
-/// `lmStudio`, `llamaCpp`, `llamaSwap`, `oMLX`, `ollama`, `exo`, and `custom` are *local* (self-hosted) —
+/// `lmStudio`, `llamaCpp`, `llamaSwap`, `oMLX`, `mlxServe`, `ollama`, `exo`, and `custom` are *local* (self-hosted) —
 /// they run on hardware you control and can have a `modelo-tap` GPU agent next to them.
 enum ServerKind: String, Codable, Sendable, CaseIterable {
     case lmStudio
@@ -27,6 +29,8 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     /// displayed as "llama-swap" with a proxy-specific setup hint.
     case llamaSwap = "llamaSwapProxy"
     case oMLX
+    /// Local mlx-serve runtime — OpenAI-compatible /v1, default port 11234.
+    case mlxServe
     /// Local Ollama runtime — OpenAI-compatible /v1, default port 11434.
     case ollama
     /// Local exo cluster runtime — OpenAI-compatible /v1, default port 52415.
@@ -48,7 +52,7 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
     /// a `modelo-tap` GPU agent. Cloud APIs (`cloudAPI`, `openRouter`, `nous`) are managed endpoints that do not.
     var isLocal: Bool {
         switch self {
-        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .ollama, .exo, .custom,
+        case .lmStudio, .llamaCpp, .llamaSwap, .oMLX, .mlxServe, .ollama, .exo, .custom,
              .appleIntelligence:                                    true
         case .cloudAPI, .openRouter, .nous:                         false
         }
@@ -61,6 +65,7 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
         case .llamaCpp:   return "llama.cpp"
         case .llamaSwap:  return "llama-swap"
         case .oMLX:       return "oMLX"
+        case .mlxServe:   return "mlx-serve"
         case .ollama:     return "Ollama"
         case .exo:        return "exo"
         case .custom:     return "Custom"
@@ -80,6 +85,7 @@ enum ServerKind: String, Codable, Sendable, CaseIterable {
         case .llamaCpp:                       return 8080
         case .llamaSwap:                      return 8080
         case .oMLX:                           return 8000
+        case .mlxServe:                       return 11234
         case .ollama:                         return 11434
         case .exo:                            return 52415
         case .custom, .cloudAPI, .openRouter, .nous,
