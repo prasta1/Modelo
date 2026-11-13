@@ -87,6 +87,10 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// the server is silent and the capability getters fall back to id heuristics.
     var capabilities: DeclaredCapabilities? = nil
 
+    /// What the model takes as input, per mlx-serve (`["text", "image"]`). Its
+    /// `capabilities` list never names vision, so this is where vision is declared.
+    var inputModalities: [String]? = nil
+
     /// USD per million tokens, from the provider's own model list (OpenRouter, Nous).
     /// nil when the provider doesn't publish a price — never estimated or borrowed.
     /// Not part of the LM Studio wire format.
@@ -107,6 +111,7 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
         case sizeBytesAlt = "size"
         case keepInRam = "keep_in_ram"
         case capabilities
+        case inputModalities = "input_modalities"
     }
 
     // MARK: Derived
@@ -127,6 +132,7 @@ struct LMStudioModel: Identifiable, Decodable, Hashable {
     /// Authoritative when `type` is known; falls back to heuristic for /v1/models.
     var supportsVision: Bool {
         if let type { return type == "vlm" }
+        if let inputModalities { return inputModalities.contains("image") }
         if let declared = capabilities?.vision { return declared }
         return Self.supportsVision(modelID: id)
     }

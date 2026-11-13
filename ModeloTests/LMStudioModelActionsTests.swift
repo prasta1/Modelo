@@ -86,6 +86,14 @@ final class LMStudioModelActionsTests: XCTestCase {
         XCTAssertTrue(try model(#"{"id":"m","capabilities":["tool_use"]}"#).supportsToolUse)
         XCTAssertFalse(try model(#"{"id":"m","capabilities":[]}"#).supportsToolUse)
 
+        // mlx-serve: vision lives in input_modalities, not in the capabilities list,
+        // and a text-only declaration beats the "-vl" id heuristic.
+        let devstral = try model(#"{"id":"Devstral-Small-2-24B","capabilities":["chat","tool_use"],"input_modalities":["text","image"]}"#)
+        XCTAssertTrue(devstral.supportsVision)
+        XCTAssertTrue(devstral.supportsToolUse)
+        XCTAssertFalse(try model(#"{"id":"Qwen3-VL-8B","capabilities":["chat","tool_use"],"input_modalities":["text"]}"#).supportsVision)
+        XCTAssertTrue(try model(#"{"id":"bge-small-en-v1.5","capabilities":["embeddings"]}"#).isEmbeddingModel)
+
         // Silent server, or a shape we don't know: guessed yes, flagged unverified,
         // and the model still decodes.
         for json in [#"{"id":"devstral-24b"}"#, #"{"id":"devstral-24b","capabilities":"tools"}"#] {
