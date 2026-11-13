@@ -127,6 +127,9 @@ jobs:
             > "$RUNNER_TEMP/notes.md"
           printf '\nTo move from a version without in-app updates, download this release once. Future updates are available in Modelo → Check for Updates….\n' >> "$RUNNER_TEMP/notes.md"
           cp "$RUNNER_TEMP/notes.md" "$UPDATES/Modelo-$GITHUB_REF_NAME.md"
+          # GitHub also records each asset's digest, but it's easy to miss; surface it in the notes.
+          printf '\n**SHA-256** `%s`: `%s` — verify with `shasum -a 256 %s`\n' \
+            "$ZIP" "$(shasum -a 256 "$ZIP" | cut -d' ' -f1)" "$ZIP" >> "$RUNNER_TEMP/notes.md"
           # Sparkle reads versions and the public key from the final signed app.
           printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$TOOLS/generate_appcast" --ed-key-file - \
             --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
