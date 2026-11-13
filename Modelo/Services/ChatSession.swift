@@ -187,10 +187,13 @@ final class ChatSession {
 
         // A skill that ships scripts can't be followed without a shell; say how to get
         // one instead of leaving the model to apologize. The turn still runs.
-        if let skill, skill.hasScripts,
-           !(toolsActive(modelSupportsTools: modelSupportsTools, conversation: conversation) && registry.has("bash")) {
-            errorText = "The \"\(skill.name)\" skill runs scripts, but the bash tool isn't available in this chat. "
-                + "Turn on Settings ▸ Filesystem tools ▸ Allow the bash tool and check the chat's Tools toggle, then reopen the chat."
+        if let skill, skill.hasScripts {
+            if !modelSupportsTools {
+                errorText = "The \"\(skill.name)\" skill runs scripts, but \(Self.noToolsReason(conversation.modelID))"
+            } else if !(toolsActive(modelSupportsTools: true, conversation: conversation) && registry.has("bash")) {
+                errorText = "The \"\(skill.name)\" skill runs scripts, but the bash tool isn't available in this chat. "
+                    + "Turn on Settings ▸ Filesystem tools ▸ Allow the bash tool and check the chat's Tools toggle, then reopen the chat."
+            }
         }
 
         await runTurn(in: conversation, server: server,
@@ -254,6 +257,13 @@ final class ChatSession {
     /// streamed into on the first round (regenerate passes its pre-branched sibling);
     /// otherwise a fresh assistant is appended each round. The user turn must already
     /// be on the active path.
+    /// Why a model gets no tools when its server declares capabilities without them
+    /// (llama-swap / LM Studio metadata), phrased with the fix.
+    static func noToolsReason(_ modelID: String) -> String {
+        "\(modelID)'s server doesn't list tool support for it, so Modelo sends it no tools. "
+            + "Add tools to the model's capabilities on its server, or pick a model tagged \"tools\"."
+    }
+
     /// Whether this chat's turns offer tools to the model at all.
     private func toolsActive(modelSupportsTools: Bool, conversation: Conversation) -> Bool {
         // Global tools toggle (Settings ▸ Tools); defaults on when unset.
@@ -391,7 +401,12 @@ final class ChatSession {
             // Fallback: recover tool calls the model emitted as text (common on local
             // models whose template doesn't produce native tool_calls), and strip the
             // raw markup from what we display.
-            if toolCalls.isEmpty && toolsActive {
+            if toolCalls.isEmpty && !toolsActive && ToolCallParser.looksLikeAttempt(assistant.content) {
+                // Tools were never offered, yet the model wrote a call anyway.
+                errorText = "The model tried to use a tool, but tools are off for it, so nothing ran. "
+                    + (modelSupportsTools ? "Check the chat's Tools toggle and Settings ▸ Tools." : Self.noToolsReason(conversation.modelID))
+                lastTurnFailed = true
+            } else if toolCalls.isEmpty && toolsActive {
                 let (parsed, cleaned) = ToolCallParser.extract(from: assistant.content)
                 if !parsed.isEmpty {
                     toolCalls = parsed
