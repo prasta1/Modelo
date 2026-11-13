@@ -51,6 +51,7 @@ struct ModelTableView: View {
             item: item,
             isSelected: vm.selectedID == item.id,
             isFavorite: favorites.isFavorite(item.model.id),
+            isPinned: rotation.isPinned(item.model.id),
             speedLabel: vm.speedLabel(for: item.id),
             usedCount: vm.usageCount(for: item.id),
             showPrices: vm.pricesFresh,
@@ -385,6 +386,8 @@ struct ModelTableRow: View {
     let item: DiscoveredModel
     let isSelected: Bool
     let isFavorite: Bool
+    /// In the user's rotation (⌥1–4); marked on the row now there's no Rotation strip.
+    let isPinned: Bool
     let speedLabel: String
     let usedCount: Int?
     /// False once prices are over a day old; the cell then shows "—" rather than mislead.
@@ -442,11 +445,20 @@ struct ModelTableRow: View {
             .accessibilityLabel(isFavorite ? "Remove from favorites" : "Add to favorites")
 
             // Name — flexible up to Col.nameMax
-            Text(model.shortName)
-                .font(Theme.metric(13))
-                .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
-                .lineLimit(1)
-                .frame(maxWidth: Col.nameMax, alignment: .leading)
+            HStack(spacing: 5) {
+                Text(model.shortName)
+                    .font(Theme.metric(13))
+                    .foregroundStyle(isSelected ? Theme.amberName : Theme.textMid)
+                    .lineLimit(1)
+                if isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Theme.textFaint)
+                        .help("In your rotation (⌥1–4)")
+                        .accessibilityLabel("In your rotation")
+                }
+            }
+            .frame(maxWidth: Col.nameMax, alignment: .leading)
 
             // Capabilities
             HStack(spacing: 8) {
